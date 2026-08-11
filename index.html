@@ -33,9 +33,9 @@
       border-radius:8px; padding:7px 10px; font-size:13px;
     }
     #tickers { min-width:160px; flex:1; max-width:280px; }
-    #max, #interval, #myproxy { width:auto; }
-    #myproxy { min-width:200px; flex:1; max-width:320px; font-size:11px; }
-    label.chk { color:var(--m); display:flex; align-items:center; gap:5px; font-size:.82rem; }
+    #max, #interval { width:56px; }
+    #myproxy { min-width:200px; flex:1; max-width:320px; font-size:11px; width:auto; }
+    label.chk { color:var(--m); display:flex; align-items:center; gap:5px; font-size:.82rem; user-select:none; }
     button {
       background:#0d9488; color:#042f2e; border:0; border-radius:8px;
       padding:8px 14px; font-weight:700; cursor:pointer; font-size:13px;
@@ -46,6 +46,13 @@
     button:disabled { opacity:.5; cursor:wait; }
     #meta { padding:6px 14px; color:var(--m); font-size:.8rem; border-bottom:1px solid #0f141c; flex-shrink:0; }
     #meta b { color:var(--t); }
+    #provBox { display:none; padding:6px 14px; font-size:.75rem; color:var(--m); border-bottom:1px solid var(--line); flex-shrink:0; }
+    details { margin:0; border-bottom:1px solid var(--line); background:var(--p); flex-shrink:0; }
+    details summary { cursor:pointer; padding:8px 14px; color:var(--c); font-weight:600; font-size:.82rem; }
+    .crit { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:0 14px 12px; font-size:.78rem; color:var(--m); }
+    .crit h3 { margin:0 0 4px; font-size:.72rem; text-transform:uppercase; }
+    .crit .s h3 { color:var(--g); } .crit .w h3 { color:var(--r); }
+    .crit ul { margin:0; padding-left:16px; }
     #desk { flex:1; min-height:0; display:grid; grid-template-columns:1fr; }
     #desk.open { grid-template-columns: minmax(380px,1fr) minmax(400px,1.05fr); }
     .pane { min-height:0; overflow:auto; }
@@ -132,16 +139,37 @@
 </head>
 <body>
   <header>
-    <h1><span class="live-dot" id="dot"></span>VWAP Blue <em>v1.2 · blue day · orange anchor · free rotate</em></h1>
+    <h1><span class="live-dot" id="dot"></span>VWAP Blue <em>v1.2 · blue · orange · KER · grade desk</em></h1>
     <input id="tickers" type="text" placeholder="blank = universe" />
-    <input id="max" type="number" value="80" min="1" max="200" title="max" />
+    <input id="max" type="number" value="16" min="1" max="80" title="max" />
+    <select id="mode" title="data mode">
+      <option value="hybrid" selected>hybrid</option>
+      <option value="rotate">rotate only</option>
+      <option value="yfinance">yfinance</option>
+    </select>
+    <select id="gradeMin" title="min grade">
+      <option value="A" selected>grade ≥ A</option>
+      <option value="B">grade ≥ B</option>
+      <option value="C">grade ≥ C</option>
+    </select>
     <label class="chk"><input type="checkbox" id="actOnly" /> actionable</label>
     <button id="btn" onclick="scan(true)">Scan</button>
     <button class="live" id="liveBtn" type="button" onclick="toggleLive()">Live off</button>
-    <input id="interval" type="number" value="60" min="30" max="300" title="live sec" style="width:56px" />
-    <input id="myproxy" type="text" placeholder="https://….workers.dev/?url=" title="Your Cloudflare CORS Worker" />
+    <input id="interval" type="number" value="45" min="15" max="300" title="live sec" />
+    <button class="ghost" type="button" onclick="loadProviders()">Providers</button>
+    <button class="ghost" type="button" onclick="loadCritique()">Method</button>
+    <input id="myproxy" type="text" placeholder="https://….workers.dev/?url=" title="CORS proxy (optional)" />
   </header>
-  <div id="meta">Cloudflare Pages · free Yahoo/venue feeds via rotating proxies · research only</div>
+  <div id="meta">Click a row for dual-VWAP chart · free multi-provider · research only</div>
+  <div id="provBox"></div>
+  <details id="critBox" style="display:none">
+    <summary>Best-of method · steelman / strawman</summary>
+    <div class="crit">
+      <div class="s"><h3>Steelman</h3><ul id="steel"></ul></div>
+      <div class="w"><h3>Strawman</h3><ul id="straw"></ul></div>
+    </div>
+    <div style="padding:0 14px 12px;font-size:.78rem;color:var(--m)" id="from"></div>
+  </details>
   <div id="desk">
     <div class="pane pane-list">
       <table>
@@ -161,7 +189,7 @@
             <th data-k="stop">Stop</th>
             <th data-k="target">Target</th>
             <th data-k="rr">R:R</th>
-            <th data-k="rvol">RVol</th>
+            <th data-k="rvol" title="Relative volume vs same-minute priors; n = baseline sessions">RVol (n)</th>
             <th data-k="provider">Feed</th>
           </tr>
         </thead>
@@ -284,34 +312,151 @@ function parseYahoo(result) {
   return bars;
 }
 
-async function fetchBars(sym) {
+async function fetchYahooBars(sym) {
   // 5m free Yahoo history goes well past 5d; 1mo feeds RVOL more baselines
   const yahoo = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&range=1mo&includePrePost=true`;
-  try {
-    const j = await fetchJson(yahoo);
-    return { bars: parseYahoo(j), provider: "yahoo_chart" };
-  } catch (e1) {
-    if (isCrypto(sym)) {
-      // Binance public REST is often CORS-blocked; go via proxy
-      const base = sym.replace("-USD","").replace("-USDT","") + "USDT";
-      const url = `https://api.binance.com/api/v3/klines?symbol=${base}&interval=5m&limit=500`;
-      const raw = await fetchJson(url);
-      const bars = raw.map(k => {
-        const d = new Date(k[0]);
-        const et = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
-        const mins = et.getHours()*60 + et.getMinutes();
-        const day = et.getFullYear() + "-" + String(et.getMonth()+1).padStart(2,"0") + "-" + String(et.getDate()).padStart(2,"0");
-        return {
-          ts: k[0], d: day, mins,
-          o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5],
-          hlReal: +k[2] > +k[3],
-          time: `${String(et.getMonth()+1).padStart(2,"0")}-${String(et.getDate()).padStart(2,"0")} ${String(et.getHours()).padStart(2,"0")}:${String(et.getMinutes()).padStart(2,"0")}`,
-        };
-      });
-      return { bars, provider: "binance" };
+  const j = await fetchJson(yahoo);
+  return { bars: parseYahoo(j), provider: "yahoo_chart" };
+}
+
+async function fetchBinanceBars(sym) {
+  const base = sym.replace("-USD","").replace("-USDT","") + "USDT";
+  const url = `https://api.binance.com/api/v3/klines?symbol=${base}&interval=5m&limit=500`;
+  const raw = await fetchJson(url);
+  const bars = raw.map(k => {
+    const d = new Date(k[0]);
+    const et = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const mins = et.getHours()*60 + et.getMinutes();
+    const day = et.getFullYear() + "-" + String(et.getMonth()+1).padStart(2,"0") + "-" + String(et.getDate()).padStart(2,"0");
+    return {
+      ts: k[0], d: day, mins,
+      o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5],
+      hlReal: +k[2] > +k[3],
+      time: `${String(et.getMonth()+1).padStart(2,"0")}-${String(et.getDate()).padStart(2,"0")} ${String(et.getHours()).padStart(2,"0")}:${String(et.getMinutes()).padStart(2,"0")}`,
+    };
+  });
+  return { bars, provider: "binance" };
+}
+
+// Track client-side feed health for Providers panel
+const feedStats = {
+  yahoo_chart: { ok: 0, fail: 0 },
+  binance: { ok: 0, fail: 0 },
+  proxy: { ok: 0, fail: 0 },
+};
+
+async function fetchBars(sym) {
+  const mode = ($("mode")?.value || "hybrid");
+  const tryYahoo = async () => {
+    try {
+      const r = await fetchYahooBars(sym);
+      feedStats.yahoo_chart.ok++;
+      return r;
+    } catch (e) {
+      feedStats.yahoo_chart.fail++;
+      throw e;
     }
+  };
+  const tryBinance = async () => {
+    try {
+      const r = await fetchBinanceBars(sym);
+      feedStats.binance.ok++;
+      return r;
+    } catch (e) {
+      feedStats.binance.fail++;
+      throw e;
+    }
+  };
+
+  // yfinance mode: Yahoo only
+  if (mode === "yfinance") return tryYahoo();
+
+  // rotate only: crypto → binance first, equities → yahoo (no fallback chain preference)
+  if (mode === "rotate") {
+    if (isCrypto(sym)) {
+      try { return await tryBinance(); } catch (_) { return tryYahoo(); }
+    }
+    try { return await tryYahoo(); } catch (_) {
+      if (isCrypto(sym)) return tryBinance();
+      throw _;
+    }
+  }
+
+  // hybrid (default): yahoo → crypto fallback binance
+  try {
+    return await tryYahoo();
+  } catch (e1) {
+    if (isCrypto(sym)) return tryBinance();
     throw e1;
   }
+}
+
+const CRITIQUE = {
+  steelman: [
+    "VWAP One desk layout (scanner left · interactive chart right) with free multi-provider rotate.",
+    "Blueline dual VWAP: blue = day session VWAP ± volume-weighted σ · orange = prior-day anchor.",
+    "Kaufman Efficiency Ratio regime gate (full engine on local :8791): pure gap-fades suppressed in trend.",
+    "Adaptive band width (chop widens / trend tightens) inspired by Modern VWAP.",
+    "Desk grade floor (A/B/C) + actionable filter · universe scan top-N.",
+    "Signals only in premarket + RTH; crypto 24/7 path kept separate.",
+    "Auditable feed per row; never fabricates prices.",
+  ],
+  strawman: [
+    "GitHub Pages demo uses 5m free Yahoo/venue bars via CORS proxies — not the full 1m hybrid FastAPI desk.",
+    "Walk-forward grid exists (walkforward.py) but is research — not auto-tuned live params.",
+    "Orange anchor depends on clean multi-session bars — thin free history can mis-anchor.",
+    "RVOL baselines are limited on free chart ranges.",
+    "Free APIs delay/disagree; hybrid clocks differ across venues.",
+  ],
+  from_blueline: [
+    "blue / orange dual VWAP trails",
+    "gap dir · first break · fakeout · confirm · tag · stop",
+    "grade A/B/C + late prefix",
+    "RVOL vs prior days (n shown)",
+  ],
+  from_vwap_one: [
+    "scanner + chart split layout",
+    "hybrid / rotate / yfinance modes",
+    "edge rank · actionable flags · provider provenance",
+    "Providers + Method panels",
+  ],
+  providers: [
+    "yahoo_chart (primary equities)",
+    "binance (crypto fallback)",
+    "CORS proxies: personal worker + public",
+  ],
+};
+
+function loadCritique() {
+  const box = $("critBox");
+  if (box.style.display !== "none" && box.open) { box.open = false; return; }
+  $("steel").innerHTML = CRITIQUE.steelman.map(x => `<li>${x}</li>`).join("");
+  $("straw").innerHTML = CRITIQUE.strawman.map(x => `<li>${x}</li>`).join("");
+  $("from").innerHTML =
+    '<b style="color:var(--blue)">From Blueline:</b> ' + CRITIQUE.from_blueline.join(" · ") +
+    '<br><b style="color:var(--c)">From VWAP One:</b> ' + CRITIQUE.from_vwap_one.join(" · ") +
+    '<br><b style="color:var(--m)">Providers:</b> ' + CRITIQUE.providers.join(" · ");
+  box.style.display = "block";
+  box.open = true;
+}
+
+function loadProviders() {
+  const box = $("provBox");
+  if (box.style.display === "block") { box.style.display = "none"; return; }
+  const mode = $("mode")?.value || "hybrid";
+  const bits = Object.entries(feedStats).map(([k, v]) =>
+    `<b style="color:var(--c)">${k}</b> ok=${v.ok||0} fail=${v.fail||0}`
+  );
+  box.innerHTML =
+    `mode <b>${mode}</b> · ` + bits.join(" · ") +
+    ` · proxy <span class="src">${proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public"}</span>`;
+  box.style.display = "block";
+}
+
+function passesGradeFloor(grade, floor) {
+  const rank = { A: 5, LA: 4, B: 3, LB: 2, C: 1, "✕": 0, "–": -1 };
+  const need = { A: 4, B: 2, C: 1 }[floor] ?? 4; // LA counts as A-tier floor
+  return (rank[grade] ?? -1) >= need;
 }
 
 // ── dual VWAP engine (Blueline port) ─────────────────────────
@@ -662,17 +807,29 @@ async function scan(force=true) {
     }
   }
   await Promise.all(Array.from({length: Math.min(conc, list.length)}, worker));
-  rows = out;
+  const floor = $("gradeMin")?.value || "A";
+  const mode = $("mode")?.value || "hybrid";
+  rows = out.filter(r => !r.error && passesGradeFloor(r.grade, floor));
   if ($("actOnly").checked) rows = rows.filter(r => r.actionable);
+  // keep errors visible only when nothing passes grade floor and no filter
+  if (!rows.length) {
+    rows = out.filter(r => r.error);
+  }
   rows.sort((a,b)=>(b.edge||0)-(a.edge||0));
-  const feeds = [...new Set(rows.map(r=>r.provider).filter(Boolean))];
+  const feeds = [...new Set(out.map(r=>r.provider).filter(Boolean))];
   const aN = rows.filter(r=>r.actionable).length;
   const aG = rows.filter(r=>(r.grade||"").includes("A")).length;
   $("meta").innerHTML =
-    `<b>${rows.length}</b> shown · <b>${aN}</b> actionable · <b>${aG}</b> grade A · ` +
-    `feeds <b>${feeds.join(", ")||"—"}</b> · <b>${((performance.now()-t0)/1000).toFixed(1)}s</b> · ` +
-    `${new Date().toLocaleTimeString()} · <span class="src">blue=day · orange=anchor</span>`;
+    `<b>${rows.length}</b> shown · pool <b>${out.length}</b> · <b>${aN}</b> actionable · <b>${aG}</b> grade A · ` +
+    `floor <b>${floor}</b> · <b>${mode}</b> · feeds <b>${feeds.join(", ")||"—"}</b> · ` +
+    `<b>${((performance.now()-t0)/1000).toFixed(1)}s</b> · ${new Date().toLocaleTimeString()} · ` +
+    `<span class="src">blue=day · orange=anchor · grade filter</span>`;
   $("footProv").textContent = "proxies: " + (proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public");
+  // refresh open Providers panel if visible
+  if ($("provBox").style.display === "block") {
+    $("provBox").style.display = "none";
+    loadProviders();
+  }
   render();
   btn.disabled = false; btn.textContent = "Scan";
   if (selected) showChart(selected);
@@ -681,7 +838,7 @@ async function scan(force=true) {
 function toggleLive() {
   liveOn = !liveOn;
   const btn = $("liveBtn");
-  const interval = +$("interval").value || 60;
+  const interval = +$("interval").value || 45;
   btn.textContent = liveOn ? `Live ${interval}s` : "Live off";
   btn.classList.toggle("on", liveOn);
   $("dot").classList.toggle("on", liveOn);
