@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VWAP Blue · dual VWAP desk (v1.2)</title>
+  <meta name="description" content="Blue day VWAP + orange prior-day anchor · KER regime · grade A desk · free multi-provider research scanner" />
+  <meta name="og:title" content="VWAP Blue — dual VWAP desk" />
+  <meta name="og:description" content="Blue day VWAP ± volume-weighted σ · orange prior-day anchor · free rotate · research only" />
+  <style>
+    :root {
+      --bg:#07090d; --line:#1a222e; --t:#e8eef6; --m:#7a8a9e;
+      --g:#3dd68c; --r:#ff6b6b; --c:#2dd4bf; --a:#f0b429; --p:#0e131a;
+      --blue:#3b82f6; --orange:#e08c3f; --panel:#0c1118;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin:0; font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;
+      background:var(--bg); color:var(--t); height:100vh; overflow:hidden;
+      display:flex; flex-direction:column;
+    }
+    header {
+      display:flex; gap:8px; flex-wrap:wrap; align-items:center; flex-shrink:0;
+      padding:10px 14px; border-bottom:1px solid var(--line);
+      background:linear-gradient(180deg,#0b1016,#07090d);
+    }
+    h1 { margin:0; font-size:1.02rem; font-weight:750; letter-spacing:-.02em; }
+    h1 em { font-style:normal; color:var(--c); font-weight:500; margin-left:8px; font-size:.76rem; }
+    .live-dot { width:8px; height:8px; border-radius:50%; background:#334155; display:inline-block; margin-right:6px; }
+    .live-dot.on { background:var(--g); box-shadow:0 0 0 4px rgba(61,214,140,.15); }
+    input, select {
+      background:var(--p); border:1px solid var(--line); color:var(--t);
+      border-radius:8px; padding:7px 10px; font-size:13px;
+    }
+    #tickers { min-width:160px; flex:1; max-width:280px; }
+    #max, #interval, #myproxy { width:auto; }
+    #myproxy { min-width:200px; flex:1; max-width:320px; font-size:11px; }
+    label.chk { color:var(--m); display:flex; align-items:center; gap:5px; font-size:.82rem; }
+    button {
+      background:#0d9488; color:#042f2e; border:0; border-radius:8px;
+      padding:8px 14px; font-weight:700; cursor:pointer; font-size:13px;
+    }
+    button.ghost { background:transparent; color:var(--m); border:1px solid var(--line); }
+    button.live { background:#14532d; color:#bbf7d0; }
+    button.live.on { background:#166534; color:#fff; }
+    button:disabled { opacity:.5; cursor:wait; }
+    #meta { padding:6px 14px; color:var(--m); font-size:.8rem; border-bottom:1px solid #0f141c; flex-shrink:0; }
+    #meta b { color:var(--t); }
+    #desk { flex:1; min-height:0; display:grid; grid-template-columns:1fr; }
+    #desk.open { grid-template-columns: minmax(380px,1fr) minmax(400px,1.05fr); }
+    .pane { min-height:0; overflow:auto; }
+    .pane-chart {
+      display:none; border-left:1px solid var(--line); background:var(--panel);
+      flex-direction:column; overflow:hidden;
+    }
+    #desk.open .pane-chart { display:flex; }
+    table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; min-width:960px; }
+    th, td { text-align:left; padding:7px 8px; border-bottom:1px solid #121820; white-space:nowrap; }
+    th {
+      color:var(--m); font-weight:600; font-size:.66rem; text-transform:uppercase;
+      position:sticky; top:0; background:var(--bg); cursor:pointer; z-index:2;
+    }
+    tr { cursor:pointer; }
+    tr:hover td { background:#0d1219; }
+    tr.sel td { background:rgba(59,130,246,.1); box-shadow:inset 3px 0 0 var(--blue); }
+    tr.act td { box-shadow:inset 3px 0 0 var(--g); }
+    .tk { font-weight:700; font-family:ui-monospace,Menlo,monospace; }
+    .badge { display:inline-block; padding:1px 7px; border-radius:999px; font-size:.7rem; font-weight:700; }
+    .TRIGGER,.TAGGED { background:#064e3b; color:var(--g); }
+    .SETUP { background:#0f3d30; color:#86efac; }
+    .WATCH { background:#1e293b; color:#94a3b8; }
+    .FAKE { background:#3b1f0a; color:var(--orange); }
+    .STOPPED { background:#3f1515; color:var(--r); }
+    .FLAT { background:#151a22; color:#64748b; }
+    .grade {
+      display:inline-flex; align-items:center; justify-content:center;
+      min-width:28px; height:20px; border-radius:4px; font-weight:800; font-size:.72rem;
+      font-family:ui-monospace,monospace;
+    }
+    .gA { background:#064e3b; color:var(--g); }
+    .gB { background:#1e3a5f; color:#93c5fd; }
+    .gC { background:#1e293b; color:#94a3b8; }
+    .gX { background:#3f1515; color:var(--r); }
+    .pos { color:var(--g); } .neg { color:var(--r); } .m { color:var(--m); }
+    .edge { font-weight:700; color:var(--c); }
+    .bluec { color:var(--blue); font-weight:600; }
+    .orangec { color:var(--orange); font-weight:600; }
+    .src,.note { font-size:.7rem; color:var(--m); max-width:150px; overflow:hidden; text-overflow:ellipsis; }
+    .ch-head { display:flex; justify-content:space-between; padding:16px 18px 8px; gap:12px; flex-shrink:0; }
+    .ch-head h2 { margin:0; font-size:1.3rem; font-family:ui-monospace,Menlo,monospace; }
+    .ch-sub { color:var(--m); font-size:.78rem; margin-top:4px; }
+    .ch-close {
+      background:transparent; border:1px solid var(--line); color:var(--m);
+      border-radius:8px; padding:6px 12px; cursor:pointer;
+    }
+    .ch-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; padding:0 18px 10px; }
+    .ch-stat {
+      background:rgba(30,41,59,.35); border:1px solid rgba(51,65,85,.35);
+      border-radius:8px; padding:8px 10px;
+    }
+    .ch-stat .k { font-size:.65rem; color:var(--m); text-transform:uppercase; }
+    .ch-stat .v { font-size:.95rem; font-weight:700; font-family:ui-monospace,monospace; margin-top:2px; }
+    #chartWrap {
+      flex:1; min-height:240px; position:relative; margin:0 12px;
+      background:rgba(15,23,42,.45); border:1px solid rgba(51,65,85,.4); border-radius:12px;
+    }
+    #chartCanvas { width:100%; height:100%; display:block; cursor:crosshair; }
+    #chartTip {
+      position:absolute; pointer-events:none; display:none;
+      background:rgba(15,23,42,.95); border:1px solid #334155; border-radius:8px;
+      padding:8px 10px; font-size:11px; font-family:ui-monospace,monospace;
+    }
+    .ch-legend {
+      display:flex; flex-wrap:wrap; gap:12px; justify-content:center;
+      padding:10px; margin:10px 12px 14px; background:rgba(30,41,59,.45); border-radius:8px;
+      font-size:10px; color:#94a3b8;
+    }
+    .ch-legend i { width:14px; height:2px; display:inline-block; margin-right:4px; vertical-align:middle; }
+    .ch-loading {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--m);
+    }
+    .spin {
+      width:28px; height:28px; border:3px solid rgba(59,130,246,.25);
+      border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    footer {
+      flex-shrink:0; padding:6px 14px; border-top:1px solid var(--line);
+      font-size:.72rem; color:var(--m);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span class="live-dot" id="dot"></span>VWAP Blue <em>v1.2 · blue day · orange anchor · free rotate</em></h1>
+    <input id="tickers" type="text" placeholder="blank = universe" />
+    <input id="max" type="number" value="80" min="1" max="200" title="max" />
+    <label class="chk"><input type="checkbox" id="actOnly" /> actionable</label>
+    <button id="btn" onclick="scan(true)">Scan</button>
+    <button class="live" id="liveBtn" type="button" onclick="toggleLive()">Live off</button>
+    <input id="interval" type="number" value="60" min="30" max="300" title="live sec" style="width:56px" />
+    <input id="myproxy" type="text" placeholder="https://….workers.dev/?url=" title="Your Cloudflare CORS Worker" />
+  </header>
+  <div id="meta">Cloudflare Pages · free Yahoo/venue feeds via rotating proxies · research only</div>
+  <div id="desk">
+    <div class="pane pane-list">
+      <table>
+        <thead>
+          <tr>
+            <th data-k="edge">Edge</th>
+            <th data-k="ticker">Ticker</th>
+            <th data-k="grade">Gr</th>
+            <th data-k="signal">Signal</th>
+            <th data-k="state">State</th>
+            <th data-k="price">Price</th>
+            <th data-k="blue">Blue</th>
+            <th data-k="orange">Orange</th>
+            <th data-k="gap_pct">Gap%</th>
+            <th data-k="dist_std">σ</th>
+            <th data-k="entry">Entry</th>
+            <th data-k="stop">Stop</th>
+            <th data-k="target">Target</th>
+            <th data-k="rr">R:R</th>
+            <th data-k="rvol">RVol</th>
+            <th data-k="provider">Feed</th>
+          </tr>
+        </thead>
+        <tbody id="tb"><tr><td colspan="16" class="m" style="padding:28px;text-align:center">Press Scan</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pane pane-chart" id="chartPane">
+      <div class="ch-head">
+        <div>
+          <h2 id="chTicker">—</h2>
+          <div class="ch-sub" id="chSub">Blue day VWAP · orange prior-day anchor</div>
+        </div>
+        <button class="ch-close" type="button" onclick="closeChart()">✕ Close</button>
+      </div>
+      <div class="ch-stats" id="chStats"></div>
+      <div id="chartWrap">
+        <canvas id="chartCanvas"></canvas>
+        <div id="chartTip"></div>
+        <div class="ch-loading" id="chLoad" style="display:none"><div class="spin"></div></div>
+      </div>
+      <div class="ch-legend">
+        <span><i style="background:#94a3b8"></i>price</span>
+        <span><i style="background:var(--blue)"></i>blue day VWAP</span>
+        <span><i style="background:var(--orange)"></i>orange anchor</span>
+        <span>◇ break · ▼/▲ trig · ● tag · ✕ stop</span>
+      </div>
+    </div>
+  </div>
+  <footer>
+    Best-of Blueline dual-VWAP + VWAP One desk · signals pre+RTH only · free feeds delay · not financial advice ·
+    <span id="footProv"></span>
+  </footer>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   VWAP Blue — Cloudflare Pages SPA
+   Dual VWAP engine (Blueline) + desk layout (VWAP One) + free feeds
+   ═══════════════════════════════════════════════════════════════ */
+
+const UNIVERSE = ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","TSLA","NFLX","AVGO","ORCL","CRM","ADBE","NOW","INTU","IBM","CSCO","AMD","SMCI","ARM","TSM","ASML","MU","INTC","QCOM","AMAT","LRCX","KLAC","MRVL","ADI","NXPI","ON","SWKS","MPWR","ENTG","GFS","STM","UMC","ASX","TER","COHR","TXN","CDNS","SNPS","ANET","PLTR","SNOW","PANW","CRWD","DDOG","NET","MDB","SHOP","UBER","ABNB","COIN","HOOD","RBLX","U","PATH","ZS","FTNT","OKTA","TEAM","WDAY","VEEV","TTD","ROKU","PINS","SNAP","TWLO","ZM","DOCU","BILL","AFRM","SOFI","UPST","AI","APP","TOST","DUOL","CELH","HIMS","OSCR","IONQ","RGTI","QUBT","F","GM","RIVN","LCID","RKLB","LUNR","ASTS","JOBY","ACHR","RDW","COST","WMT","TGT","HD","LOW","NKE","SBUX","MCD","DIS","CMCSA","TJX","ROST","DG","DLTR","BBY","ETSY","EBAY","BKNG","MAR","HLT","DASH","LYFT","EXPE","YUM","CMG","DPZ","WING","LULU","DECK","ULTA","EL","CL","PG","KO","PEP","PM","MO","CAVA","JPM","BAC","GS","MS","V","MA","BRK-B","SCHW","C","WFC","AXP","BLK","USB","PNC","TFC","COF","DFS","SYF","ALLY","KEY","CFG","RF","MTB","FITB","HBAN","NTRS","STT","BK","TROW","SPGI","MCO","ICE","CME","NDAQ","CBOE","MSCI","FICO","PYPL","XOM","CVX","COP","OXY","SLB","EOG","MPC","VLO","PSX","HES","DVN","FANG","HAL","BKR","XLE","XOP","OIH","USO","BNO","NEE","DUK","SO","D","AEP","SRE","EXC","XEL","PCG","CEG","AMT","PLD","CCI","EQIX","DLR","PSA","O","SPG","WELL","VICI","XLU","XLRE","IYR","VNQ","LLY","UNH","JNJ","ABBV","MRK","PFE","AMGN","ISRG","VRTX","MRNA","TMO","DHR","ABT","MDT","BSX","SYK","ZTS","REGN","GILD","BIIB","BMY","CVS","CI","ELV","HUM","CNC","HCA","DXCM","PODD","ALGN","IDXX","IQV","ILMN","CRSP","EXAS","NTRA","XBI","IBB","CAT","BA","GE","HON","RTX","LMT","DE","UNP","MMM","EMR","ETN","PH","ITW","ROK","CMI","PCAR","URI","CSX","NSC","FDX","UPS","DAL","UAL","AAL","LUV","ODFL","XLI","JETS","FCX","NEM","LIN","APD","SHW","ECL","DD","DOW","PPG","NUE","STLD","CLF","AA","VALE","RIO","BHP","SCCO","TECK","MP","ALB","MOS","CF","NTR","ADM","BG","CTVA","GLD","SLV","GDX","GDXJ","COPX","URA","LIT","T","VZ","TMUS","CHTR","WBD","PARA","FOX","FOXA","SPOT","TTWO","EA","MSGS","LYV","XLC","BABA","JD","PDD","NIO","LI","XPEV","NU","SE","MELI","FXI","KWEB","EEM","EWZ","INDA","EPI","EWY","EWT","EWH","EWJ","SPY","QQQ","IWM","DIA","IVV","VOO","VTI","VEA","VWO","IWF","IWD","IJH","IJR","MDY","RSP","MTUM","VLUE","QUAL","USMV","SPLV","XLK","XLF","XLV","XLP","XLY","XLB","XHB","ITB","XRT","ARKK","ARKW","ARKF","ARKG","BOTZ","ROBO","HACK","CIBR","SKYY","TQQQ","SQQQ","SOXL","SOXS","TNA","TZA","UPRO","SPXU","LABU","LABD","FAS","FAZ","UVXY","VIXY","BOIL","KOLD","UNG","TLT","IEF","SHY","TIP","LQD","HYG","JNK","EMB","BND","AGG","BIL","SGOV","JPST","EFA","IEFA","EWG","EWU","EWI","EWP","EWL","EWN","EWD","EWS","EWA","EWC","TM","SONY","HMC","NVO","AZN","GSK","SAP","UL","DEO","BP","SHEL","TTE","BUD","HSBC","BTC-USD","ETH-USD","SOL-USD","XRP-USD","DOGE-USD","ADA-USD","AVAX-USD","LINK-USD","BNB-USD","DOT-USD","MATIC-USD","ATOM-USD","NEAR-USD","SUI-USD","APT-USD","ARB-USD","OP-USD","INJ-USD","TIA-USD","SEI-USD","LTC-USD","BCH-USD","UNI-USD","AAVE-USD","FIL-USD","ICP-USD","HBAR-USD","ALGO-USD","XLM-USD","ETC-USD","TRX-USD","TON-USD","PEPE-USD","SHIB-USD","WIF-USD","BONK-USD","RENDER-USD","FET-USD","TAO-USD","IMX-USD","GRT-USD","STX-USD","RUNE-USD","JUP-USD","WLD-USD","PYTH-USD","MKR-USD","CRV-USD"];
+const RTH_OPEN = 9*60+30, RTH_CLOSE = 16*60, ANCHOR = 4*60, K_BARS = 2, GAP_MIN = 0.35, RMIN = 1.0, RVOL_MIN = 1.2, LATE = 14*60+30;
+const ATR_MULT = 0.35;
+
+const $ = id => document.getElementById(id);
+let rows = [], sortKey = "edge", sortAsc = false, liveOn = false, pollTimer = null;
+let selected = null, chartCache = new Map();
+
+const n = (x,d=2) => x==null||Number.isNaN(+x) ? "—" : Number(x).toFixed(d);
+const sgn = x => x==null ? "m" : (x>=0 ? "pos" : "neg");
+const money = x => x==null ? "—" : "$"+Number(x).toFixed(Number(x)<10?4:2);
+
+// ── proxy pool (personal worker first) ───────────────────────
+const DEFAULT_WORKER = "https://blueline-cors-proxy.sussman-adam.workers.dev/?url=";
+function proxyBase() {
+  const v = ($("myproxy").value || "").trim();
+  return v || DEFAULT_WORKER;
+}
+function wrapUrl(u) {
+  const base = proxyBase();
+  return base.includes("?url=") || base.endsWith("url=")
+    ? base + encodeURIComponent(u)
+    : base + (base.includes("?") ? "&" : "?") + "url=" + encodeURIComponent(u);
+}
+
+const PUBLIC_PROXIES = [
+  u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+  u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+  u => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
+];
+
+async function fetchJson(url, timeoutMs=12000) {
+  const attempts = [u => wrapUrl(u), ...PUBLIC_PROXIES];
+  let lastErr;
+  for (const wrap of attempts) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const res = await fetch(wrap(url), { signal: ctl.signal, cache: "no-store" });
+      clearTimeout(t);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const text = await res.text();
+      return JSON.parse(text);
+    } catch (e) {
+      clearTimeout(t);
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("all proxies failed");
+}
+
+function isCrypto(t) {
+  t = t.toUpperCase();
+  return t.endsWith("-USD") || t.endsWith("-USDT") || t.endsWith("-USDC") || ["BTC","ETH","SOL"].includes(t);
+}
+
+// ── bars: Yahoo chart (equity/crypto) + venue fallbacks ──────
+function parseYahoo(result) {
+  const r = (result?.chart?.result || [])[0];
+  if (!r) throw new Error("empty chart");
+  const ts = r.timestamp || [];
+  const q = (r.indicators?.quote || [{}])[0];
+  const bars = [];
+  for (let i = 0; i < ts.length; i++) {
+    const o=q.open?.[i], h=q.high?.[i], l=q.low?.[i], c=q.close?.[i];
+    const v = q.volume?.[i] || 0;
+    if ([o,h,l,c].some(x => x==null || Number.isNaN(x))) continue;
+    const d = new Date(ts[i]*1000);
+    // ET minutes
+    const et = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const mins = et.getHours()*60 + et.getMinutes();
+    const day = et.getFullYear() + "-" + String(et.getMonth()+1).padStart(2,"0") + "-" + String(et.getDate()).padStart(2,"0");
+    bars.push({
+      ts: ts[i]*1000, d: day, mins,
+      o:+o, h:+h, l:+l, c:+c, v:+v,
+      hlReal: h > l,
+      time: `${String(et.getMonth()+1).padStart(2,"0")}-${String(et.getDate()).padStart(2,"0")} ${String(et.getHours()).padStart(2,"0")}:${String(et.getMinutes()).padStart(2,"0")}`,
+    });
+  }
+  if (!bars.length) throw new Error("no bars");
+  return bars;
+}
+
+async function fetchBars(sym) {
+  // 5m free Yahoo history goes well past 5d; 1mo feeds RVOL more baselines
+  const yahoo = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&range=1mo&includePrePost=true`;
+  try {
+    const j = await fetchJson(yahoo);
+    return { bars: parseYahoo(j), provider: "yahoo_chart" };
+  } catch (e1) {
+    if (isCrypto(sym)) {
+      // Binance public REST is often CORS-blocked; go via proxy
+      const base = sym.replace("-USD","").replace("-USDT","") + "USDT";
+      const url = `https://api.binance.com/api/v3/klines?symbol=${base}&interval=5m&limit=500`;
+      const raw = await fetchJson(url);
+      const bars = raw.map(k => {
+        const d = new Date(k[0]);
+        const et = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
+        const mins = et.getHours()*60 + et.getMinutes();
+        const day = et.getFullYear() + "-" + String(et.getMonth()+1).padStart(2,"0") + "-" + String(et.getDate()).padStart(2,"0");
+        return {
+          ts: k[0], d: day, mins,
+          o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5],
+          hlReal: +k[2] > +k[3],
+          time: `${String(et.getMonth()+1).padStart(2,"0")}-${String(et.getDate()).padStart(2,"0")} ${String(et.getHours()).padStart(2,"0")}:${String(et.getMinutes()).padStart(2,"0")}`,
+        };
+      });
+      return { bars, provider: "binance" };
+    }
+    throw e1;
+  }
+}
+
+// ── dual VWAP engine (Blueline port) ─────────────────────────
+function sessionsOf(bars) {
+  const s = [], seen = new Set();
+  for (const b of bars) if (!seen.has(b.d)) { seen.add(b.d); s.push(b.d); }
+  return s;
+}
+function firstIdx(bars, day) {
+  for (let i=0;i<bars.length;i++) if (bars[i].d===day) return i;
+  return -1;
+}
+function priorRthClose(bars, i0) {
+  if (i0<=0) return bars[0].c;
+  const pd = bars[i0-1].d;
+  let close = null;
+  for (let i=i0-1;i>=0;i--) {
+    const b = bars[i];
+    if (b.d !== pd) break;
+    if (b.mins >= RTH_OPEN && b.mins < RTH_CLOSE) close = b.c;
+  }
+  if (close != null) return close;
+  for (let i=i0-1;i>=0;i--) {
+    const b = bars[i];
+    if (b.d !== pd) break;
+    if (b.mins < RTH_CLOSE) close = b.c;
+  }
+  return close ?? bars[i0-1].c;
+}
+function atr(bars, end, period=14) {
+  const trs = []; let prev = null;
+  const start = Math.max(0, end-40);
+  for (let i=start;i<=end;i++) {
+    const b = bars[i];
+    if (!b.hlReal) continue;
+    if (prev==null) trs.push(b.h-b.l);
+    else trs.push(Math.max(b.h-b.l, Math.abs(b.h-prev), Math.abs(b.l-prev)));
+    prev = b.c;
+  }
+  if (trs.length < period) return null;
+  let a = trs.slice(0,period).reduce((x,y)=>x+y,0)/period;
+  for (let i=period;i<trs.length;i++) a = (a*(period-1)+trs[i])/period;
+  return a;
+}
+function tp(b) { return (b.h+b.l+b.c)/3; }
+
+function stepBar(bars, i, acc, st, dir, devOK, crypto) {
+  const b = bars[i];
+  const openM = crypto ? 0 : ANCHOR;
+  const closeM = crypto ? 24*60 : RTH_CLOSE;
+  if (b.mins >= openM && b.mins < closeM && b.v > 0) {
+    const t = tp(b);
+    acc.bp += t*b.v; acc.bv += b.v; acc.bp2 += t*t*b.v;
+    acc.op += t*b.v; acc.ov += b.v;
+  }
+  if (b.mins < closeM) acc.vol += b.v;
+  if (acc.bv > 0) {
+    st.blue = acc.bp/acc.bv;
+    st.sigma = Math.sqrt(Math.max(acc.bp2/acc.bv - st.blue*st.blue, 0));
+  }
+  if (acc.ov > 0) st.orange = acc.op/acc.ov;
+  st.blueTrail.push(st.blue);
+  st.orangeTrail.push(st.orange);
+  st.sigTrail.push(st.sigma);
+  st.atr = atr(bars, i);
+
+  const eligible = devOK && st.blue != null && b.mins < closeM;
+  if (!eligible) return;
+
+  if (dir>0 ? b.c>st.blue : b.c<st.blue) acc.trapV += b.v;
+
+  if (st.trig == null) {
+    const beyond = dir>0 ? (b.c < st.blue) : (b.c > st.blue);
+    if (beyond) {
+      if (st.phase !== "BEYOND") {
+        st.phase = "BEYOND"; st.run = 1;
+        if (st.firstBreak == null) st.firstBreak = i;
+      } else st.run++;
+      if (st.run >= K_BARS) {
+        st.trig = i; st.entry = b.c;
+        let buf = 0;
+        if (st.atr) buf = st.atr * ATR_MULT;
+        else if (st.sigma != null) buf = st.sigma * 0.25;
+        st.stopPx = st.blue + dir * buf;
+        st.target = st.orange;
+        st.riskPct = Math.abs(st.entry - st.stopPx) / st.entry * 100;
+        st.late = !crypto && b.mins >= LATE;
+        if (st.target != null) {
+          st.runwayPct = dir>0 ? (st.entry-st.target)/st.entry*100 : (st.target-st.entry)/st.entry*100;
+          st.noRunway = st.runwayPct <= 0;
+          st.R = (st.riskPct>0 && !st.noRunway) ? st.runwayPct/st.riskPct : null;
+        }
+        resolveOpen(bars, i, st, dir);
+      }
+    } else {
+      if (st.phase === "BEYOND") st.fake++;
+      st.phase = "SIDE"; st.run = 0;
+    }
+  } else if (st.tagged==null && st.stopped==null) {
+    resolveOpen(bars, i, st, dir);
+  }
+}
+
+function resolveOpen(bars, i, st, dir) {
+  const b = bars[i], or = st.orange;
+  if (or != null && b.hlReal) {
+    const hit = dir>0 ? (b.l <= or) : (b.h >= or);
+    if (hit) { st.tagged = i; return; }
+  }
+  if (st.stopPx != null && st.trig != null && i > st.trig) {
+    const out = dir>0 ? (b.c > st.stopPx) : (b.c < st.stopPx);
+    if (out) st.stopped = i;
+  }
+}
+
+function rvolOf(bars, days, iN, accVol) {
+  // Returns { rvol, n }. n is always usable prior count (even if rvol null).
+  if (days.length < 3 || accVol <= 0) return { rvol: null, n: 0 };
+  const m = bars[iN].mins;
+  const priors = days.slice(0,-1).slice(-7);
+  const bases = [];
+  for (const pd of priors) {
+    let cum = 0;
+    for (const b of bars) {
+      if (b.d===pd && b.mins<=m && b.mins<RTH_CLOSE) cum += b.v;
+    }
+    if (cum>0) bases.push(cum);
+  }
+  const n = bases.length;
+  if (n < 2) return { rvol: null, n };
+  return { rvol: accVol / (bases.reduce((a,b)=>a+b,0)/n), n };
+}
+
+function analyze(sym, bars, provider) {
+  const crypto = isCrypto(sym);
+  if (!bars || bars.length < 20) return { ticker:sym, error:"insufficient bars", edge:0, signal:"FLAT", grade:"–", provider };
+
+  let days = sessionsOf(bars);
+  // crypto single continuous — split mid
+  if (days.length < 2 && crypto && bars.length >= 40) {
+    const mid = Math.floor(bars.length/2);
+    bars = bars.map((b,i) => ({...b, d: i<mid?"D0":"D1", mins: (i%390)+RTH_OPEN}));
+    days = sessionsOf(bars);
+  }
+  if (days.length < 2) return { ticker:sym, error:"need ≥2 sessions", edge:0, signal:"FLAT", grade:"–", provider };
+
+  const d0 = days[days.length-1], d1 = days[days.length-2];
+  const i0 = firstIdx(bars, d0), p0 = firstIdx(bars, d1), iN = bars.length-1;
+  if (i0 < 1 || p0 < 0) return { ticker:sym, error:"anchor missing", edge:0, signal:"FLAT", grade:"–", provider };
+
+  const gapMin = crypto ? 0.15 : GAP_MIN;
+  const acc = { bp:0,bv:0,bp2:0,op:0,ov:0,vol:0,trapV:0 };
+  for (let i=p0;i<i0;i++) {
+    const b = bars[i];
+    if (b.mins >= (crypto?0:ANCHOR) && b.mins < (crypto?24*60:RTH_CLOSE) && b.v>0) {
+      const t = tp(b); acc.op += t*b.v; acc.ov += b.v;
+    }
+  }
+  const priorClose = priorRthClose(bars, i0);
+  let openIdx = null;
+  for (let i=i0;i<=iN;i++) if (bars[i].mins >= RTH_OPEN) { openIdx=i; break; }
+  let gapPct, gapProv;
+  if (openIdx != null) {
+    const ob = bars[openIdx];
+    gapPct = ((ob.o ?? ob.c) - priorClose) / priorClose * 100;
+    gapProv = false;
+  } else {
+    gapPct = (bars[iN].c - priorClose) / priorClose * 100;
+    gapProv = true;
+  }
+  const dir = gapPct >= 0 ? 1 : -1;
+  const devOK = Math.abs(gapPct) >= gapMin;
+  const st = {
+    phase:"SIDE", run:0, fake:0, firstBreak:null, trig:null, tagged:null, stopped:null,
+    entry:null, stopPx:null, target:null, riskPct:null, runwayPct:null, R:null, noRunway:false,
+    blue:null, sigma:null, orange:null, blueTrail:[], orangeTrail:[], sigTrail:[], atr:null, late:false,
+  };
+  for (let i=i0;i<=iN;i++) stepBar(bars, i, acc, st, dir, devOK, crypto);
+
+  const price = bars[iN].c;
+  const { rvol, n: rvolN } = rvolOf(bars, days, iN, acc.vol);
+  const sessionN = days.length;
+  const blue = st.blue, orange = st.orange, sigma = st.sigma;
+  const dist = (blue!=null && sigma>0) ? (price-blue)/sigma : null;
+
+  // state / grade
+  let state, stateCls;
+  if (!devOK) { state = gapProv ? "NO GAP (pre)" : "NO GAP"; stateCls="none"; }
+  else if (st.trig==null) {
+    if (st.firstBreak==null) { state = (dir>0?"GAP ▲ · above blue":"GAP ▼ · below blue")+(gapProv?" (pre)":""); stateCls="gap"; }
+    else if (st.phase==="BEYOND") { state = `FIRST BREAK ${st.run}/${K_BARS}`; stateCls="break"; }
+    else { state = `FAKEOUT ×${st.fake}`; stateCls="fake"; }
+  } else if (st.noRunway) { state="CONFIRMED · NO RUNWAY"; stateCls="none"; }
+  else if (st.tagged!=null) { state = dir>0 ? "TAGGED ✓ short" : "TAGGED ✓ long"; stateCls="tag"; }
+  else if (st.stopped!=null) { state="STOPPED ✕"; stateCls="err"; }
+  else { state = (st.fake>0?"FSB ":"") + (dir>0?"CONFIRMED ▼":"CONFIRMED ▲") + (st.late?" LATE":""); stateCls="conf"; }
+
+  let grade = "–";
+  if (!devOK) grade = "–";
+  else if (st.trig==null) grade = "C";
+  else if (st.stopped!=null) grade = "✕";
+  else if (st.noRunway || st.R==null) grade = "B";
+  else {
+    const gR = st.R >= RMIN;
+    const gV = rvol==null ? true : rvol >= RVOL_MIN;
+    grade = (gR && gV) ? "A" : "B";
+    if (st.late) grade = "L"+grade;
+  }
+
+  let signal = "FLAT";
+  if (st.tagged!=null) signal="TAGGED";
+  else if (st.stopped!=null) signal="STOPPED";
+  else if (st.trig!=null) signal="TRIGGER";
+  else if (stateCls==="break") signal="SETUP";
+  else if (stateCls==="fake") signal="FAKE";
+  else if (stateCls==="gap") signal="WATCH";
+
+  // edge
+  const gmap = {A:40,LA:32,B:22,LB:16,C:8,"✕":2,"–":0};
+  let edge = gmap[grade]||0;
+  if (stateCls==="conf") edge+=20; else if (stateCls==="break") edge+=14; else if (stateCls==="tag") edge+=18;
+  if (st.R!=null) edge += Math.min(20, Math.floor(st.R*8));
+  if (rvol!=null) edge += Math.min(12, Math.floor(Math.max(0,(rvol-1)*10)));
+  edge += Math.min(10, Math.floor(Math.abs(gapPct)*2));
+  if (st.late) edge -= 8;
+  if (st.stopped!=null) edge = Math.min(edge, 15);
+  edge = Math.max(0, Math.min(100, edge));
+
+  const side = dir>0 ? "short" : "long";
+  const actionable = ["A","LA","B","LB"].includes(grade) && st.trig!=null && st.tagged==null && st.stopped==null;
+
+  const focusBars = bars.slice(i0, iN+1);
+  const rel = idx => idx==null ? null : idx - i0;
+
+  return {
+    ticker: sym, provider, price, blue, orange, sigma,
+    dist_std: dist!=null ? +dist.toFixed(2) : null,
+    gap_pct: +gapPct.toFixed(3), gap_provisional: gapProv, prior_close: priorClose,
+    dir, side, grade, state, state_cls: stateCls, signal, edge,
+    entry: st.entry, stop: st.stopPx, target: st.target,
+    rr: st.R!=null ? +st.R.toFixed(2) : null,
+    rvol: rvol!=null ? +rvol.toFixed(3) : null,
+    rvol_n: rvolN,
+    session_n: sessionN,
+    fakes: st.fake, late: st.late, actionable, live_actionable: actionable,
+    note: state,
+    _chart: {
+      series: focusBars.map((b,i) => ({
+        t:b.ts, time:b.time, open:b.o, high:b.h, low:b.l, price:b.c, volume:b.v,
+        blue: st.blueTrail[i], orange: st.orangeTrail[i],
+        upper: st.blueTrail[i]!=null && st.sigTrail[i]!=null ? st.blueTrail[i]+st.sigTrail[i] : null,
+        lower: st.blueTrail[i]!=null && st.sigTrail[i]!=null ? st.blueTrail[i]-st.sigTrail[i] : null,
+      })),
+      levels: { entry: st.entry, stop: st.stopPx, target: st.target, blue, orange },
+      markers: { firstBreak: rel(st.firstBreak), trig: rel(st.trig), tagged: rel(st.tagged), stopped: rel(st.stopped) },
+      prior_close: priorClose, dir, side, grade, state, signal, edge, rvol, rvol_n: rvolN, session_n: sessionN,
+      price, blue, orange, gap_pct: gapPct,
+      entry: st.entry, stop: st.stopPx, target: st.target, rr: st.R, provider,
+    },
+  };
+}
+
+// ── scan / UI ────────────────────────────────────────────────
+document.querySelectorAll("th[data-k]").forEach(th => {
+  th.onclick = () => {
+    const k = th.dataset.k;
+    if (sortKey===k) sortAsc=!sortAsc; else { sortKey=k; sortAsc = k==="ticker"; }
+    render();
+  };
+});
+
+function gradeCls(g) {
+  if (!g||g==="–") return "gC";
+  if (g==="✕") return "gX";
+  if (g.startsWith("A")||g.startsWith("LA")) return "gA";
+  if (g.startsWith("B")||g.startsWith("LB")) return "gB";
+  return "gC";
+}
+
+function sorted() {
+  const rank = {A:5,LA:4,B:3,LB:2,C:1,"✕":0,"–":-1};
+  return [...rows].sort((a,b) => {
+    let va=a[sortKey], vb=b[sortKey];
+    if (sortKey==="grade") { va=rank[a.grade]??-1; vb=rank[b.grade]??-1; }
+    if (va==null) va = sortAsc?Infinity:-Infinity;
+    if (vb==null) vb = sortAsc?Infinity:-Infinity;
+    if (typeof va==="string") { const c=va.localeCompare(String(vb)); return sortAsc?c:-c; }
+    return sortAsc ? va-vb : vb-va;
+  });
+}
+
+function render() {
+  const list = sorted();
+  if (!list.length) {
+    $("tb").innerHTML = `<tr><td colspan="16" class="m" style="padding:24px;text-align:center">No rows</td></tr>`;
+    return;
+  }
+  $("tb").innerHTML = list.map(r => {
+    if (r.error) return `<tr data-tk="${r.ticker}"><td></td><td class="tk">${r.ticker}</td><td colspan="14" class="note">${r.error}</td></tr>`;
+    const cls = [r.actionable?"act":"", selected===r.ticker?"sel":""].filter(Boolean).join(" ");
+    const d = r.dist_std;
+    return `<tr class="${cls}" data-tk="${r.ticker}">
+      <td class="edge">${r.edge??0}</td>
+      <td class="tk">${r.ticker}${r.actionable?" ●":""}</td>
+      <td><span class="grade ${gradeCls(r.grade)}">${r.grade||"–"}</span></td>
+      <td><span class="badge ${r.signal||"FLAT"}">${r.signal||"FLAT"}</span></td>
+      <td class="note">${r.state||""}</td>
+      <td>${n(r.price)}</td>
+      <td class="bluec">${n(r.blue)}</td>
+      <td class="orangec">${n(r.orange)}</td>
+      <td class="${sgn(r.gap_pct)}">${r.gap_pct==null?"—":(r.gap_pct>0?"+":"")+n(r.gap_pct)}</td>
+      <td class="${sgn(d)}">${d==null?"—":((d>0?"+":"")+n(d))}</td>
+      <td>${n(r.entry)}</td>
+      <td class="neg">${n(r.stop)}</td>
+      <td class="orangec">${n(r.target)}</td>
+      <td class="${(r.rr!=null&&r.rr>=1)?"pos":(r.rr!=null?"neg":"m")}">${n(r.rr)}</td>
+      <td class="m">${r.rvol==null?"—":n(r.rvol,2)}${r.rvol_n!=null?` <span style="opacity:.55">n=${r.rvol_n}</span>`:""}</td>
+      <td class="src">${r.provider||"—"}</td>
+    </tr>`;
+  }).join("");
+  $("tb").querySelectorAll("tr[data-tk]").forEach(tr => tr.onclick = () => selectTicker(tr.dataset.tk));
+}
+
+async function scanOne(sym) {
+  const { bars, provider } = await fetchBars(sym);
+  const row = analyze(sym, bars, provider);
+  if (row._chart) chartCache.set(sym, row._chart);
+  return row;
+}
+
+async function scan(force=true) {
+  const btn = $("btn");
+  btn.disabled = true; btn.textContent = "…";
+  const raw = $("tickers").value.trim();
+  let list = raw ? raw.split(/[,\s]+/).filter(Boolean).map(s=>s.toUpperCase()) : UNIVERSE.slice();
+  const max = +$("max").value || 16;
+  list = list.slice(0, max);
+  const t0 = performance.now();
+  const out = [];
+  const conc = 4;
+  let i = 0;
+  async function worker() {
+    while (i < list.length) {
+      const sym = list[i++];
+      try { out.push(await scanOne(sym)); }
+      catch (e) { out.push({ ticker:sym, error:String(e.message||e), edge:0, signal:"FLAT", grade:"–" }); }
+      $("meta").innerHTML = `Scanning <b>${out.length}/${list.length}</b>…`;
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(conc, list.length)}, worker));
+  rows = out;
+  if ($("actOnly").checked) rows = rows.filter(r => r.actionable);
+  rows.sort((a,b)=>(b.edge||0)-(a.edge||0));
+  const feeds = [...new Set(rows.map(r=>r.provider).filter(Boolean))];
+  const aN = rows.filter(r=>r.actionable).length;
+  const aG = rows.filter(r=>(r.grade||"").includes("A")).length;
+  $("meta").innerHTML =
+    `<b>${rows.length}</b> shown · <b>${aN}</b> actionable · <b>${aG}</b> grade A · ` +
+    `feeds <b>${feeds.join(", ")||"—"}</b> · <b>${((performance.now()-t0)/1000).toFixed(1)}s</b> · ` +
+    `${new Date().toLocaleTimeString()} · <span class="src">blue=day · orange=anchor</span>`;
+  $("footProv").textContent = "proxies: " + (proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public");
+  render();
+  btn.disabled = false; btn.textContent = "Scan";
+  if (selected) showChart(selected);
+}
+
+function toggleLive() {
+  liveOn = !liveOn;
+  const btn = $("liveBtn");
+  const interval = +$("interval").value || 60;
+  btn.textContent = liveOn ? `Live ${interval}s` : "Live off";
+  btn.classList.toggle("on", liveOn);
+  $("dot").classList.toggle("on", liveOn);
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  if (liveOn) {
+    scan(true);
+    pollTimer = setInterval(() => scan(true), interval * 1000);
+  }
+}
+
+async function selectTicker(tk) {
+  selected = tk;
+  render();
+  $("desk").classList.add("open");
+  showChart(tk);
+}
+
+function closeChart() {
+  selected = null;
+  $("desk").classList.remove("open");
+  render();
+}
+
+function showChart(tk) {
+  const load = $("chLoad");
+  load.style.display = "flex";
+  let d = chartCache.get(tk);
+  const row = rows.find(r => r.ticker === tk);
+  if (!d && row?._chart) d = row._chart;
+  if (!d) {
+    // fetch
+    (async () => {
+      try {
+        const { bars, provider } = await fetchBars(tk);
+        const r = analyze(tk, bars, provider);
+        d = r._chart;
+        chartCache.set(tk, d);
+        paintChart(d);
+      } catch (e) {
+        load.innerHTML = `<div>${e.message||e}</div>`;
+      }
+    })();
+    return;
+  }
+  paintChart(d);
+}
+
+function paintChart(d) {
+  $("chLoad").style.display = "none";
+  $("chTicker").textContent = d.ticker || selected;
+  $("chSub").textContent = `Grade ${d.grade||"–"} · ${d.state||""} · ${d.side||""} · ${d.provider||""}`;
+  $("chStats").innerHTML = [
+    ["Price", money(d.price)], ["Blue", money(d.blue)], ["Orange", money(d.orange)],
+    ["Gap", d.gap_pct==null?"—":((d.gap_pct>0?"+":"")+n(d.gap_pct)+"%")],
+    ["Entry", money(d.entry)], ["Stop", money(d.stop)], ["Target", money(d.target)],
+    ["R:R", d.rr==null?"—":n(d.rr)],
+  ].map(([k,v]) => `<div class="ch-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+  drawChart(d);
+}
+
+function drawChart(d) {
+  const canvas = $("chartCanvas"), wrap = $("chartWrap"), tip = $("chartTip");
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  canvas.style.width = W+"px"; canvas.style.height = H+"px";
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  const series = d.series || [];
+  if (series.length < 2) return;
+  const pad = { l:52, r:12, t:16, b:28 };
+  const plotW = W-pad.l-pad.r, plotH = H-pad.t-pad.b;
+  let lo=Infinity, hi=-Infinity;
+  for (const s of series) for (const k of ["low","high","blue","orange","upper","lower"]) {
+    if (s[k]!=null && Number.isFinite(s[k])) { lo=Math.min(lo,s[k]); hi=Math.max(hi,s[k]); }
+  }
+  if (d.prior_close!=null) { lo=Math.min(lo,d.prior_close); hi=Math.max(hi,d.prior_close); }
+  for (const k of ["entry","stop","target"]) if (d.levels?.[k]!=null) { lo=Math.min(lo,d.levels[k]); hi=Math.max(hi,d.levels[k]); }
+  const span = (hi-lo)||1; lo-=span*0.04; hi+=span*0.04;
+  const xOf = i => pad.l + (i/(series.length-1))*plotW;
+  const yOf = p => pad.t + (1-(p-lo)/(hi-lo))*plotH;
+
+  ctx.strokeStyle = "rgba(51,65,85,.35)"; ctx.lineWidth=1;
+  for (let g=0;g<5;g++) {
+    const y = pad.t+(g/4)*plotH;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    const px = hi-(g/4)*(hi-lo);
+    ctx.fillStyle="#64748b"; ctx.font="10px ui-monospace,monospace"; ctx.textAlign="right";
+    ctx.fillText(px.toFixed(px<10?3:2), pad.l-6, y+3);
+  }
+  // band
+  ctx.beginPath(); let started=false;
+  for (let i=0;i<series.length;i++) {
+    if (series[i].upper==null) continue;
+    const x=xOf(i), y=yOf(series[i].upper);
+    if (!started){ctx.moveTo(x,y);started=true;} else ctx.lineTo(x,y);
+  }
+  for (let i=series.length-1;i>=0;i--) {
+    if (series[i].lower==null) continue;
+    ctx.lineTo(xOf(i), yOf(series[i].lower));
+  }
+  ctx.closePath(); ctx.fillStyle="rgba(59,130,246,.10)"; ctx.fill();
+
+  if (d.prior_close!=null) {
+    ctx.setLineDash([4,4]); ctx.strokeStyle="#64748b";
+    ctx.beginPath(); ctx.moveTo(pad.l,yOf(d.prior_close)); ctx.lineTo(W-pad.r,yOf(d.prior_close)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  const cw = Math.max(2, plotW/series.length*0.6);
+  for (let i=0;i<series.length;i++) {
+    const s=series[i], x=xOf(i), up=s.price>=s.open;
+    ctx.strokeStyle = up?"#3dd68c":"#ff6b6b";
+    ctx.fillStyle = up?"rgba(61,214,140,.25)":"rgba(255,107,107,.25)";
+    ctx.beginPath(); ctx.moveTo(x,yOf(s.high)); ctx.lineTo(x,yOf(s.low)); ctx.stroke();
+    const y1=yOf(Math.max(s.open,s.price)), y2=yOf(Math.min(s.open,s.price));
+    ctx.fillRect(x-cw/2,y1,cw,Math.max(1,y2-y1));
+    ctx.strokeRect(x-cw/2,y1,cw,Math.max(1,y2-y1));
+  }
+
+  const line = (key, color) => {
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath(); let st=false;
+    for (let i=0;i<series.length;i++) {
+      if (series[i][key]==null) continue;
+      const x=xOf(i), y=yOf(series[i][key]);
+      if (!st){ctx.moveTo(x,y);st=true;} else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  };
+  line("blue","#3b82f6"); line("orange","#e08c3f");
+
+  const lvl = (px, color) => {
+    if (px==null) return;
+    ctx.strokeStyle=color; ctx.lineWidth=1.2; ctx.setLineDash([2,3]);
+    ctx.beginPath(); ctx.moveTo(pad.l,yOf(px)); ctx.lineTo(W-pad.r,yOf(px)); ctx.stroke();
+    ctx.setLineDash([]);
+  };
+  lvl(d.levels?.entry,"#34d399"); lvl(d.levels?.stop,"#f87171"); lvl(d.levels?.target,"#e08c3f");
+
+  const mk = d.markers||{};
+  const mark = (rel, symb, color, dy) => {
+    if (rel==null||rel<0||rel>=series.length) return;
+    ctx.fillStyle=color; ctx.font="12px ui-monospace,monospace"; ctx.textAlign="center";
+    ctx.fillText(symb, xOf(rel), yOf(series[rel].price)+(dy||-8));
+  };
+  mark(mk.firstBreak,"◇","#f0b429",-10);
+  if (mk.trig!=null) mark(mk.trig, (d.dir||1)>0?"▼":"▲", (d.dir||1)>0?"#ff6b6b":"#3dd68c",-10);
+  if (mk.tagged!=null) {
+    ctx.fillStyle="#e08c3f"; ctx.beginPath();
+    ctx.arc(xOf(mk.tagged), yOf(series[mk.tagged].price), 4, 0, Math.PI*2); ctx.fill();
+  }
+  mark(mk.stopped,"✕","#ff6b6b",-10);
+
+  canvas.onmousemove = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = ev.clientX - rect.left;
+    const i = Math.round(((mx-pad.l)/plotW)*(series.length-1));
+    if (i<0||i>=series.length) { tip.style.display="none"; return; }
+    const s = series[i];
+    tip.style.display="block"; tip.style.left=Math.min(rect.width-160,Math.max(8,mx+12))+"px"; tip.style.top="12px";
+    tip.innerHTML = `<b>${s.time}</b><br>O ${n(s.open)} H ${n(s.high)}<br>L ${n(s.low)} C ${n(s.price)}<br>
+      <span style="color:#3b82f6">blue ${n(s.blue)}</span><br><span style="color:#e08c3f">orange ${n(s.orange)}</span>`;
+  };
+  canvas.onmouseleave = () => { tip.style.display="none"; };
+}
+
+window.addEventListener("resize", () => {
+  if (selected && chartCache.has(selected)) drawChart(chartCache.get(selected));
+});
+
+document.addEventListener("keydown", e => {
+  if (["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (k==="s") { e.preventDefault(); scan(true); }
+  else if (k==="l") { e.preventDefault(); toggleLive(); }
+  else if (k==="escape") closeChart();
+  else if (/^[1-9]$/.test(k)) {
+    const list = sorted();
+    if (list[+k-1]) selectTicker(list[+k-1].ticker);
+  }
+});
+
+// boot
+(function init() {
+  try {
+    const saved = localStorage.getItem("vwap_blue_proxy");
+    $("myproxy").value = saved || DEFAULT_WORKER;
+  } catch { $("myproxy").value = DEFAULT_WORKER; }
+  $("myproxy").addEventListener("change", () => {
+    try { localStorage.setItem("vwap_blue_proxy", $("myproxy").value||""); } catch {}
+  });
+  // auto-scan on load
+  setTimeout(() => scan(true), 400);
+})();
+</script>
+</body>
+</html>
