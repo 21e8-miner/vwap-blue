@@ -8,6 +8,7 @@ Optional bulk yfinance for pure equity lists when rotate is slow / offline.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -298,11 +299,75 @@ def load_universe(max_n: Optional[int] = None) -> List[str]:
     return tickers[:max_n] if max_n else tickers
 
 
+def session_dollar_volume(df: Optional[pd.DataFrame]) -> float:
+    """
+    Approx session $ volume from the latest calendar day of free bars.
+    Uses sum(Volume × Close) on that day — good enough for liquidity rank/filter.
+    """
+    if df is None or getattr(df, "empty", True):
+        return 0.0
+    try:
+        if not {"Close", "Volume"}.issubset(set(map(str, df.columns))):
+            n = _norm_ohlcv(df)
+        else:
+            n = df
+        if n is None or n.empty:
+            return 0.0
+        ts = pd.to_datetime(n.index, utc=True, errors="coerce")
+        if ts.isna().all():
+            day = n.tail(min(100, len(n)))
+        else:
+            # group by US/Eastern calendar day
+            try:
+                days = ts.tz_convert("America/New_York").date
+            except Exception:
+                days = pd.DatetimeIndex(ts).tz_localize(None).date
+            last = days[-1]
+            mask = [d == last for d in days]
+            day = n.loc[mask]
+            if day is None or len(day) == 0:
+                day = n.tail(min(100, len(n)))
+        c = pd.to_numeric(day["Close"], errors="coerce").fillna(0.0)
+        v = pd.to_numeric(day["Volume"], errors="coerce").fillna(0.0)
+        return float((c * v).sum())
+    except Exception:
+        try:
+            c = pd.to_numeric(df["Close"], errors="coerce").fillna(0.0).tail(100)
+            v = pd.to_numeric(df["Volume"], errors="coerce").fillna(0.0).tail(100)
+            return float((c * v).sum())
+        except Exception:
+            return 0.0
+
+
+def min_dollar_volume_for(ticker: str, override: Optional[float] = None) -> float:
+    """Default liquidity floor. Crypto lower; equities need real session tape."""
+    if override is not None and override >= 0:
+        return float(override)
+    t = (ticker or "").upper()
+    if looks_crypto(t):
+        return 500_000.0  # $0.5M
+    return 2_000_000.0  # $2M session $vol
+
+
+def passes_volume_filter(
+    ticker: str,
+    bars_df: Optional[pd.DataFrame],
+    min_dvol: Optional[float] = None,
+) -> Tuple[bool, float]:
+    """Return (pass, dollar_vol). min_dvol=0 disables floor (still reports dvol)."""
+    dvol = session_dollar_volume(bars_df)
+    floor = min_dollar_volume_for(ticker, min_dvol if min_dvol and min_dvol > 0 else None)
+    if min_dvol is not None and min_dvol <= 0:
+        return True, dvol
+    return dvol >= floor, dvol
+
+
 def rotation_score(row: Dict[str, Any]) -> float:
     """
     Rank candidates for the desk list when scanning a wide pool.
-    Prefers: large |gap|, distance from blue, RVOL, edge, grade A, live_actionable.
-    Penalizes: conflict, regime_block, trend_block, thin samples.
+    Prefers: large |gap|, distance from blue, RVOL, edge, grade A, live_actionable,
+    higher session $ volume (liquidity).
+    Penalizes: conflict, regime_block, trend_block, thin samples, illiquid.
     """
     if not isinstance(row, dict):
         return -1e9
@@ -315,6 +380,10 @@ def rotation_score(row: Dict[str, Any]) -> float:
     grade = str(row.get("grade") or "–")
     gboost = {"A": 25, "LA": 18, "B": 8, "LB": 5, "C": 2, "✕": 0, "–": 0}.get(grade, 0)
     score = gap * 3.0 + d_blue * 1.5 + max(0.0, rvol - 0.8) * 12.0 + edge * 0.35 + gboost
+    # liquidity: log-scale $vol (prefer names with real tape)
+    dvol = float(row.get("dollar_vol") or 0.0)
+    if dvol > 0:
+        score += min(18.0, math.log10(dvol + 1.0) * 2.2)  # ~$10M → ~15 pts
     if row.get("live_actionable"):
         score += 20
     elif row.get("actionable"):
@@ -335,6 +404,8 @@ def rotation_score(row: Dict[str, Any]) -> float:
         score -= 10
     if (row.get("rvol_n") or 0) < 2 and row.get("rvol") is not None:
         score -= 6
+    if row.get("illiquid"):
+        score -= 25
     return score
 
 

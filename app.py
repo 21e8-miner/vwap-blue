@@ -14,7 +14,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from data import batch_fetch, get_provider_status, load_universe, rotation_score
+from data import (
+    batch_fetch,
+    get_provider_status,
+    load_universe,
+    passes_volume_filter,
+    rotation_score,
+)
 from engine import analyze, build_chart_from_row
 from providers import fetch_quote
 
@@ -22,9 +28,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("vwap_blue")
 
 ROOT = Path(__file__).resolve().parent
-APP_VERSION = "1.2.0-blue"
+APP_VERSION = "1.3.0-blue"
 app = FastAPI(title="VWAP Blue", version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
+
+# Scan ~10× more names than the old 48-symbol pool, then volume-filter + rank to max_n.
+POOL_MULT = max(1, int(os.environ.get("VWAP_BLUE_POOL_MULT", "10")))
+# Default $vol floor (equity); crypto uses a lower floor inside passes_volume_filter.
+# Set VWAP_BLUE_MIN_DVOL=0 to disable.
+_DEFAULT_MIN_DVOL = float(os.environ.get("VWAP_BLUE_MIN_DVOL", "2000000"))
 
 _last: Dict[str, Any] = {"ts": 0.0, "rows": [], "meta": {}, "by_ticker": {}}
 _live_lock = threading.Lock()
@@ -36,6 +48,7 @@ _live_cfg: Dict[str, Any] = {
     "actionable_only": False,
     "mode": "hybrid",
     "grade_min": "A",  # desk default: Grade A floor (was C)
+    "min_dvol": _DEFAULT_MIN_DVOL,
 }
 _live_thread: Optional[threading.Thread] = None
 
@@ -72,21 +85,26 @@ one_analyze = _load_one_analyze()
 
 class ScanBody(BaseModel):
     tickers: Optional[List[str]] = None
-    max: int = Field(default=16, ge=1, le=80)
+    max: int = Field(default=16, ge=1, le=200)
     actionable_only: bool = False
     force: bool = False
     mode: str = Field(default="hybrid")
     grade_min: str = Field(default="A")
+    min_dvol: Optional[float] = Field(
+        default=None,
+        description="Session $ volume floor (0=off). Default equity $2M / crypto $0.5M.",
+    )
 
 
 class LiveBody(BaseModel):
     enabled: bool = True
     interval_sec: int = Field(default=45, ge=15, le=300)
-    max: int = Field(default=16, ge=1, le=80)
+    max: int = Field(default=16, ge=1, le=200)
     tickers: Optional[List[str]] = None
     actionable_only: bool = False
     mode: str = "hybrid"
     grade_min: str = "A"
+    min_dvol: Optional[float] = None
 
 
 def _grade_ok(grade: str, floor: str) -> bool:
@@ -161,27 +179,56 @@ def run_scan(
     force: bool = False,
     mode: str = "hybrid",
     grade_min: str = "A",
+    min_dvol: Optional[float] = None,
 ) -> Dict[str, Any]:
     t0 = time.time()
     user_supplied = bool(tickers)
+    full = load_universe()
     if not tickers:
-        # Scan a wider pool, then rotate down to max_n by gap/RVOL/edge
-        pool_n = max(48, max_n * 3)
-        tickers = load_universe(max_n=pool_n)
+        # 10× wider pool than the old max(48, max×3) path — full book when possible
+        pool_n = min(len(full), max(48 * POOL_MULT, max_n * max(3, POOL_MULT)))
+        tickers = full[:pool_n]
     else:
-        tickers = [t.strip().upper() for t in tickers if t.strip()][: max(max_n, 40)]
+        # User list: honor order, allow wide paste (cap high so custom books work)
+        tickers = [t.strip().upper() for t in tickers if t.strip()][: max(max_n * POOL_MULT, 80)]
 
     mode = (mode or "hybrid").lower()
     if mode not in ("rotate", "hybrid", "yfinance"):
         mode = "hybrid"
 
+    if min_dvol is None:
+        min_dvol = _live_cfg.get("min_dvol", _DEFAULT_MIN_DVOL)
+
     bars, daily, bar_prov, live, quote_meta = batch_fetch(
         tickers, force=force, mode=mode,
     )
 
+    # Liquidity gate: drop thin-tape names before full engine work
+    liquid: List[str] = []
+    dvol_map: Dict[str, float] = {}
+    vol_dropped = 0
+    for t in tickers:
+        bdf = bars.get(t)
+        ok, dvol = passes_volume_filter(t, bdf, min_dvol=min_dvol)
+        dvol_map[t] = dvol
+        if bdf is None:
+            liquid.append(t)  # surface fetch errors in results
+        elif ok:
+            liquid.append(t)
+        else:
+            vol_dropped += 1
+
+    # If the floor was too aggressive, fall back to top $vol so desk never goes empty
+    if len([t for t in liquid if bars.get(t) is not None]) < max(8, max_n) and dvol_map:
+        ranked = sorted(tickers, key=lambda t: dvol_map.get(t, 0.0), reverse=True)
+        keep_n = min(len(ranked), max(max_n * 4, 64))
+        liquid = ranked[:keep_n]
+        vol_dropped = max(0, len(tickers) - len(liquid))
+        log.info("volume floor relaxed → top-%s by $vol", keep_n)
+
     rows: List[Dict[str, Any]] = []
     by_ticker: Dict[str, Dict[str, Any]] = {}
-    for t in tickers:
+    for t in liquid:
         qm = quote_meta.get(t) or {}
         row = analyze(
             t,
@@ -192,6 +239,10 @@ def run_scan(
             quote_provider=qm.get("provider"),
             quote_latency_ms=qm.get("latency_ms"),
         )
+        dvol = float(dvol_map.get(t, 0.0) or 0.0)
+        row["dollar_vol"] = round(dvol, 0) if dvol else 0
+        floor = float(min_dvol) if min_dvol and min_dvol > 0 else 0.0
+        row["illiquid"] = bool(floor > 0 and dvol > 0 and dvol < floor)
         _apply_one_conflict(row, bars, daily, live, bar_prov, quote_meta)
         by_ticker[t] = row
         # strip heavy chart blob from table payload (kept in by_ticker)
@@ -205,19 +256,17 @@ def run_scan(
         gm = grade_min.upper()
         rows = [r for r in rows if _grade_ok(r.get("grade") or "–", gm)]
 
-    # Rotation: gappers / high |dev| / RVOL / edge first, then hard-cap max_n for auto universe
+    # Rotation: gappers / high |dev| / RVOL / $vol / edge first, then hard-cap max_n
     rows.sort(
         key=lambda r: (
             r.get("_rot") or 0,
             r.get("edge") or 0,
+            r.get("dollar_vol") or 0,
             GRADE_RANK.get(r.get("grade") or "–", -1),
         ),
         reverse=True,
     )
-    if not user_supplied:
-        rows = rows[:max_n]
-    else:
-        rows = rows[:max_n]
+    rows = rows[:max_n]
 
     for r in rows:
         r.pop("_rot", None)
@@ -241,21 +290,26 @@ def run_scan(
         "regime_counts": regimes,
         "grade_min": grade_min,
         "pool_scanned": len(tickers),
+        "pool_liquid": len(liquid),
+        "volume_dropped": vol_dropped,
+        "min_dvol": min_dvol,
+        "pool_mult": POOL_MULT,
         "version": APP_VERSION,
         "mode": mode,
         "providers_used": provs,
         "elapsed_sec": round(time.time() - t0, 2),
         "asof": time.strftime("%Y-%m-%d %H:%M:%S"),
         "live": bool(_live_cfg.get("enabled")),
-        "engine": "blueline dual VWAP · KER regime · VW-σ adaptive · One conflict",
+        "engine": "blueline dual VWAP · KER regime · VW-σ adaptive · 10× pool · $vol filter · One conflict",
     }
     _last["ts"] = time.time()
     _last["rows"] = rows
     _last["meta"] = meta
     _last["by_ticker"] = by_ticker
     log.info(
-        "scan ok n=%s A=%s conflicts=%s regimes=%s feeds=%s in %.2ss",
-        meta["count"], meta["grade_a"], meta["conflicts"], regimes, provs, meta["elapsed_sec"],
+        "scan ok n=%s pool=%s liquid=%s drop_vol=%s A=%s conflicts=%s feeds=%s in %.2ss",
+        meta["count"], meta["pool_scanned"], meta["pool_liquid"], vol_dropped,
+        meta["grade_a"], meta["conflicts"], provs, meta["elapsed_sec"],
     )
     return {"results": rows, "meta": meta}
 
@@ -272,8 +326,12 @@ def _live_loop() -> None:
             actionable_only = bool(_live_cfg.get("actionable_only"))
             mode = str(_live_cfg.get("mode") or "hybrid")
             grade_min = str(_live_cfg.get("grade_min") or "A")
+            min_dvol = _live_cfg.get("min_dvol", _DEFAULT_MIN_DVOL)
         try:
-            run_scan(tickers, max_n, actionable_only, force=True, mode=mode, grade_min=grade_min)
+            run_scan(
+                tickers, max_n, actionable_only, force=True,
+                mode=mode, grade_min=grade_min, min_dvol=min_dvol,
+            )
         except Exception as e:
             log.exception("live scan failed: %s", e)
         for _ in range(interval):
@@ -302,12 +360,13 @@ def _boot_live_party() -> None:
     with _live_lock:
         _live_cfg["enabled"] = True
         _live_cfg["interval_sec"] = max(15, min(300, interval))
-        _live_cfg["max"] = max(1, min(80, max_n))
+        _live_cfg["max"] = max(1, min(200, max_n))
         _live_cfg["mode"] = mode if mode in ("hybrid", "rotate", "yfinance") else "hybrid"
         _live_cfg["grade_min"] = grade_min
+        _live_cfg["min_dvol"] = _DEFAULT_MIN_DVOL
     log.info(
-        "party live ON interval=%ss mode=%s grade_min=%s",
-        _live_cfg["interval_sec"], _live_cfg["mode"], grade_min,
+        "party live ON interval=%ss mode=%s grade_min=%s pool_mult=%s min_dvol=%s",
+        _live_cfg["interval_sec"], _live_cfg["mode"], grade_min, POOL_MULT, _DEFAULT_MIN_DVOL,
     )
     _ensure_live_thread()
     try:
@@ -354,20 +413,25 @@ def scan_post(body: ScanBody):
     return run_scan(
         body.tickers, body.max, body.actionable_only,
         force=body.force, mode=body.mode, grade_min=body.grade_min,
+        min_dvol=body.min_dvol,
     )
 
 
 @app.get("/api/scan")
 def scan_get(
     tickers: Optional[str] = Query(None),
-    max: int = Query(16, ge=1, le=80),
+    max: int = Query(16, ge=1, le=200),
     actionable_only: bool = False,
     force: bool = False,
     mode: str = Query("hybrid"),
     grade_min: str = Query("A"),
+    min_dvol: Optional[float] = Query(None),
 ):
     tlist = [x.strip() for x in tickers.split(",")] if tickers else None
-    return run_scan(tlist, max, actionable_only, force=force, mode=mode, grade_min=grade_min)
+    return run_scan(
+        tlist, max, actionable_only, force=force, mode=mode,
+        grade_min=grade_min, min_dvol=min_dvol,
+    )
 
 
 @app.get("/api/last")
@@ -389,13 +453,19 @@ def live_set(body: LiveBody):
         _live_cfg["actionable_only"] = bool(body.actionable_only)
         _live_cfg["mode"] = body.mode or "hybrid"
         _live_cfg["grade_min"] = body.grade_min or "A"
+        if body.min_dvol is not None:
+            _live_cfg["min_dvol"] = body.min_dvol
         enabled = _live_cfg["enabled"]
         mode = _live_cfg["mode"]
         grade_min = _live_cfg["grade_min"]
+        min_dvol = _live_cfg.get("min_dvol", _DEFAULT_MIN_DVOL)
     if enabled:
         _ensure_live_thread()
         try:
-            run_scan(body.tickers, body.max, body.actionable_only, force=True, mode=mode, grade_min=grade_min)
+            run_scan(
+                body.tickers, body.max, body.actionable_only, force=True,
+                mode=mode, grade_min=grade_min, min_dvol=min_dvol,
+            )
         except Exception as e:
             log.warning("immediate live scan: %s", e)
     return {"ok": True, "live": enabled, "cfg": dict(_live_cfg)}
@@ -449,7 +519,8 @@ def critique():
             "Kaufman Efficiency Ratio regime gate: pure gap-fades suppressed in trend; multi-day reclaim kept.",
             "Adaptive band width (chop widens / trend tightens) inspired by Modern VWAP [GBB].",
             "Desk default grade ≥ A; thin RVOL samples demoted; One opposite-side → conflict demotion.",
-            "Universe rotation: scan wide pool, rank by |gap|×RVOL×edge, show top N.",
+            "10× universe pool (~480 names) with session $ volume filter ($2M equity / $0.5M crypto default).",
+            "Rank by |gap|×RVOL×edge×$vol, show top N; thin tape demoted before the desk list.",
             "Signals only in premarket + RTH (Blueline hygiene); crypto 24/7 path kept separate.",
             "Auditable feeds per row; never fabricates prices.",
         ],
@@ -457,6 +528,8 @@ def critique():
             "Walk-forward grid exists (walkforward.py) but is research — not auto-tuned live params.",
             "Orange anchor depends on clean multi-session bars — thin free history can mis-anchor.",
             "RVOL still n≤~6 free sessions max on 1m (Yahoo 8d hard-cap).",
+            "Session $vol filter uses free bar Volume×Close — not exchange ADV; premarket can understate.",
+            "Full 10× pool fetch is slower on cold cache; hybrid yfinance bulk helps equities.",
             "One conflict uses free delayed bars; disagreement can be noise.",
             "Free APIs delay/disagree; hybrid yfinance vs OKX clocks differ.",
             "Paper book is client-side only (session memory) — not a broker.",
@@ -489,8 +562,9 @@ def critique():
 
 
 @app.get("/api/universe")
-def universe(max: int = Query(40, ge=1, le=80)):
-    return {"tickers": load_universe(max_n=max)}
+def universe(max: int = Query(480, ge=1, le=600)):
+    u = load_universe(max_n=max)
+    return {"tickers": u, "count": len(u), "pool_mult": POOL_MULT, "min_dvol": _DEFAULT_MIN_DVOL}
 
 
 if __name__ == "__main__":

@@ -171,7 +171,7 @@
   <header>
     <h1><span class="live-dot" id="dot"></span>VWAP Blue <em>blue · orange · KER regime · grade A desk</em></h1>
     <input id="tickers" type="text" placeholder="blank = rotated universe" />
-    <input id="max" type="number" value="16" min="1" max="80" title="max" />
+    <input id="max" type="number" value="16" min="1" max="200" title="show top N after rank" />
     <select id="mode" title="data mode">
       <option value="hybrid" selected>hybrid</option>
       <option value="rotate">rotate only</option>
@@ -182,6 +182,8 @@
       <option value="B">grade ≥ B</option>
       <option value="C">grade ≥ C</option>
     </select>
+    <input id="minDvol" type="number" value="2" min="0" max="500" step="0.5" title="min session $vol (millions). 0 = off" style="width:64px" />
+    <span class="m" style="font-size:.72rem" title="Session $ volume floor in $M (equity). Crypto uses $0.5M floor unless 0.">$M vol</span>
     <label class="chk"><input type="checkbox" id="actOnly" /> actionable</label>
     <button id="btn" onclick="scan(true)">Scan</button>
     <button class="live" id="liveBtn" type="button" onclick="toggleLive()">Live off</button>
@@ -300,13 +302,24 @@
       box.style.display = 'block';
     }
 
+    function minDvolPayload() {
+      const m = parseFloat($('minDvol')?.value);
+      if (!Number.isFinite(m) || m < 0) return undefined;
+      return m * 1e6; // UI is $M
+    }
+
     function applyData(data, rtt) {
       rows = data.results || [];
       const m = data.meta || {};
       const prov = (m.providers_used||[]).join(', ') || '—';
       const reg = m.regime_counts ? Object.entries(m.regime_counts).map(([k,v])=>`${k}:${v}`).join(' ') : '';
+      const dvolM = m.min_dvol != null ? (m.min_dvol / 1e6) : null;
       $('meta').innerHTML =
-        `<b>${m.count ?? rows.length}</b> shown · pool <b>${m.pool_scanned||'—'}</b> · ` +
+        `<b>${m.count ?? rows.length}</b> shown · pool <b>${m.pool_scanned||'—'}</b>` +
+        (m.pool_liquid!=null ? ` · liquid <b>${m.pool_liquid}</b>` : '') +
+        (m.volume_dropped!=null ? ` · vol-drop <b>${m.volume_dropped}</b>` : '') +
+        (dvolM!=null ? ` · floor <b>$${dvolM}M</b>` : '') +
+        ` · ` +
         `<b>${m.actionable||0}</b> actionable · <b>${m.live_actionable||0}</b> live · ` +
         `<b>${m.grade_a||0}</b> grade A · conflicts <b>${m.conflicts||0}</b> · ` +
         `floor <b>${m.grade_min||'A'}</b> · v${m.version||''} · <b>${m.mode||'—'}</b> · feeds <b>${prov}</b> · ` +
@@ -327,6 +340,7 @@
         force: !!force,
         mode: $('mode').value || 'hybrid',
         grade_min: $('gradeMin').value || 'A',
+        min_dvol: minDvolPayload(),
       };
       if (raw) body.tickers = raw.split(/[,\s]+/).filter(Boolean);
       try {
@@ -362,6 +376,7 @@
         actionable_only: $('actOnly').checked,
         mode: $('mode').value || 'hybrid',
         grade_min: $('gradeMin').value || 'A',
+        min_dvol: minDvolPayload(),
       };
       if (raw) body.tickers = raw.split(/[,\s]+/).filter(Boolean);
       await fetch('/api/live', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });

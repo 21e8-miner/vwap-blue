@@ -141,7 +141,7 @@
   <header>
     <h1><span class="live-dot" id="dot"></span>VWAP Blue <em>v1.2 · blue · orange · KER · grade desk</em></h1>
     <input id="tickers" type="text" placeholder="blank = universe" />
-    <input id="max" type="number" value="16" min="1" max="80" title="max" />
+    <input id="max" type="number" value="16" min="1" max="200" title="show top N after rank" />
     <select id="mode" title="data mode">
       <option value="hybrid" selected>hybrid</option>
       <option value="rotate">rotate only</option>
@@ -152,6 +152,8 @@
       <option value="B">grade ≥ B</option>
       <option value="C">grade ≥ C</option>
     </select>
+    <input id="minDvol" type="number" value="2" min="0" max="500" step="0.5" title="min session $vol ($M). 0=off" style="width:64px" />
+    <span style="color:var(--m);font-size:.72rem" title="Session $ volume floor in millions">$M vol</span>
     <label class="chk"><input type="checkbox" id="actOnly" /> actionable</label>
     <button id="btn" onclick="scan(true)">Scan</button>
     <button class="live" id="liveBtn" type="button" onclick="toggleLive()">Live off</button>
@@ -691,6 +693,12 @@ function analyze(sym, bars, provider) {
   const focusBars = bars.slice(i0, iN+1);
   const rel = idx => idx==null ? null : idx - i0;
 
+  // session $ volume (last day bars)
+  let dollarVol = 0;
+  if (i0 >= 0 && iN >= i0) {
+    for (let i = i0; i <= iN; i++) dollarVol += (bars[i].c || 0) * (bars[i].v || 0);
+  }
+
   return {
     ticker: sym, provider, price, blue, orange, sigma,
     dist_std: dist!=null ? +dist.toFixed(2) : null,
@@ -701,6 +709,7 @@ function analyze(sym, bars, provider) {
     rvol: rvol!=null ? +rvol.toFixed(3) : null,
     rvol_n: rvolN,
     session_n: sessionN,
+    dollar_vol: Math.round(dollarVol),
     fakes: st.fake, late: st.late, actionable, live_actionable: actionable,
     note: state,
     _chart: {
@@ -793,39 +802,60 @@ async function scan(force=true) {
   const raw = $("tickers").value.trim();
   let list = raw ? raw.split(/[,\s]+/).filter(Boolean).map(s=>s.toUpperCase()) : UNIVERSE.slice();
   const max = +$("max").value || 16;
-  list = list.slice(0, max);
+  // 10× pool vs show-N (capped at universe); volume filter ranks down to max
+  const poolN = Math.min(list.length, Math.max(max * 10, 160));
+  list = list.slice(0, poolN);
+  const minDvolM = parseFloat($("minDvol")?.value);
+  const minDvol = Number.isFinite(minDvolM) && minDvolM > 0 ? minDvolM * 1e6 : 0;
   const t0 = performance.now();
   const out = [];
-  const conc = 4;
+  const conc = 6;
   let i = 0;
   async function worker() {
     while (i < list.length) {
       const sym = list[i++];
       try { out.push(await scanOne(sym)); }
-      catch (e) { out.push({ ticker:sym, error:String(e.message||e), edge:0, signal:"FLAT", grade:"–" }); }
-      $("meta").innerHTML = `Scanning <b>${out.length}/${list.length}</b>…`;
+      catch (e) { out.push({ ticker:sym, error:String(e.message||e), edge:0, signal:"FLAT", grade:"–", dollar_vol:0 }); }
+      $("meta").innerHTML = `Scanning <b>${out.length}/${list.length}</b> (10× pool)…`;
     }
   }
   await Promise.all(Array.from({length: Math.min(conc, list.length)}, worker));
   const floor = $("gradeMin")?.value || "A";
   const mode = $("mode")?.value || "hybrid";
-  rows = out.filter(r => !r.error && passesGradeFloor(r.grade, floor));
-  if ($("actOnly").checked) rows = rows.filter(r => r.actionable);
-  // keep errors visible only when nothing passes grade floor and no filter
-  if (!rows.length) {
-    rows = out.filter(r => r.error);
+  let pool = out.filter(r => !r.error);
+  let volDrop = 0;
+  if (minDvol > 0) {
+    const kept = pool.filter(r => (r.dollar_vol || 0) >= minDvol);
+    volDrop = pool.length - kept.length;
+    // if too aggressive, keep top half by $vol
+    if (kept.length < Math.max(8, max)) {
+      pool = [...pool].sort((a,b)=>(b.dollar_vol||0)-(a.dollar_vol||0)).slice(0, Math.max(max * 4, 64));
+      volDrop = Math.max(0, out.filter(r=>!r.error).length - pool.length);
+    } else {
+      pool = kept;
+    }
   }
-  rows.sort((a,b)=>(b.edge||0)-(a.edge||0));
+  rows = pool.filter(r => passesGradeFloor(r.grade, floor));
+  if ($("actOnly").checked) rows = rows.filter(r => r.actionable);
+  if (!rows.length) rows = out.filter(r => r.error);
+  rows.sort((a,b)=>{
+    const de = (b.edge||0)-(a.edge||0);
+    if (de) return de;
+    return (b.dollar_vol||0)-(a.dollar_vol||0);
+  });
+  const liquidN = pool.length;
+  rows = rows.slice(0, max);
   const feeds = [...new Set(out.map(r=>r.provider).filter(Boolean))];
   const aN = rows.filter(r=>r.actionable).length;
   const aG = rows.filter(r=>(r.grade||"").includes("A")).length;
   $("meta").innerHTML =
-    `<b>${rows.length}</b> shown · pool <b>${out.length}</b> · <b>${aN}</b> actionable · <b>${aG}</b> grade A · ` +
-    `floor <b>${floor}</b> · <b>${mode}</b> · feeds <b>${feeds.join(", ")||"—"}</b> · ` +
-    `<b>${((performance.now()-t0)/1000).toFixed(1)}s</b> · ${new Date().toLocaleTimeString()} · ` +
-    `<span class="src">blue=day · orange=anchor · grade filter</span>`;
+    `<b>${rows.length}</b> shown · pool <b>${out.length}</b> · liquid <b>${liquidN}</b>` +
+    (volDrop ? ` · vol-drop <b>${volDrop}</b>` : "") +
+    (minDvol ? ` · floor <b>$${(minDvol/1e6)}M</b>` : "") +
+    ` · <b>${aN}</b> actionable · <b>${aG}</b> grade A · grade <b>${floor}</b> · <b>${mode}</b> · ` +
+    `feeds <b>${feeds.join(", ")||"—"}</b> · <b>${((performance.now()-t0)/1000).toFixed(1)}s</b> · ` +
+    `${new Date().toLocaleTimeString()} · <span class="src">10× pool · $vol filter</span>`;
   $("footProv").textContent = "proxies: " + (proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public");
-  // refresh open Providers panel if visible
   if ($("provBox").style.display === "block") {
     $("provBox").style.display = "none";
     loadProviders();

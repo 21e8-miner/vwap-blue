@@ -19,6 +19,7 @@ Full live desk (1m hybrid feeds, live loop, chart pane) runs locally on `:8791`.
 | **VWAP One** | Scanner left · chart right, free multi-provider rotate, live loop, edge rank |
 | **Blueline** | Blue day VWAP ± volume-weighted σ · orange prior-day anchor · gap MR · grades |
 | **v1.2** | KER regime gate · adaptive σ mult · grade A desk default · universe rotation · One conflict demotion · partial/time-stop backtest · walk-forward grid |
+| **v1.3** | **10× scan pool** (~480 names) · session **$ volume filter** ($2M equity / $0.5M crypto) · rank by gap×RVOL×edge×$vol |
 
 ## Run (local full desk)
 
@@ -35,6 +36,8 @@ Env:
 - `VWAP_BLUE_LIVE_SEC=45` — scan interval
 - `VWAP_BLUE_PORT=8791`
 - `VWAP_BLUE_GRADE_MIN=A` — desk grade floor (default A)
+- `VWAP_BLUE_POOL_MULT=10` — universe pool multiplier (was effectively ~3× / 48 names)
+- `VWAP_BLUE_MIN_DVOL=2000000` — equity session $ volume floor (`0` = off; crypto default $0.5M)
 
 ## Thesis
 
