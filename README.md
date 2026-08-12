@@ -20,6 +20,7 @@ Full live desk (1m hybrid feeds, live loop, chart pane) runs locally on `:8791`.
 | **Blueline** | Blue day VWAP ± volume-weighted σ · orange prior-day anchor · gap MR · grades |
 | **v1.2** | KER regime gate · adaptive σ mult · grade A desk default · universe rotation · One conflict demotion · partial/time-stop backtest · walk-forward grid |
 | **v1.3** | **10× scan pool** (~480 names) · session **$ volume filter** ($2M equity / $0.5M crypto) · rank by gap×RVOL×edge×$vol |
+| **v1.3.1** | Prefix-honest session replay · **mdrev-in-chop demoted** off A desk |
 
 ## Run (local full desk)
 
@@ -53,28 +54,37 @@ bars **beyond blue by adaptive volume-weighted σ** → **confirm**. Target
 ## Research tools
 
 ```bash
-# Session backtest (partial 1R + trail + time-stop)
-python3 backtest_today_scans.py
-python3 backtest_today_scans.py --blue-only --grade-min A --model partial_trail
-python3 backtest_today_scans.py --model classic
+# Prefix-honest multi-session replay (matches live 5m desk, ~1mo)
+python3 replay_sessions.py --max-tickers 96 --grade-min A
+
+# Same-day leftover-bar check (thin n — do not use for expectancy)
+python3 backtest_today_scans.py --blue-only --grade-min A --model classic
 
 # Parameter grid on current free bars
 python3 walkforward.py --quick
 python3 walkforward.py --max-tickers 20
 ```
 
-Sample snapshot (session `2026-08-11`, grade ≥ A, `partial_trail`):
+Honest snapshot (`replay_sessions.py`, 96 names, 5m, 22 sessions
+2026-07-14 → 2026-08-12, grade ≥ A **at the trigger bar**, hold to cash close):
 
-| metric | value |
-|--------|------:|
-| n | 10 |
-| win rate | 40% |
-| avg R | −0.18 |
-| avg MFE R | 1.23 |
-| exits | 7 stop / 3 partial target |
+| book | n | win | avg R | sum R |
+|------|--:|----:|------:|------:|
+| all setups · classic | 419 | 44% | **+0.22** | +93 |
+| all setups · time-stop 2h | 419 | 44% | **+0.23** | +96 |
+| all setups · desk `partial_trail` | 419 | 56% | +0.16 | +67 |
+| **gap + both only · time_24** | 246 | 44% | **+0.34** | +83 |
+| **gap + both only · classic** | 246 | 44% | **+0.33** | +82 |
+| mdrev · chop only · classic | 107 | 38% | **−0.10** | — |
 
-Raw JSON: [`research/backtest_2026-08-11.json`](research/backtest_2026-08-11.json),
-[`research/walkforward_2026-08-11.json`](research/walkforward_2026-08-11.json).
+Taking profits earlier (full 1R / 0.75R / giveback-50) **raises win rate and
+lowers expectancy** — the right tail that tags orange (~1.7R avg win) is what
+pays for the stops. The leak is dead mdrev-in-chop, not slow targets.
+
+Same-day leftover-bar scans (old `backtest_today_scans.py`) can print −0.18R
+on n=10. That is not a month of trades.
+
+Raw JSON: [`research/replay_2026-08-12.json`](research/replay_2026-08-12.json).
 
 ## History / RVOL
 
@@ -91,8 +101,8 @@ static/index.html   # full local desk UI (served by app.py)
 app.py              # FastAPI · live loop · :8791
 engine.py           # dual VWAP + KER + grades
 providers.py / data.py
-backtest_today_scans.py · walkforward.py
-research/           # sample backtest / walk-forward JSON
+backtest_today_scans.py · walkforward.py · replay_sessions.py
+research/           # sample backtest / session-replay JSON
 ```
 
 Research only. Free feeds delay. Not financial advice.

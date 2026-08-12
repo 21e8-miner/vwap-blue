@@ -1068,6 +1068,17 @@ def analyze(
             grade = "B" if grade == "A" else "LB"
         edge = max(0, edge - 8)
 
+    # Replay 2026-08-12: pure mdrev in chop is −0.10R (n=107). Gap/both keep.
+    # Mixed-regime mdrev was +0.43R — leave those on the A desk.
+    if (
+        st.get("setup_mode") == "mdrev"
+        and regime == "chop"
+        and grade in ("A", "LA")
+    ):
+        grade = "B" if grade == "A" else "LB"
+        st["mdrev_chop_demote"] = True
+        edge = max(0, edge - 10)
+
     has_trig = st["trig"] is not None or st.get("md_trig") is not None
     plan_ok = _geom_ok(side, st.get("entry"), st.get("stopPx"), st.get("target"))
     # Desk default: only A/LA are "actionable" quality; B still visible when grade_min allows

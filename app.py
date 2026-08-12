@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("vwap_blue")
 
 ROOT = Path(__file__).resolve().parent
-APP_VERSION = "1.3.0-blue"
+APP_VERSION = "1.3.1-blue"
 app = FastAPI(title="VWAP Blue", version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
@@ -519,12 +519,14 @@ def critique():
             "Kaufman Efficiency Ratio regime gate: pure gap-fades suppressed in trend; multi-day reclaim kept.",
             "Adaptive band width (chop widens / trend tightens) inspired by Modern VWAP [GBB].",
             "Desk default grade ≥ A; thin RVOL samples demoted; One opposite-side → conflict demotion.",
+            "Pure multi-day reverse in chop is demoted off the A desk (replay: −0.10R n=107). Gap / both kept.",
             "10× universe pool (~480 names) with session $ volume filter ($2M equity / $0.5M crypto default).",
             "Rank by |gap|×RVOL×edge×$vol, show top N; thin tape demoted before the desk list.",
             "Signals only in premarket + RTH (Blueline hygiene); crypto 24/7 path kept separate.",
             "Auditable feeds per row; never fabricates prices.",
         ],
         "strawman": [
+            "Session replay (replay_sessions.py) is research — live params are not auto-tuned from it.",
             "Walk-forward grid exists (walkforward.py) but is research — not auto-tuned live params.",
             "Orange anchor depends on clean multi-session bars — thin free history can mis-anchor.",
             "RVOL still n≤~6 free sessions max on 1m (Yahoo 8d hard-cap).",
