@@ -901,6 +901,26 @@ def analyze(
     now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """`now` (tz-aware) fixes the session clock for live_actionable; default is the wall clock."""
+    return analyze_bars(ticker, _prep_bars(bars_df), daily, live_price, bar_provider, quote_provider,
+                        quote_latency_ms, opts, now)
+
+
+def analyze_bars(
+    ticker: str,
+    bars: List[Dict[str, Any]],
+    daily: Optional[pd.DataFrame] = None,
+    live_price: Optional[float] = None,
+    bar_provider: Optional[str] = None,
+    quote_provider: Optional[str] = None,
+    quote_latency_ms: Optional[float] = None,
+    opts: Optional[Dict[str, Any]] = None,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """
+    analyze() on bars already through _prep_bars. The replay parses a ticker's frame once and grades
+    each prefix as the desk saw it, analyze_bars(t, bars[:n]), instead of re-parsing it for every bar.
+    The bar dicts are not modified (they come back, shared, in _chart.bars).
+    """
     t = ticker.upper().strip()
     is_crypto = _is_crypto(t)
     sess = _session_label(is_crypto, now)
@@ -938,7 +958,6 @@ def analyze(
         "is_crypto": is_crypto,
     }
 
-    bars = _prep_bars(bars_df)
     if len(bars) < 20:
         return {**base, "error": "insufficient bars", "edge": 0, "signal": "FLAT", "grade": "–"}
 
@@ -947,7 +966,8 @@ def analyze(
         # crypto single continuous session — synthesize prior window
         if is_crypto and len(bars) >= 40:
             mid = len(bars) // 2
-            # fake day split
+            # fake day split (on copies: the caller's bars may be shared)
+            bars = [dict(b) for b in bars]
             for i, b in enumerate(bars):
                 b["d"] = "D0" if i < mid else "D1"
                 b["mins"] = (i % 390) + RTH_OPEN_M  # synthetic RTH mins

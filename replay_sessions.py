@@ -7,18 +7,26 @@ this:
 
   · fetches the same 5m hybrid book the live desk uses (~1mo free)
   · treats each ET session as its own trade day
-  · finds the engine trigger on that day's prefix (no future days)
-  · re-scores grade / regime / blocks at the trigger bar (no EOD look-ahead)
+  · grades every bar of the session on the prefix ending at that bar, as the desk saw it then,
+    and trades the first bar whose row is tradeable with its trigger on that bar (one trade per
+    name and session). Until 2026-10-04 the trigger came from the end-of-day row and was then
+    re-graded at its bar, which leaked: before 09:30 a gap's fade side is provisional, and an
+    end-of-day gap trigger hid an earlier multi-day reverse the desk had shown live
+    (causal_check.py replays that search on the same bars)
   · enters on the bar AFTER the trigger (next open + slippage) by default; the trigger-bar
     close the engine prints is not a fillable price on a delayed free feed
     (`--entry trigger_close` reproduces the old optimistic fill)
-  · holds only to that session's last bar — no overnight
+  · holds to the session's close, no overnight: equities flatten at the 16:00 close and
+    after-hours prints fill no entry, stop or target; crypto's session is the whole ET day
+    (exit model classic_after_hours keeps the old equity hold, to the last after-hours bar)
   · runs several exit models against the same entries
   · reports R net of round-trip costs (cost / risk, per trade) and a session-clustered
     standard error: trades on the same session share the tape, so 400 trades from 22
     sessions are about 22 independent draws, not 400 (see honest.py)
 
   python3 replay_sessions.py --max-tickers 96 --grade-min A
+  python3 replay_sessions.py --save-bars data/backtests/equity_bars.pkl   # keep the fetch for re-runs
+  python3 replay_sessions.py --bars data/backtests/equity_bars.pkl        # replay a cached fetch
   python3 replay_sessions.py --rescore research/replay_2026-08-12.json   # honest stats for a saved run
 
 Research only. Free delayed data. Not trade advice.
@@ -28,19 +36,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import pickle
 import time
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 
+import engine
 from data import batch_fetch, load_universe, passes_volume_filter
-from engine import ENGINE_VERSION, analyze
+from engine import CRYPTO_CLOSE_M, ENGINE_VERSION, RTH_CLOSE_M
 from honest import COST, clustered, cost_r, fmt_stat, net_r, segments, verdict
 
 ET = ZoneInfo("America/New_York")
@@ -49,6 +61,9 @@ OUT_DIR = HERE / "data" / "backtests"
 RESEARCH = HERE / "research"
 
 GRADE_OK = {"A", "LA"}
+
+# The engine module replay() grades with; replay_crypto.load_engine swaps in another engine file.
+ENGINE = engine
 
 
 @dataclass
@@ -62,6 +77,7 @@ class ExitModel:
     time_stop_bars: Optional[int] = None
     time_stop_min_r: float = 0.5
     flatten_at_r: Optional[float] = None   # full flatten at this R (no runner)
+    after_hours: bool = False              # equities: hold past 16:00 to the day's last after-hours bar
 
 
 MODELS: List[ExitModel] = [
@@ -74,6 +90,8 @@ MODELS: List[ExitModel] = [
     ExitModel(name="partial_075_be", partial_r=0.75, trail_be=True),
     ExitModel(name="partial_075_gb50", partial_r=0.75, trail_be=True, giveback=0.50),
     ExitModel(name="time_24", time_stop_bars=24),
+    # the replay's equity hold until 2026-10-04 (to ~19:55 ET), kept as a sensitivity; crypto: = classic
+    ExitModel(name="classic_after_hours", after_hours=True),
 ]
 
 
@@ -132,24 +150,47 @@ def _session_days(df: pd.DataFrame) -> List[date]:
     return sorted(set(idx.date))
 
 
-def _bar_ms(ts) -> int:
-    t = pd.Timestamp(ts)
-    return int(t.timestamp() * 1000)
+def complete_sessions(bars: Dict[str, Any], through: date) -> Dict[str, Any]:
+    """Drop every bar after `through` (ET): the replay holds to a session's close, so it must be final."""
+    out = {}
+    for t, df in bars.items():
+        if df is None or df.empty:
+            continue
+        cut = df.loc[_et_index(df).date <= through]
+        if len(cut):
+            out[t] = cut
+    return out
 
 
-def _prefix_through(df: pd.DataFrame, day: date, until_ts_ms: Optional[int] = None) -> pd.DataFrame:
-    idx = _et_index(df)
-    mask = np.array([d <= day for d in idx.date])
-    out = df.loc[mask]
-    if until_ts_ms is None or out.empty:
-        return out
-    ms = np.array([_bar_ms(ts) for ts in out.index])
-    return out.loc[ms <= int(until_ts_ms)]
+def engine_api(eng=None) -> Tuple[Callable[..., List[Dict[str, Any]]], Callable[..., Dict[str, Any]]]:
+    """
+    (prep, grade) for an engine module: prep(df) parses a frame once, grade(ticker, bars, ...) is analyze()
+    on bars it parsed. An engine file older than analyze_bars (a paired replay of an old version) gets its
+    analyze() handed the parsed bars through _prep_bars.
+    """
+    eng = eng or ENGINE
+    prep = eng._prep_bars
+    if hasattr(eng, "analyze_bars"):
+        return prep, eng.analyze_bars
+
+    def grade(ticker: str, bars: List[Dict[str, Any]], **kw: Any) -> Dict[str, Any]:
+        eng._prep_bars = lambda _df: bars
+        try:
+            return eng.analyze(ticker, None, **kw)
+        finally:
+            eng._prep_bars = prep
+    return prep, grade
 
 
-def _day_slice(df: pd.DataFrame, day: date) -> pd.DataFrame:
-    idx = _et_index(df)
-    return df.loc[idx.date == day]
+def session_bars(ticker: str, day: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    One ET day's bars up to the replay's flat time. Equities stop at the 16:00 close (the last bar is the
+    15:55 bar, whose close is the closing print), so after-hours prints fill no entry, stop or target.
+    Crypto's session is the whole ET day (engine v1.5.0).
+    """
+    close_m = CRYPTO_CLOSE_M if _is_crypto(ticker) else RTH_CLOSE_M
+    end = next((i for i, b in enumerate(day) if b["mins"] >= close_m), len(day))
+    return day[:end]
 
 
 def _tradeable(row: Dict[str, Any], grade_min: str) -> bool:
@@ -390,6 +431,72 @@ def _pack(trades: List[Trade]) -> Dict[str, Any]:
     }
 
 
+def trades_at(
+    t: str,
+    row: Dict[str, Any],
+    day: List[Dict[str, Any]],
+    k: int,
+    models: List[ExitModel],
+    entry_mode: str = "next_open",
+    slip_bps: float = 2.0,
+    dollar_vol: float = 0.0,
+    grade_eod: str = "",
+) -> Tuple[List[Trade], str]:
+    """
+    The trades a decision-time row makes, one per exit model, for its trigger on bar k of `day` (that ET
+    day's bars): filled within the session (session_bars) and held to its close, or to the day's last bar
+    for an after_hours model. ([], why) when the entry cannot be filled.
+    """
+    session = session_bars(t, day)
+    side, entry_plan, stop, target = row["side"], float(row["entry"]), float(row["stop"]), float(row["target"])
+    entry, fill = _fill_entry(side, entry_plan, stop, target, session, k, entry_mode, slip_bps)
+    if entry is None:
+        return [], fill
+    cost = COST["crypto" if _is_crypto(t) else "equity"] * 100.0
+    risk_pct = abs(entry - stop) / entry * 100.0 if entry else 0.0
+    out: List[Trade] = []
+    for model in models:
+        exit_px, reason, r, mfe_r, mae_r, held = _simulate(
+            side, entry, stop, target, day if model.after_hours else session, k, model, t,
+        )
+        out.append(
+            Trade(
+                ticker=t,
+                session=str(day[k]["d"]),
+                side=side,
+                signal=str(row.get("signal")),
+                grade=str(row.get("grade")),
+                grade_eod=str(grade_eod or ""),
+                edge=float(row.get("edge") or 0),
+                regime=str(row.get("regime") or ""),
+                setup_mode=str(row.get("setup_mode") or ""),
+                ker=float(row["ker"]) if row.get("ker") is not None else None,
+                rvol=float(row["rvol"]) if row.get("rvol") is not None else None,
+                rvol_n=int(row.get("rvol_n") or 0),
+                gap_pct=float(row["gap_pct"]) if row.get("gap_pct") is not None else None,
+                entry=entry,
+                stop=stop,
+                target=target,
+                rr_plan=float(row["rr"]) if row.get("rr") is not None else None,
+                model=model.name,
+                exit=float(exit_px),
+                exit_reason=reason,
+                r_multiple=round(float(r), 3),
+                mfe_r=round(float(mfe_r), 3),
+                mae_r=round(float(mae_r), 3),
+                bars_held=int(held),
+                pnl_pct_net=round(float(r) * risk_pct - cost, 4),
+                dollar_vol=float(dollar_vol or 0),
+                r_net=round(net_r(float(r), t, entry, stop), 3),
+                cost_r=round(cost_r(t, entry, stop), 3),
+                entry_mode=entry_mode,
+                entry_plan=entry_plan,
+                trigger_time=str(day[k].get("time") or ""),
+            )
+        )
+    return out, fill
+
+
 def replay(
     tickers: List[str],
     bars: Dict[str, pd.DataFrame],
@@ -403,133 +510,110 @@ def replay(
     slip_bps: float = 2.0,
     skips: Optional[Dict[str, int]] = None,
 ) -> List[Trade]:
+    """
+    Every session after a name's first is replayed at decision time: each of its bars up to the close is
+    graded on the prefix ending at that bar (engine.analyze_bars on one parse of the frame), as the desk
+    saw it then. The trade is the first bar whose row is tradeable with its trigger on that bar. One trade
+    per name and session: a trigger whose entry cannot be filled ends that session's search.
+    """
+    prep, grade = engine_api()
     trades: List[Trade] = []
-    n_days = 0
-    n_trig = 0
-    n_take = 0
+    n_days = n_graded = n_trig = n_take = n_err = 0
     skips = skips if skips is not None else {}
 
     for ti, t in enumerate(tickers, 1):
         df = bars.get(t)
         if df is None or df.empty or len(df) < 40:
             continue
-        days = _session_days(df)
+        parsed = prep(df)
+        first: Dict[str, int] = {}
+        for i, b in enumerate(parsed):
+            first.setdefault(b["d"], i)
+        days = list(first)
         if len(days) < 2:
             continue
-        ok, dvol = passes_volume_filter(t, df, min_dvol=2_000_000)
-        # don't drop crypto for $2M; filter already handles that
-        if not ok and not _is_crypto(t):
-            # still allow if any session was liquid — keep, just tag
-            pass
+        _ok, dvol = passes_volume_filter(t, df, min_dvol=2_000_000)
+        kw = {"daily": daily.get(t), "bar_provider": bar_prov.get(t),
+              "quote_provider": (qmeta.get(t) or {}).get("provider")}
 
-        for day in days[1:]:
+        for j in range(1, len(days)):
             n_days += 1
-            prefix = _prefix_through(df, day)
-            if prefix is None or len(prefix) < 30:
-                continue
-            try:
-                row_eod = analyze(
-                    t,
-                    prefix,
-                    daily.get(t),
-                    live_price=None,
-                    bar_provider=bar_prov.get(t),
-                    quote_provider=(qmeta.get(t) or {}).get("provider"),
-                )
-            except Exception:
-                continue
-            ch = row_eod.get("_chart") or {}
-            trig_rel = (ch.get("markers") or {}).get("trig")
-            if trig_rel is None:
-                continue
-            day_bars = ch.get("bars") or []
-            if trig_rel < 0 or trig_rel >= len(day_bars):
-                continue
-            n_trig += 1
-            trig_ts = day_bars[trig_rel].get("ts")
-            # decision-time prefix: through trigger bar only
-            try:
-                trig_prefix = _prefix_through(df, day, until_ts_ms=trig_ts)
-                row = analyze(
-                    t,
-                    trig_prefix,
-                    daily.get(t),
-                    live_price=None,
-                    bar_provider=bar_prov.get(t),
-                    quote_provider=(qmeta.get(t) or {}).get("provider"),
-                )
-            except Exception:
-                row = row_eod
-            if not _tradeable(row, grade_min):
-                continue
-            entry_plan = float(row["entry"])
-            stop = float(row["stop"])
-            target = float(row["target"])
-            side = row["side"]
-            entry, fill = _fill_entry(side, entry_plan, stop, target, day_bars, int(trig_rel), entry_mode, slip_bps)
-            if entry is None:
-                skips[fill] = skips.get(fill, 0) + 1
-                continue
-            n_take += 1
-            cost = COST["crypto" if _is_crypto(t) else "equity"] * 100.0
-            risk_pct = abs(entry - stop) / entry * 100.0 if entry else 0.0
-
-            for model in models:
-                exit_px, reason, r, mfe_r, mae_r, held = _simulate(
-                    side, entry, stop, target, day_bars, int(trig_rel), model, t,
-                )
-                trades.append(
-                    Trade(
-                        ticker=t,
-                        session=str(day),
-                        side=side,
-                        signal=str(row.get("signal")),
-                        grade=str(row.get("grade")),
-                        grade_eod=str(row_eod.get("grade") or ""),
-                        edge=float(row.get("edge") or 0),
-                        regime=str(row.get("regime") or ""),
-                        setup_mode=str(row.get("setup_mode") or ""),
-                        ker=float(row["ker"]) if row.get("ker") is not None else None,
-                        rvol=float(row["rvol"]) if row.get("rvol") is not None else None,
-                        rvol_n=int(row.get("rvol_n") or 0),
-                        gap_pct=float(row["gap_pct"]) if row.get("gap_pct") is not None else None,
-                        entry=entry,
-                        stop=stop,
-                        target=target,
-                        rr_plan=float(row["rr"]) if row.get("rr") is not None else None,
-                        model=model.name,
-                        exit=float(exit_px),
-                        exit_reason=reason,
-                        r_multiple=round(float(r), 3),
-                        mfe_r=round(float(mfe_r), 3),
-                        mae_r=round(float(mae_r), 3),
-                        bars_held=int(held),
-                        pnl_pct_net=round(float(r) * risk_pct - cost, 4),
-                        dollar_vol=float(dvol or 0),
-                        r_net=round(net_r(float(r), t, entry, stop), 3),
-                        cost_r=round(cost_r(t, entry, stop), 3),
-                        entry_mode=entry_mode,
-                        entry_plan=entry_plan,
-                        trigger_time=str(day_bars[trig_rel].get("time") or ""),
-                    )
-                )
+            i0 = first[days[j]]
+            day = parsed[i0: first[days[j + 1]] if j + 1 < len(days) else len(parsed)]
+            session = session_bars(t, day)
+            for k in range(len(session)):
+                if i0 + k + 1 < 30:
+                    continue
+                n_graded += 1
+                try:
+                    row = grade(t, parsed[: i0 + k + 1], **kw)
+                except Exception:
+                    n_err += 1
+                    continue
+                if ((row.get("_chart") or {}).get("markers") or {}).get("trig") != k:
+                    continue
+                n_trig += 1
+                if not _tradeable(row, grade_min):
+                    continue
+                try:
+                    grade_eod = grade(t, parsed[: i0 + len(session)], **kw).get("grade")
+                except Exception:
+                    grade_eod = ""
+                new, fill = trades_at(t, row, day, k, models, entry_mode, slip_bps, dvol, grade_eod)
+                if new:
+                    n_take += 1
+                    trades += new
+                else:
+                    skips[fill] = skips.get(fill, 0) + 1
+                break
         if ti % 10 == 0:
-            print(f"    … {ti}/{len(tickers)} tickers  days={n_days} trigs={n_trig} taken={n_take} trades={len(trades)}")
+            print(f"    … {ti}/{len(tickers)} tickers  days={n_days} trigger bars={n_trig} taken={n_take} trades={len(trades)}")
 
-    print(f"  ticker-days={n_days}  engine-trigs={n_trig}  taken({grade_min}+)={n_take}"
-          + (f"  skipped {skips}" if skips else ""))
+    print(f"  ticker-days={n_days}  bars graded={n_graded}  trigger bars={n_trig}  taken({grade_min}+)={n_take}"
+          + (f"  skipped {skips}" if skips else "") + (f"  engine errors {n_err}" if n_err else ""))
     return trades
+
+
+def _replay_part(job: Tuple) -> Tuple[List[Trade], Dict[str, int]]:
+    tickers, bars, daily, bar_prov, qmeta, grade_min, entry_mode, slip_bps = job
+    skips: Dict[str, int] = {}
+    trades = replay(tickers, bars, daily, bar_prov, {}, qmeta, grade_min, MODELS,
+                    entry_mode=entry_mode, slip_bps=slip_bps, skips=skips)
+    return trades, skips
+
+
+def replay_parallel(tickers: List[str], bars: Dict[str, pd.DataFrame], daily: Dict[str, pd.DataFrame],
+                    bar_prov: Dict[str, str], qmeta: Dict[str, Any], grade_min: str, entry_mode: str,
+                    slip_bps: float, jobs: int) -> Tuple[List[Trade], Dict[str, int]]:
+    """replay() with the default engine and MODELS, split by ticker over `jobs` processes; trades in ticker order."""
+    have = [t for t in tickers if t in bars]
+    parts = [p for p in (have[i::max(1, jobs)] for i in range(max(1, jobs))) if p]
+    work = [(p, {t: bars[t] for t in p}, {t: daily[t] for t in p if t in daily}, bar_prov, qmeta,
+             grade_min, entry_mode, slip_bps) for p in parts]
+    if len(work) <= 1:
+        return _replay_part(work[0]) if work else ([], {})
+    by_ticker: Dict[str, List[Trade]] = {}
+    skips: Dict[str, int] = {}
+    with ProcessPoolExecutor(max_workers=len(work)) as ex:
+        for trades, sk in ex.map(_replay_part, work):
+            for tr in trades:
+                by_ticker.setdefault(tr.ticker, []).append(tr)
+            for k, v in sk.items():
+                skips[k] = skips.get(k, 0) + v
+    return [tr for t in have for tr in by_ticker.get(t, [])], skips
 
 
 def print_honest(summaries: Dict[str, Dict[str, Any]]) -> None:
     print("\n" + "=" * 72)
     print("  HONEST VIEW · net of round-trip costs · SE clustered by session")
     print("=" * 72)
-    for name in ("classic", "time_24", "partial_trail"):
+    for name in ("classic", "classic_after_hours", "time_24", "partial_trail"):
         s = summaries.get(name) or {}
         if not s.get("n"):
             continue
-        print(f"  {name:14s} gross {s['avg_r']:+.3f}R  cost {s['avg_cost_r']:.3f}R  net {fmt_stat(s['net_clustered'])}")
+        if name == "classic_after_hours" and s["net_clustered"] == (summaries.get("classic") or {}).get("net_clustered"):
+            continue                                    # crypto: no after-hours, the same as classic
+        print(f"  {name:19s} gross {s['avg_r']:+.3f}R  cost {s['avg_cost_r']:.3f}R  net {fmt_stat(s['net_clustered'])}")
     s = summaries.get("classic") or {}
     if s.get("segments_net"):
         print("\n  classic, net R by setup mode x regime:")
@@ -554,6 +638,12 @@ def rescore(path: Path) -> int:
     return 0
 
 
+def _default_through(fetched_at: datetime, tickers: List[str]) -> date:
+    """The last ET session over at the fetch: equities close at 16:00 (16:15 allows a delayed feed), crypto at midnight."""
+    done_today = not any(_is_crypto(t) for t in tickers) and (fetched_at.hour, fetched_at.minute) >= (16, 15)
+    return fetched_at.date() if done_today else fetched_at.date() - timedelta(days=1)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Prefix-honest VWAP Blue session replay")
     ap.add_argument("--max-tickers", type=int, default=96)
@@ -563,6 +653,12 @@ def main() -> int:
     ap.add_argument("--entry", choices=("next_open", "trigger_close"), default="next_open",
                     help="next_open: fill on the bar after the trigger (+slippage); trigger_close: the old optimistic fill")
     ap.add_argument("--slip-bps", type=float, default=2.0, help="slippage against us on next_open fills (bps)")
+    ap.add_argument("--bars", help="replay a --save-bars file instead of fetching")
+    ap.add_argument("--save-bars", help="write the fetch here (pickle), to replay the same bars again with --bars")
+    ap.add_argument("--through", help="last session, YYYY-MM-DD (default: the last one that was over at the fetch)")
+    ap.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1), help="worker processes (split by ticker)")
+    ap.add_argument("--out", help="research snapshot (default: research/replay_<fetch date>.json); never overwritten")
+    ap.add_argument("--note", default="", help="free-text note stored in method.note")
     ap.add_argument("--rescore", default=None, help="print honest stats for a saved replay JSON (no fetching)")
     args = ap.parse_args()
     if args.rescore:
@@ -580,20 +676,37 @@ def main() -> int:
     print("=" * 72)
     print(f"  Universe: {len(tickers)}  interval={args.interval}  grade≥{args.grade_min}")
     print(f"  Entry: {'next bar open + %.1f bps slippage' % args.slip_bps if args.entry == 'next_open' else 'trigger-bar close (optimistic)'}"
-          " · hold: that session only · no overnight")
-    print("  Grade/regime scored at trigger bar (not EOD)")
+          " · hold: to the session's close (equities 16:00) · no overnight")
+    print("  Every bar graded on its own prefix (decision time); first tradeable trigger per session")
     print("=" * 72)
 
     t0 = time.time()
-    bars, daily, bar_prov, live, qmeta = batch_fetch(
-        tickers, force=True, mode=args.mode, bars_interval=args.interval,
-    )
-    have = sum(1 for t in tickers if t in bars and bars[t] is not None and len(bars[t]) > 20)
-    print(f"  Bars ready: {have}/{len(tickers)} in {time.time()-t0:.1f}s")
+    if args.bars:
+        cache = pickle.loads(Path(args.bars).read_bytes())
+        missing = [t for t in tickers if t not in cache["tickers"]]
+        if missing:
+            raise SystemExit(f"{args.bars} was not fetched for {missing[:5]}… ({len(missing)}): use its --max-tickers")
+        print(f"  Bars: {args.bars} (fetched {cache['fetched_at']})")
+    else:
+        bars, daily, bar_prov, live, qmeta = batch_fetch(
+            tickers, force=True, mode=args.mode, bars_interval=args.interval,
+        )
+        cache = {"fetched_at": now.isoformat(timespec="seconds"), "source": args.mode, "tickers": tickers,
+                 "bars": bars, "bar_prov": bar_prov, "daily": daily, "live": live, "qmeta": qmeta}
+        if args.save_bars:
+            Path(args.save_bars).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.save_bars).write_bytes(pickle.dumps(cache))
+            print(f"  cached bars → {args.save_bars}")
+    fetched_at = datetime.fromisoformat(cache["fetched_at"])
+    through = date.fromisoformat(args.through) if args.through else _default_through(fetched_at, tickers)
+    bars = complete_sessions({t: cache["bars"][t] for t in tickers if t in cache["bars"]}, through)
+    daily, bar_prov, qmeta = cache.get("daily") or {}, cache.get("bar_prov") or {}, cache.get("qmeta") or {}
+    have = sum(1 for t in tickers if t in bars and len(bars[t]) > 20)
+    print(f"  Bars ready: {have}/{len(tickers)} in {time.time()-t0:.1f}s · sessions through {through}")
 
-    skips: Dict[str, int] = {}
-    trades = replay(tickers, bars, daily, bar_prov, live, qmeta, args.grade_min, MODELS,
-                    entry_mode=args.entry, slip_bps=args.slip_bps, skips=skips)
+    trades, skips = replay_parallel(tickers, bars, daily, bar_prov, qmeta, args.grade_min,
+                                    args.entry, args.slip_bps, args.jobs)
+    print(f"  replayed in {time.time()-t0:.0f}s")
 
     by_model: Dict[str, List[Trade]] = defaultdict(list)
     for tr in trades:
@@ -633,35 +746,58 @@ def main() -> int:
         dump_model(ranked[0][0])
     print_honest(summaries)
 
-    stamp = now.strftime("%Y%m%d_%H%M%S")
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    RESEARCH.mkdir(parents=True, exist_ok=True)
+    sessions = sorted({str(d) for df in bars.values() for d in _session_days(df)[1:]})
+    fetch_meta = {}
+    for t in tickers:
+        df = cache["bars"].get(t)
+        if df is None or df.empty:
+            fetch_meta[t] = {"provider": None, "bars": 0}
+            continue
+        idx = _et_index(df)
+        fetch_meta[t] = {"provider": bar_prov.get(t), "bars": int(len(df)), "first": idx[0].isoformat(),
+                         "last": idx[-1].isoformat()}
+    method: Dict[str, Any] = {
+        "bars": f"{args.interval} hybrid ~{ '8d' if args.interval=='1m' else '1mo' }",
+        "fetched_at": cache["fetched_at"],
+        "window": [sessions[0], sessions[-1]] if sessions else None,
+        "sessions_replayed": len(sessions),
+        "through": str(through),
+        "trigger_search": "decision time: every bar to the session's close graded on the prefix ending at it; "
+                          "the first tradeable row with its trigger on that bar, one trade per name and session",
+        "entry": ("next bar open + %.1f bps slippage" % args.slip_bps) if args.entry == "next_open"
+                 else "engine trigger close (optimistic)",
+        "entry_mode": args.entry,
+        "skipped_entries": skips,
+        "r_net": "r_multiple - round-trip cost / risk (per trade)",
+        "standard_error": "clustered by session (honest.py)",
+        "hold": "to the session's close, no overnight: equities by the 16:00 close (the 15:55 bar; after-hours "
+                "bars fill no entry, stop or target), crypto by its ET day's last bar. classic_after_hours holds "
+                "equities to the day's last after-hours bar (~19:55 ET), the replay's hold before 2026-10-04",
+        "grade": f"decision-time ≥ {args.grade_min}",
+        "same_bar": "stop before target; no same-bar entry fill",
+        "cost": COST,
+        "fetch": fetch_meta,
+    }
+    if args.note:
+        method["note"] = args.note
     payload = {
-        "asof": now.isoformat(),
+        "asof": cache["fetched_at"],
+        "run_at": datetime.now(ET).isoformat(timespec="seconds"),
         "engine_version": ENGINE_VERSION,
-        "method": {
-            "bars": f"{args.interval} hybrid ~{ '8d' if args.interval=='1m' else '1mo' }",
-            "entry": ("next bar open + %.1f bps slippage" % args.slip_bps) if args.entry == "next_open"
-                     else "engine trigger close (optimistic)",
-            "entry_mode": args.entry,
-            "skipped_entries": skips,
-            "r_net": "r_multiple - round-trip cost / risk (per trade)",
-            "standard_error": "clustered by session (honest.py)",
-            "hold": "focus session only (no overnight)",
-            "grade": f"decision-time ≥ {args.grade_min}",
-            "same_bar": "stop before target; no same-bar entry fill",
-            "cost": COST,
-        },
+        "method": method,
         "tickers": tickers,
         "summaries": summaries,
         "trades": [asdict(t) for t in trades],
     }
+    stamp = now.strftime("%Y%m%d_%H%M%S")
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_json = OUT_DIR / f"replay_sessions_{stamp}.json"
     out_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     # also a stable research snapshot; never overwrite one (committed results live there)
-    snap = RESEARCH / f"replay_{now.strftime('%Y-%m-%d')}.json"
+    snap = Path(args.out) if args.out else RESEARCH / f"replay_{fetched_at:%Y-%m-%d}.json"
     if snap.exists():
-        snap = RESEARCH / f"replay_{now.strftime('%Y-%m-%d_%H%M%S')}.json"
+        snap = snap.with_name(f"{snap.stem}_{now:%H%M%S}{snap.suffix}")
+    snap.parent.mkdir(parents=True, exist_ok=True)
     snap.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     print(f"\n  Wrote {out_json}")

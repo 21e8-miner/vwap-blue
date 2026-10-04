@@ -36,7 +36,7 @@ The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs
 | **v1.3.1** | Prefix-honest session replay · **mdrev-in-chop demoted** off A desk |
 | **v1.4** | **Honest replay**: next-bar-open fills, R **net of costs**, session-clustered CIs · **stale-bar guard** · **forward signal ledger** |
 | **v1.4.1** | **Prior-close fix**: gaps were measured from the prior session's 09:30 close instead of its last RTH bar · Pages demo runs the desk engine (`engine.js`, parity-tested) · round-trip cost in R on every plan · blocked fades badge WATCH, not TRIGGER |
-| **v1.5.0** | **Crypto gets a 24h session**: blue, orange, RVOL and signals use the whole ET day, the prior close is the prior day's last bar, and there is no gap fade (a 24/7 market has no opening gap) · first crypto replay (`replay_crypto.py`) · bar-by-bar check of the replay's trigger search (`causal_check.py`) |
+| **v1.5.0** | **Crypto gets a 24h session**: blue, orange, RVOL and signals use the whole ET day, the prior close is the prior day's last bar, and there is no gap fade (a 24/7 market has no opening gap) · first crypto replay (`replay_crypto.py`) · the session replay grades every bar as the desk saw it and closes equity trades by 16:00 (`causal_check.py` re-runs its old end-of-day trigger search) |
 
 ## Run (local full desk)
 
@@ -72,9 +72,12 @@ bars **beyond blue by adaptive volume-weighted σ** → **confirm**. Target
 ## Research tools
 
 ```bash
-# Prefix-honest multi-session replay (matches live 5m desk, ~1mo).
-# Fills on the bar after the trigger (+2 bps); prints net-of-cost R with session-clustered CIs.
+# Prefix-honest multi-session replay (matches live 5m desk, ~1mo): every bar graded as the desk saw it,
+# fills on the bar after the trigger (+2 bps), equities out by the 16:00 close; prints net-of-cost R
+# with session-clustered CIs.
 python3 replay_sessions.py --max-tickers 96 --grade-min A
+python3 replay_sessions.py --save-bars data/backtests/equity_bars.pkl  # keep the fetch: Yahoo's window moves
+python3 replay_sessions.py --bars data/backtests/equity_bars.pkl       # replay those bars again
 python3 replay_sessions.py --entry trigger_close          # the old, optimistic trigger-close fill
 
 # Honest stats for a saved replay, no fetching
@@ -87,8 +90,8 @@ python3 replay_crypto.py --source coinbase                                  # Co
 # bars cached before the Yahoo symbol map hold other tokens under ARB/TON/JUP-USD: add
 #   --exclude ARB-USD,TON-USD,JUP-USD
 
-# Grade every bar's prefix as the desk saw it (slow): checks the replay's end-of-day trigger search
-python3 causal_check.py --bars data/backtests/crypto_bars.pkl
+# The replay's old end-of-day trigger search on the same bars: what it missed, how it scored
+python3 causal_check.py --bars data/backtests/equity_bars.pkl
 
 # Forward record of live grade-A triggers (recorded automatically by the desk)
 python3 ledger.py resolve    # after the close: resolve the session's signals
@@ -104,24 +107,31 @@ python3 walkforward.py --max-tickers 20
 
 ### Honest results
 
-Grade ≥ A at the trigger bar · 5m bars · held to the session's last bar (equities: the last
-after-hours bar, ~19:55 ET, not the 16:00 close; crypto: 23:55 ET) · R **net of round-trip costs**
-(0.08% equity, 0.15% crypto, converted per trade: cost ÷ risk) · ± **session-clustered** standard
-error (`honest.py`: setups on the same day share the tape, so ~400 trades from 22 sessions are ~22
-independent draws). Verdicts need |t| ≥ 2 across ≥ 10 sessions.
+Grade ≥ A at the trigger bar · 5m bars · R **net of round-trip costs** (0.08% equity, 0.15% crypto,
+converted per trade: cost ÷ risk) · ± **session-clustered** standard error (`honest.py`: setups on
+the same day share the tape, so ~400 trades from 22 sessions are ~22 independent draws). Verdicts
+need |t| ≥ 2 across ≥ 10 sessions.
+
+Since Oct 4 the replay grades each bar as the desk showed it then, on the bars up to that one, and
+trades the first tradeable trigger (*bar by bar*); before, it took each session's trigger from the
+end-of-day row (*end of day*). Equities now exit by the 16:00 close (*16:00*), not at the last
+after-hours bar, ~19:55 ET (*after hours*). Crypto holds to its ET day's last bar either way.
 
 #### US equities (the first 96 names of `universe.txt`)
 
-| sessions | role | engine | fill | n | gross R | **net R ± SE** | verdict |
-|---|---|---|---|--:|--:|--:|---|
-| Jul 14 – Aug 12 | in-sample (rules tuned here), all A | v1.3 ¹ | trigger close | 419 | +0.22 | **+0.13 ± 0.16** | inconclusive |
-| Jul 14 – Aug 12 | in-sample, mdrev-in-chop removed | v1.3.1 ¹ | trigger close | 312 | +0.33 | **+0.23 ± 0.18** | inconclusive |
-| Sep 3 – Oct 2 | out of sample | v1.3.1 ¹ | next bar open +2 bps | 265 | −0.15 | **−0.27 ± 0.13** | negative (t −2.1) |
-| Sep 3 – Oct 2 | out of sample | v1.3.1 ¹ | trigger close | 266 | −0.13 | −0.25 ± 0.13 | inconclusive (t −1.9) |
-| Sep 3 – Oct 2 | out of sample, prior close fixed | v1.4.1 | next bar open +2 bps | 295 | −0.11 | **−0.23 ± 0.12** | inconclusive (t −1.9) |
-| Sep 3 – Oct 2 | the same refetched bars, old prior close | v1.4.0 ¹ | next bar open +2 bps | 280 | −0.16 | −0.28 ± 0.12 | negative (t −2.4) |
-| **Sep 3 – Oct 2** | **out of sample, refetched** | **v1.5.0** ² | next bar open +2 bps | 292 | −0.10 | **−0.22 ± 0.12** | inconclusive (t −1.9) |
-| Sep 3 – Oct 2 | the same bars, graded bar by bar (`causal_check.py`) | v1.5.0 | next bar open +2 bps | 431 | −0.14 | −0.23 ± 0.07 | negative (t −3.4) |
+| sessions | role | engine | triggers · exit | fill | n | gross R | **net R ± SE** | verdict |
+|---|---|---|---|---|--:|--:|--:|---|
+| Jul 14 – Aug 12 | in-sample (rules tuned here), all A | v1.3 ¹ | end of day · after hours | trigger close | 419 | +0.22 | **+0.13 ± 0.16** | inconclusive |
+| Jul 14 – Aug 12 | in-sample, mdrev-in-chop removed | v1.3.1 ¹ | end of day · after hours | trigger close | 312 | +0.33 | **+0.23 ± 0.18** | inconclusive |
+| Sep 3 – Oct 2 | out of sample | v1.3.1 ¹ | end of day · after hours | next bar open +2 bps | 265 | −0.15 | **−0.27 ± 0.13** | negative (t −2.1) |
+| Sep 3 – Oct 2 | out of sample | v1.3.1 ¹ | end of day · after hours | trigger close | 266 | −0.13 | −0.25 ± 0.13 | inconclusive (t −1.9) |
+| Sep 3 – Oct 2 | out of sample, prior close fixed | v1.4.1 | end of day · after hours | next bar open +2 bps | 295 | −0.11 | **−0.23 ± 0.12** | inconclusive (t −1.9) |
+| Sep 3 – Oct 2 | the same refetched bars, old prior close | v1.4.0 ¹ | end of day · after hours | next bar open +2 bps | 280 | −0.16 | −0.28 ± 0.12 | negative (t −2.4) |
+| Sep 3 – Oct 2 | out of sample, refetched | v1.5.0 ² | end of day · after hours | next bar open +2 bps | 292 | −0.10 | **−0.22 ± 0.12** | inconclusive (t −1.9) |
+| Sep 3 – Oct 2 | the same bars | v1.5.0 | bar by bar · after hours | next bar open +2 bps | 431 | −0.14 | −0.23 ± 0.07 | negative (t −3.4) |
+| **Sep 3 – Oct 2** | **out of sample, refetched, all 96 names** ³ | **v1.5.0** | **bar by bar · 16:00** | next bar open +2 bps | 428 | −0.08 | **−0.17 ± 0.06** | negative (t −2.8) |
+| Sep 3 – Oct 2 | the same bars | v1.5.0 | bar by bar · after hours | next bar open +2 bps | 428 | −0.11 | −0.20 ± 0.07 | negative (t −3.0) |
+| Sep 3 – Oct 2 | the same bars | v1.5.0 | end of day · 16:00 | next bar open +2 bps | 289 | −0.04 | −0.16 ± 0.10 | inconclusive (t −1.5) |
 
 ¹ Measured every gap from the prior session's 09:30 close (fixed in v1.4.1). August's 5m bars
 are past the free data window, so its rows cannot be re-run. The v1.4.1 and v1.4.0 rows share one
@@ -130,19 +140,32 @@ trades on Sep 3–4, 261 of the 265 in common).
 ² v1.5.0 changed only crypto: on one fetch v1.4.1 and v1.5.0 produce the same 292 equity trades,
 field for field. That fetch starts later on Sep 2 than the v1.4.1 row's (Sep 2 is the first
 replayed day's prior session and part of the early RVOL baselines), so 285 of the 295 recur.
+³ The fetch `replay_sessions.py --max-tickers 96` makes, taken Oct 4 at 15:07 ET and replayed from
+that cache (`--bars`): Yahoo's 5m window is the last 32 days, so later that day a fetch had no
+regular-session bars from Sep 2, the first replayed day's prior session (and after 20:00 ET none
+from Sep 2 at all). Same window as the rows above, with two differences. All 96 names: the Oct 4 files
+above replay only the 92 that traded in the morning v1.4.0 run, never PINS, DUOL, HIMS or ACHR (5
+trades here). And this fetch starts Sep 2 at 15:05 ET instead of 12:45, which moves orange's seed on
+Sep 3 and an RVOL baseline on Sep 4: on the 92 names, bar by bar and after hours, it gives 423 trades
+at −0.21R against 431 at −0.23R, the same trades from Sep 5 on. The old replay (end of day · after
+hours) on these bars: 289 trades, −0.18R ± 0.12 (t −1.5).
 
 What this says:
 
 - **No demonstrated edge.** August's edge was never distinguishable from zero once costs and
   same-day clustering are counted, and the rule set tuned on August lost about 0.5R per trade
   relative to that in September.
-- **The replay's trigger search leaks; graded bar by bar, September is clearly negative.**
-  `replay_sessions.replay` takes each day's trigger from the end-of-day row: premarket fades are
-  searched with the side the 09:30 open fixed later, and an end-of-day gap trigger hides an
-  earlier multi-day reverse the desk showed live. Graded bar by bar as the desk saw it
-  (`causal_check.py`), the same September bars give 431 trades instead of 292 (130 of the extra 147
-  are premarket multi-day reverses) at the same −0.23R, now distinguishable from zero (t −3.4).
-  The other rows still use the end-of-day search.
+- **Graded bar by bar, as the desk showed them, September's triggers clearly lost.** The old
+  end-of-day search leaked: premarket fades were searched with the side the 09:30 open fixed
+  later, and an end-of-day gap trigger hid an earlier multi-day reverse the desk had shown live.
+  On the same bars the bar-by-bar search adds 147 trades (129 of them premarket multi-day
+  reverses) and drops 8, at about the same mean (−0.17R vs −0.16R with the same 16:00 exit), now
+  distinguishable from zero (t −2.8 vs −1.5). `causal_check.py` re-runs the old search on a
+  cached fetch.
+- **Equities now exit by the 16:00 close.** Held to the last after-hours bar, 116 of the 428
+  trades end differently: thin after-hours prints fill their stops and targets, or they ride the
+  evening. Here that cost about 0.03R per trade (−0.20R vs −0.17R). The forward ledger resolves
+  with the same 16:00 exit.
 - **The prior-close bug mattered for which trades, not for the verdict.** Fixing it changed about
   a quarter of September's trades (58 dropped, 73 added, 222 kept; the median gap on a traded
   setup fell from 2.0% to 1.4%) and moved net R from −0.28 to −0.23 on the same bars: inside the
@@ -165,16 +188,19 @@ version of these results included them (4 v1.5.0 trades: 149 instead of 145, ± 
 
 | sessions | engine · crypto session | bars | n | gross R | **net R ± SE** | verdict |
 |---|---|---|--:|--:|--:|---|
-| Sep 5 – Oct 3 | v1.4.1 · equity clock: 00:00–16:00 ET, gap from the prior 15:55 close | Yahoo | 196 | −0.40 | **−0.91 ± 0.17** | negative (t −5.3) |
-| Sep 5 – Oct 3 | v1.4.1, graded bar by bar (`causal_check.py`) | Yahoo | 245 | −0.24 | −0.75 ± 0.16 | negative (t −4.8) |
+| Sep 5 – Oct 3 | v1.4.1 · equity clock: 00:00–16:00 ET, gap from the prior 15:55 close · end-of-day trigger search | Yahoo | 196 | −0.40 | **−0.91 ± 0.17** | negative (t −5.3) |
+| Sep 5 – Oct 3 | v1.4.1, graded bar by bar (the replay's search since Oct 4) | Yahoo | 245 | −0.24 | −0.75 ± 0.16 | negative (t −4.8) |
 | **Sep 5 – Oct 3** | **v1.5.0 · the whole ET day, no gap fade** | Yahoo | 145 | +0.08 | **+0.01 ± 0.13** | inconclusive (t 0.0) |
 | Sep 5 – Oct 3 | v1.5.0 rules with the day starting 00:00 UTC | Yahoo | 150 | −0.28 | −0.35 ± 0.10 | negative (t −3.4) |
 | Sep 5 – Oct 3 | v1.4.1 with only its gap fade switched off | Yahoo | 137 | +0.09 | +0.01 ± 0.11 | inconclusive (t 0.1) |
-| Sep 5 – Oct 3 | v1.4.1 | Coinbase, 43 names | 257 | −0.53 | −0.98 ± 0.12 | negative (t −8.3) |
+| Sep 5 – Oct 3 | v1.4.1 · end-of-day trigger search | Coinbase, 43 names | 257 | −0.53 | −0.98 ± 0.12 | negative (t −8.3) |
 | Sep 5 – Oct 3 | v1.5.0 | Coinbase, 43 names | 128 | +0.18 | +0.13 ± 0.17 | inconclusive (t 0.7) |
 
 All Yahoo rows replay one fetch of 36 names; the two Coinbase rows share another (on Coinbase,
-ARB-USD and TON-USD are Arbitrum and Toncoin).
+ARB-USD and TON-USD are Arbitrum and Toncoin). Without a gap fade no crypto trigger depends on later
+bars, so the v1.5.0 rows (and v1.4.1 without its fade) come out the same under either trigger
+search; the two v1.4.1 rows marked end-of-day can differ (the Yahoo one, graded bar by bar, is the
+row below it).
 
 What this says:
 
@@ -210,7 +236,10 @@ trigger-close fills) · [`research/replay_2026-10-04.json`](research/replay_2026
 (September, next-bar fills) · [`research/replay_2026-10-04_v1.4.1.json`](research/replay_2026-10-04_v1.4.1.json)
 (September, fixed engine; `method.paired_v1_4_0_same_bars` holds the old engine on the same bars) ·
 [`research/replay_2026-10-04_v1.5.0.json`](research/replay_2026-10-04_v1.5.0.json) (September
-refetched; `method.paired_v1_4_1_same_bars`, `method.causal_check`) · crypto:
+refetched; `method.paired_v1_4_1_same_bars`, `method.causal_check`) ·
+[`research/replay_2026-10-04_v1.5.0_causal.json`](research/replay_2026-10-04_v1.5.0_causal.json)
+(September, bar by bar with the 16:00 exit, all 96 names; `method.causal_check`: the old end-of-day
+search on the same bars) · crypto:
 [`research/replay_crypto_2026-10-04_v1.4.1.json`](research/replay_crypto_2026-10-04_v1.4.1.json)
 and [`research/replay_crypto_2026-10-04_v1.5.0.json`](research/replay_crypto_2026-10-04_v1.5.0.json)
 (`method.paired_v1_4_1_same_bars`, `method.causal_check`, `method.sensitivity`: UTC day, no gap
@@ -250,7 +279,7 @@ engine.py           # dual VWAP + KER + grades (ENGINE_VERSION)
 providers.py / data.py   # free feed rotation; crypto history pager + per-coin cache
 backtest_today_scans.py · walkforward.py · replay_sessions.py
 replay_crypto.py    # the same replay on the crypto names (Yahoo or Coinbase bars, paired engines)
-causal_check.py     # bar-by-bar decision-time check of the replay's trigger search
+causal_check.py     # the replay's old end-of-day trigger search, against its bar-by-bar one
 honest.py           # cost-in-R and session-clustered standard errors (replay + ledger)
 ledger.py           # forward signal ledger: record → resolve → report (data/signals/, gitignored)
 tests/              # python3 -m unittest discover -s tests (engine parity needs node)
