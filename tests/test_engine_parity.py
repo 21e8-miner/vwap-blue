@@ -4,9 +4,10 @@ engine.py does: the replay and the forward ledger evaluate engine.py, and the de
 warning only applies if the demo shows the same signals.
 
 Synthetic sessions (gap fades, trend days, chop, multi-day extensions and reclaims, partial live
-sessions, DST weeks, crypto, gaps and nulls in the feed, too-short histories) go through both
-engines with the same clock. Every row field is compared: categorical fields exactly, prices and
-ratios to their display rounding. Skipped when node is not installed.
+sessions, DST weeks, crypto days that play out in the evening or jump across midnight, gaps and
+nulls in the feed, too-short histories) and fixed tapes (test_crypto_session.py, a trend-blocked
+fade) go through both engines with the same clock. Every row field is compared: categorical fields
+exactly, prices and ratios to their display rounding. Skipped when node is not installed.
 """
 
 import json
@@ -28,6 +29,7 @@ sys.path.insert(0, str(ROOT))
 from app import _grade_ok                                                        # noqa: E402
 from data import rotation_score, session_dollar_volume                           # noqa: E402
 from engine import ENGINE_VERSION, _geom_ok, analyze, apply_stale_guard, bar_age_min  # noqa: E402
+from test_crypto_session import fixed_cases as crypto_session_cases                # noqa: E402
 
 ET = ZoneInfo("America/New_York")
 NODE = shutil.which("node")
@@ -90,10 +92,11 @@ def make_series(rng: random.Random, k: int):
     px = rng.uniform(0.4, 400) if not crypto else rng.choice((0.08, 2.5, 140.0, 2600.0, 61000.0))
     tick = 0.0001 if px < 1 else 0.01
     vbase = 10 ** rng.uniform(2.5, 6)
-    rows, cur, day_i = [], None, -1
+    # crypto keeps no session clock: some of its days play out in the ET evening, which v1.5.0 trades
+    shift_rng = random.Random(SEED + k)
+    rows, cur, day_i, shift = [], None, -1, 0
     for t in times:
         et = t.astimezone(ET)
-        m = et.hour * 60 + et.minute
         if et.date() != cur:                                       # new session: draw its personality
             cur, day_i = et.date(), day_i + 1
             prior = px
@@ -103,6 +106,10 @@ def make_series(rng: random.Random, k: int):
             switch = rng.randint(9 * 60 + 45, 14 * 60 + 45)
             ext = rng.uniform(0.25, 1.4) / 100 * rng.choice((-1, 1))
             open_px = None
+            shift = shift_rng.choice((0, 0, 6 * 60, 8 * 60)) if crypto else 0
+            if crypto and shift_rng.random() < 0.3:
+                px = max(tick, px * (1 + shift_rng.gauss(0, 0.8) / 100))   # a jump across midnight (no gap)
+        m = (et.hour * 60 + et.minute - shift) % (24 * 60)
         o = px
         if m < 9 * 60 + 30:
             target, s = prior * (1 + gap), sig * 0.4
@@ -143,6 +150,34 @@ def make_series(rng: random.Random, k: int):
     return (ticker, rows) if rows else None
 
 
+def trend_day_case():
+    """
+    A gap-up fade that triggers while the day keeps rising, so the trend-day guard blocks the open plan
+    (fixed, so the coverage below does not hang on the random draw). Day 1 trades 100 on heavy volume;
+    day 2 prints 102 premarket on heavy volume (blue starts high), opens 101, dips to 100.8 and grinds
+    up to 101.7.
+    """
+    rows = []
+    for di, d in enumerate((date(2026, 9, 14), date(2026, 9, 15))):
+        for m in range(4 * 60, 20 * 60, 5):
+            rth = 9 * 60 + 30 <= m < 16 * 60
+            if di == 0:
+                c, v = 100.0, 200_000.0 if rth else 2_000.0
+            elif m < 9 * 60 + 30:
+                c, v = 102.0, 50_000.0
+            elif m < 10 * 60:
+                c, v = 101.0, 10_000.0
+            elif m < 10 * 60 + 20:
+                c, v = 100.8, 10_000.0
+            else:
+                c, v = 100.8 + 0.9 * min(1.0, (m - 620) / 330), 10_000.0 if rth else 1_000.0
+            c = round(c * (1 + 0.0002 * ((m // 5) % 5 - 2)), 4)
+            o = 101.0 if (di, m) == (1, 9 * 60 + 30) else (rows[-1][4] if rows else c)
+            t = datetime.combine(d, dtime(m // 60, m % 60), tzinfo=ET).astimezone(timezone.utc)
+            rows.append((t, o, round(max(o, c) * 1.0004, 4), round(min(o, c) * 0.9996, 4), c, v))
+    return ("TRD", rows, rows[-1][0] + timedelta(minutes=2))
+
+
 def _now_after(rng: random.Random, rows, fresh: bool = False):
     minutes = rng.choice((1, 2, 4, 6, 9, 12)) if fresh else rng.choice((1, 3, 6, 9, 14, 15, 17, 25, 45, 180, 2000))
     return rows[-1][0] + timedelta(seconds=minutes * 60 + rng.choice((0, 7, 19, 41, 53)))
@@ -175,7 +210,7 @@ def make_cases(rng: random.Random, n_series: int):
                 while cut and cut[-1][1] is None:
                     cut.pop()
                 cases.append((ticker, cut, _now_after(rng, cut, fresh=rng.random() < 0.8)))
-    return cases
+    return cases + [trend_day_case()] + crypto_session_cases()
 
 
 def _py_row(ticker, rows, now):
@@ -276,11 +311,16 @@ class TestEngineParity(unittest.TestCase):
                          "live_actionable", "late", "gap_provisional"):
                 if r.get(flag):
                     seen[flag] += 1
+            if r.get("is_crypto") and r.get("trig_ts") is not None:
+                if datetime.fromtimestamp(r["trig_ts"] / 1000, ET).hour >= 16:
+                    seen["crypto trigger after 16:00 ET"] += 1          # v1.5.0: the whole ET day
+                if r.get("late"):
+                    seen["crypto late (after 22:30 ET)"] += 1
         need = ["signal:TRIGGER", "signal:TAGGED", "signal:STOPPED", "signal:WATCH", "signal:SETUP",
                 "mode:gap", "mode:mdrev", "mode:both", "regime:trend", "regime:chop", "regime:mixed",
                 "grade:A", "grade:B", "grade:C", "grade:✕", "error", "trend_block", "regime_block",
                 "no_runway", "stale_bars", "live_actionable", "late", "session:rth", "session:24/7 crypto",
-                "A trigger"]
+                "A trigger", "crypto trigger after 16:00 ET", "crypto late (after 22:30 ET)"]
         missing = [k for k in need if seen[k] == 0]
         self.assertFalse(missing, f"uncovered: {missing}; seen: {dict(seen)}")
 
