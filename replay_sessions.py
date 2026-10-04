@@ -9,9 +9,17 @@ this:
   · treats each ET session as its own trade day
   · finds the engine trigger on that day's prefix (no future days)
   · re-scores grade / regime / blocks at the trigger bar (no EOD look-ahead)
-  · enters at the trigger close (engine entry), not a historical price touch
+  · enters on the bar AFTER the trigger (next open + slippage) by default; the trigger-bar
+    close the engine prints is not a fillable price on a delayed free feed
+    (`--entry trigger_close` reproduces the old optimistic fill)
   · holds only to that session's last bar — no overnight
   · runs several exit models against the same entries
+  · reports R net of round-trip costs (cost / risk, per trade) and a session-clustered
+    standard error: trades on the same session share the tape, so 400 trades from 22
+    sessions are about 22 independent draws, not 400 (see honest.py)
+
+  python3 replay_sessions.py --max-tickers 96 --grade-min A
+  python3 replay_sessions.py --rescore research/replay_2026-08-12.json   # honest stats for a saved run
 
 Research only. Free delayed data. Not trade advice.
 """
@@ -33,13 +41,13 @@ import pandas as pd
 
 from data import batch_fetch, load_universe, passes_volume_filter
 from engine import analyze
+from honest import COST, clustered, cost_r, fmt_stat, net_r, segments, verdict
 
 ET = ZoneInfo("America/New_York")
 HERE = Path(__file__).resolve().parent
 OUT_DIR = HERE / "data" / "backtests"
 RESEARCH = HERE / "research"
 
-COST = {"equity": 0.0008, "crypto": 0.0015}
 GRADE_OK = {"A", "LA"}
 
 
@@ -97,6 +105,10 @@ class Trade:
     bars_held: int
     pnl_pct_net: float
     dollar_vol: float = 0.0
+    r_net: float = 0.0          # r_multiple minus round-trip cost expressed in R
+    cost_r: float = 0.0
+    entry_mode: str = "trigger_close"
+    entry_plan: float = 0.0     # the engine's printed entry (trigger-bar close)
 
 
 def _is_crypto(t: str) -> bool:
@@ -161,6 +173,35 @@ def _tradeable(row: Dict[str, Any], grade_min: str) -> bool:
     if grade_min.upper() == "B":
         return g in GRADE_OK or g in {"B", "LB"}
     return g not in {"–", "✕"}
+
+
+def _fill_entry(
+    side: str,
+    entry_plan: float,
+    stop: float,
+    target: float,
+    day_bars: List[Dict[str, Any]],
+    trig_rel: int,
+    entry_mode: str = "next_open",
+    slip_bps: float = 2.0,
+) -> Tuple[Optional[float], str]:
+    """
+    The price a trader acting on the alert could actually get.
+    next_open: open of the bar after the trigger, plus slippage against us. A fill that has
+    already gapped through the stop (or the target) is skipped, as a trader would skip it.
+    """
+    if entry_mode == "trigger_close":
+        return entry_plan, "filled"
+    if trig_rel + 1 >= len(day_bars):
+        return None, "no_next_bar"
+    nb = day_bars[trig_rel + 1]
+    px = float(nb.get("o") or nb["c"])
+    px *= (1 + slip_bps / 1e4) if side == "long" else (1 - slip_bps / 1e4)
+    if (side == "long" and px <= stop) or (side == "short" and px >= stop):
+        return None, "gapped_through_stop"
+    if (side == "long" and px >= target) or (side == "short" and px <= target):
+        return None, "gapped_through_target"
+    return px, "filled"
 
 
 def _simulate(
@@ -298,6 +339,9 @@ def _pack(trades: List[Trade]) -> Dict[str, Any]:
     if not trades:
         return {"n": 0}
     rs = [t.r_multiple for t in trades]
+    sessions = [t.session for t in trades]
+    net = clustered([t.r_net for t in trades], sessions)
+    rows = [asdict(t) for t in trades]
     wins = [t for t in trades if t.r_multiple > 0]
     losses = [t for t in trades if t.r_multiple <= 0]
     by_exit: Dict[str, int] = {}
@@ -335,6 +379,13 @@ def _pack(trades: List[Trade]) -> Dict[str, Any]:
         "by_exit": by_exit,
         "by_regime": by_reg,
         "by_setup_mode": by_mode,
+        # honest view: net of costs, standard error clustered by session
+        "avg_r_net": round(float(np.mean([t.r_net for t in trades])), 3),
+        "avg_cost_r": round(float(np.mean([t.cost_r for t in trades])), 3),
+        "net_clustered": net,
+        "gross_clustered": clustered(rs, sessions),
+        "verdict": verdict(net),
+        "segments_net": segments(rows, ("setup_mode", "regime")),
     }
 
 
@@ -347,11 +398,15 @@ def replay(
     qmeta: Dict[str, Any],
     grade_min: str,
     models: List[ExitModel],
+    entry_mode: str = "next_open",
+    slip_bps: float = 2.0,
+    skips: Optional[Dict[str, int]] = None,
 ) -> List[Trade]:
     trades: List[Trade] = []
     n_days = 0
     n_trig = 0
     n_take = 0
+    skips = skips if skips is not None else {}
 
     for ti, t in enumerate(tickers, 1):
         df = bars.get(t)
@@ -406,11 +461,15 @@ def replay(
                 row = row_eod
             if not _tradeable(row, grade_min):
                 continue
-            n_take += 1
-            entry = float(row["entry"])
+            entry_plan = float(row["entry"])
             stop = float(row["stop"])
             target = float(row["target"])
             side = row["side"]
+            entry, fill = _fill_entry(side, entry_plan, stop, target, day_bars, int(trig_rel), entry_mode, slip_bps)
+            if entry is None:
+                skips[fill] = skips.get(fill, 0) + 1
+                continue
+            n_take += 1
             cost = COST["crypto" if _is_crypto(t) else "equity"] * 100.0
             risk_pct = abs(entry - stop) / entry * 100.0 if entry else 0.0
 
@@ -446,13 +505,51 @@ def replay(
                         bars_held=int(held),
                         pnl_pct_net=round(float(r) * risk_pct - cost, 4),
                         dollar_vol=float(dvol or 0),
+                        r_net=round(net_r(float(r), t, entry, stop), 3),
+                        cost_r=round(cost_r(t, entry, stop), 3),
+                        entry_mode=entry_mode,
+                        entry_plan=entry_plan,
                     )
                 )
         if ti % 10 == 0:
             print(f"    … {ti}/{len(tickers)} tickers  days={n_days} trigs={n_trig} taken={n_take} trades={len(trades)}")
 
-    print(f"  ticker-days={n_days}  engine-trigs={n_trig}  taken({grade_min}+)={n_take}")
+    print(f"  ticker-days={n_days}  engine-trigs={n_trig}  taken({grade_min}+)={n_take}"
+          + (f"  skipped {skips}" if skips else ""))
     return trades
+
+
+def print_honest(summaries: Dict[str, Dict[str, Any]]) -> None:
+    print("\n" + "=" * 72)
+    print("  HONEST VIEW · net of round-trip costs · SE clustered by session")
+    print("=" * 72)
+    for name in ("classic", "time_24", "partial_trail"):
+        s = summaries.get(name) or {}
+        if not s.get("n"):
+            continue
+        print(f"  {name:14s} gross {s['avg_r']:+.3f}R  cost {s['avg_cost_r']:.3f}R  net {fmt_stat(s['net_clustered'])}")
+    s = summaries.get("classic") or {}
+    if s.get("segments_net"):
+        print("\n  classic, net R by setup mode x regime:")
+        for seg in s["segments_net"]:
+            label = f"{seg['setup_mode']}/{seg['regime']}"
+            print(f"    {label:16s} {fmt_stat(seg)}")
+
+
+def rescore(path: Path) -> int:
+    """Honest stats for a saved replay (older files: trigger-close entries, net R recomputed here)."""
+    d = json.loads(path.read_text(encoding="utf-8"))
+    by_model: Dict[str, List[Trade]] = defaultdict(list)
+    fields = set(Trade.__dataclass_fields__)
+    for row in d.get("trades", []):
+        t = Trade(**{k: v for k, v in row.items() if k in fields})
+        if not row.get("r_net") and t.entry and t.stop:
+            t.r_net = round(net_r(t.r_multiple, t.ticker, t.entry, t.stop), 3)
+            t.cost_r = round(cost_r(t.ticker, t.entry, t.stop), 3)
+        by_model[t.model].append(t)
+    print(f"  {path.name}: asof {d.get('asof')} · entry: {(d.get('method') or {}).get('entry')}")
+    print_honest({name: _pack(ts) for name, ts in by_model.items()})
+    return 0
 
 
 def main() -> int:
@@ -461,7 +558,13 @@ def main() -> int:
     ap.add_argument("--grade-min", default="A")
     ap.add_argument("--interval", default="5m", help="5m matches live desk; 1m is 8d only")
     ap.add_argument("--mode", default="hybrid")
+    ap.add_argument("--entry", choices=("next_open", "trigger_close"), default="next_open",
+                    help="next_open: fill on the bar after the trigger (+slippage); trigger_close: the old optimistic fill")
+    ap.add_argument("--slip-bps", type=float, default=2.0, help="slippage against us on next_open fills (bps)")
+    ap.add_argument("--rescore", default=None, help="print honest stats for a saved replay JSON (no fetching)")
     args = ap.parse_args()
+    if args.rescore:
+        return rescore(Path(args.rescore))
 
     now = datetime.now(ET)
     tickers = load_universe(max_n=args.max_tickers)
@@ -474,7 +577,8 @@ def main() -> int:
     print("  SESSION REPLAY · VWAP Blue ·", now.strftime("%Y-%m-%d %H:%M %Z"))
     print("=" * 72)
     print(f"  Universe: {len(tickers)}  interval={args.interval}  grade≥{args.grade_min}")
-    print("  Entry: trigger-bar close · hold: that session only · no overnight")
+    print(f"  Entry: {'next bar open + %.1f bps slippage' % args.slip_bps if args.entry == 'next_open' else 'trigger-bar close (optimistic)'}"
+          " · hold: that session only · no overnight")
     print("  Grade/regime scored at trigger bar (not EOD)")
     print("=" * 72)
 
@@ -485,7 +589,9 @@ def main() -> int:
     have = sum(1 for t in tickers if t in bars and bars[t] is not None and len(bars[t]) > 20)
     print(f"  Bars ready: {have}/{len(tickers)} in {time.time()-t0:.1f}s")
 
-    trades = replay(tickers, bars, daily, bar_prov, live, qmeta, args.grade_min, MODELS)
+    skips: Dict[str, int] = {}
+    trades = replay(tickers, bars, daily, bar_prov, live, qmeta, args.grade_min, MODELS,
+                    entry_mode=args.entry, slip_bps=args.slip_bps, skips=skips)
 
     by_model: Dict[str, List[Trade]] = defaultdict(list)
     for tr in trades:
@@ -523,6 +629,7 @@ def main() -> int:
     dump_model("classic")
     if ranked:
         dump_model(ranked[0][0])
+    print_honest(summaries)
 
     stamp = now.strftime("%Y%m%d_%H%M%S")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -531,7 +638,12 @@ def main() -> int:
         "asof": now.isoformat(),
         "method": {
             "bars": f"{args.interval} hybrid ~{ '8d' if args.interval=='1m' else '1mo' }",
-            "entry": "engine trigger close, prefix through trigger bar",
+            "entry": ("next bar open + %.1f bps slippage" % args.slip_bps) if args.entry == "next_open"
+                     else "engine trigger close (optimistic)",
+            "entry_mode": args.entry,
+            "skipped_entries": skips,
+            "r_net": "r_multiple - round-trip cost / risk (per trade)",
+            "standard_error": "clustered by session (honest.py)",
             "hold": "focus session only (no overnight)",
             "grade": f"decision-time ≥ {args.grade_min}",
             "same_bar": "stop before target; no same-bar entry fill",

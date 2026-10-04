@@ -19,6 +19,7 @@ VWAP One:
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, time as dtime
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -1070,6 +1071,9 @@ def analyze(
 
     # Replay 2026-08-12: pure mdrev in chop is −0.10R (n=107). Gap/both keep.
     # Mixed-regime mdrev was +0.43R — leave those on the A desk.
+    # v1.4 caveat: with costs and session-clustered SEs both numbers are inside noise for one
+    # month (mdrev/chop −0.16R net, t −1.3), and out of sample (Sep 2–Oct 2) mixed-regime mdrev
+    # was the worst segment (−0.39R net). Kept as-is; let the forward ledger decide.
     if (
         st.get("setup_mode") == "mdrev"
         and regime == "chop"
@@ -1185,6 +1189,44 @@ def analyze(
             "setup_mode": st.get("setup_mode"),
         },
     }
+
+
+DEFAULT_MAX_BAR_AGE_MIN = 15.0   # live desk: newest bar older than this while the market is open = stale
+
+
+def bar_age_min(bars_df: Optional[pd.DataFrame], now_s: Optional[float] = None) -> Optional[float]:
+    """Minutes since the newest bar started (naive timestamps are UTC, as in _to_et)."""
+    if bars_df is None or len(bars_df) == 0:
+        return None
+    try:
+        ts = pd.Timestamp(bars_df.index[-1])
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        now_s = time.time() if now_s is None else now_s
+        return max(0.0, (now_s - ts.timestamp()) / 60.0)
+    except Exception:
+        return None
+
+
+def apply_stale_guard(row: Dict[str, Any], age_min: Optional[float],
+                      max_age_min: float = DEFAULT_MAX_BAR_AGE_MIN) -> bool:
+    """
+    A trigger computed from bars that stopped updating is not a trigger. Free feeds lag, stall
+    and drop symbols; while the market is open (RTH or 24/7 crypto) a newest bar older than
+    max_age_min demotes TRIGGER -> WATCH and clears live_actionable. Premarket is exempt
+    (thin tape legitimately prints few bars). Live desk only: replays use historical prefixes.
+    """
+    row["bar_age_min"] = round(age_min, 1) if age_min is not None else None
+    open_now = row.get("session_label") in ("rth", "24/7 crypto")
+    stale = bool(open_now and age_min is not None and age_min > max_age_min)
+    row["stale_bars"] = stale
+    if stale:
+        row["live_actionable"] = False
+        if row.get("signal") == "TRIGGER":
+            row["signal"] = "WATCH"
+        row["note"] = ((row.get("note") or "") + f" · STALE BARS {age_min:.0f}m").lstrip(" ·")
+        row["edge"] = max(0, int(row.get("edge") or 0) - 15)
+    return stale
 
 
 def build_chart_from_row(row: Dict[str, Any]) -> Dict[str, Any]:
