@@ -20,9 +20,10 @@ The Pages demo runs the desk's own engine in the browser: `engine.js` is a line-
 DST weeks, crypto, broken feeds) and compares every output field (`tests/test_engine_parity.py`).
 It pulls 14 days of free 5m Yahoo bars per name through a CORS proxy and applies the desk's scan
 pipeline: session $ volume floor → engine → stale-bar guard → grade floor → rotation rank. Unlike
-the local desk it scans a smaller pool (≥160 names vs ~480), has no VWAP One cross-check, uses the
-last bar's close rather than a live quote, and keeps no forward ledger. `cf-pages/` is an
-identical copy for Cloudflare Pages (a test keeps it so).
+the local desk it scans a smaller pool (≥160 names vs ~480), grades crypto on Yahoo's bars rather
+than exchange candles, has no VWAP One cross-check, uses the last bar's close rather than a live
+quote, and keeps no forward ledger. `cf-pages/` is an identical copy for Cloudflare Pages (a test
+keeps it so).
 
 The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs locally on `:8791`.
 
@@ -188,9 +189,10 @@ What this says:
   every label already run on it; the UTC row is a sensitivity check, not a selection. Coinbase bars
   (full volume) give +0.13R ± 0.17, and a Coinbase fetch that began at noon on Sep 4 rather than
   midnight gave −0.09R: half a day of history moves this result by 0.2R.
-- **Coverage.** Yahoo has no 5m bars under 9 of the 48 symbols (MATIC, SUI, APT, UNI, PEPE, TAO,
-  IMX, GRT, STX). The local desk fetches crypto from exchange APIs (OKX first) that return at most
-  200–350 5m bars, about a day, so its crypto rows rarely have the three sessions RVOL needs.
+- **Coverage.** This fetch found no Yahoo 5m bars under 9 of the 48 symbols (MATIC, SUI, APT, UNI,
+  PEPE, TAO, IMX, GRT, STX). Yahoo lists them under numbered symbols (SUI20947-USD, ...; MATIC is
+  now POL-USD), which the desk and the page now ask for (`providers.YAHOO_CRYPTO_SYMBOLS`). The
+  local desk grades crypto on exchange candles instead (see [History / RVOL](#history--rvol)).
 
 Treat the desk as a research scanner. The forward ledger (`ledger.py`) records every live
 grade-A trigger as it is shown and scores it after the close; trust a grade, gate or learned
@@ -217,6 +219,18 @@ from one session; they are not expectancy.
 - Coarser bars use a longer free window (`5m`/`15m` → `1mo` via `bars_range_for_interval`).
 - RVOL uses **all prior sessions** in the window (cap 7), not a hard 4, and surfaces **`rvol_n`** / **`session_n`** so thin samples stay visible.
 - yfinance uses **start/end** clamped to 8d for 1m so requests are not rejected or silently collapsed to period=`5d`.
+- **Crypto** (desk and ledger): one exchange's 5m candles (OKX, then Binance, Bybit, Coinbase), paged
+  back to ET midnight 8 days ago (`providers.CRYPTO_HISTORY_DAYS`), so RVOL has its 7 prior
+  sessions. Each venue call returns only 200–350 bars, about a day; before, crypto RVOL never had a
+  baseline. The series is cached per coin and each scan fetches only its tail, from the same venue:
+  a series is never stitched from two venues' books. If that venue fails, its cache is served
+  for up to 5 minutes, then the next venue builds a new series. Yahoo, under its own symbols, is the
+  fallback over the same window. The ledger asks for more days when a pending crypto session is
+  older, and leaves a session pending until the feed has a bar from the next ET day.
+- A venue that has no such coin (OKX has no RUNE, Coinbase no TRX, Yahoo no SUI-USD) is skipped for
+  that coin only. It used to go into the 45 s cooldown meant for a failing provider, and every later
+  coin in the scan lost that venue: two back-to-back scans got bars for 34, then 29, of the desk's
+  42 crypto names, from three or four different feeds.
 
 ## Layout
 
@@ -227,7 +241,7 @@ cf-pages/           # identical copy of index.html + engine.js for Cloudflare Pa
 static/index.html   # full local desk UI (served by app.py)
 app.py              # FastAPI · live loop · :8791
 engine.py           # dual VWAP + KER + grades (ENGINE_VERSION)
-providers.py / data.py
+providers.py / data.py   # free feed rotation; crypto history pager + per-coin cache
 backtest_today_scans.py · walkforward.py · replay_sessions.py
 replay_crypto.py    # the same replay on the crypto names (Yahoo or Coinbase bars, paired engines)
 causal_check.py     # bar-by-bar decision-time check of the replay's trigger search

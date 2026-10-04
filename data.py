@@ -177,6 +177,7 @@ def batch_fetch(
     daily_period: str = "2y",
     force: bool = False,
     mode: str = "rotate",
+    crypto_days: Optional[int] = None,
 ) -> Tuple[
     Dict[str, pd.DataFrame],
     Dict[str, pd.DataFrame],
@@ -193,6 +194,8 @@ def batch_fetch(
       yfinance — bulk only (no crypto venues)
 
     bars_period defaults via bars_range_for_interval (1m→8d, 5m→1mo).
+    crypto_days: whole prior ET days of crypto bars, paged from the venue and cached
+    (default providers.CRYPTO_HISTORY_DAYS, enough for the engine's 7-prior RVOL baseline).
     """
     from providers import bars_range_for_interval
 
@@ -205,7 +208,7 @@ def batch_fetch(
         return {}, {}, {}, {}, {}
 
     # v3: longer free history (was 5d) — bust thin-history cache
-    key = f"v3hist|{mode}|{','.join(tickers)}|{bars_interval}|{bars_period}"
+    key = f"v3hist|{mode}|{','.join(tickers)}|{bars_interval}|{bars_period}|{crypto_days}"
     now = time.time()
     hit = _cache.get(key)
     if not force and hit and now - hit[0] < _TTL:
@@ -238,7 +241,7 @@ def batch_fetch(
         need = [t for t in tickers if looks_crypto(t) or t not in bar_map]
 
     if need:
-        rb, rd, rp, rl, rq = batch_rotate_fetch(need, bars_interval=bars_interval)
+        rb, rd, rp, rl, rq = batch_rotate_fetch(need, bars_interval=bars_interval, history_days=crypto_days)
         # prefer rotate bars for crypto; fill missing equities
         for t, df in rb.items():
             if looks_crypto(t) or t not in bar_map or mode == "rotate":

@@ -8,12 +8,12 @@ This runs the same machinery on the crypto names: replay_sessions.replay, decisi
 next-bar-open fills + 2 bps, held to the session's last bar, R net of the 0.15% crypto round trip,
 standard errors clustered by session (honest.py).
 
-Bars (--source yahoo, the default). data.batch_fetch(mode="hybrid") sends crypto to exchange APIs
-(OKX, Binance, Bybit, Coinbase) that return at most 200-350 5m bars, about a day: too short to replay
-a month. For the fetch the venues are held in cooldown, so batch_fetch takes its own Yahoo chart
-fallback (5m, 1 month), the feed the GitHub Pages demo grades crypto on. Yahoo prints zero volume on
-about half of its 5m crypto bars, so the VWAPs are built from the rest. --source coinbase pages
-through Coinbase's 5m candles instead (every bar has its volume): a data-source cross-check.
+Bars (--source yahoo, the default). data.batch_fetch(mode="hybrid") pages crypto from an exchange API
+(OKX, Binance, Bybit, Coinbase in turn), 8 prior ET days unless asked for more. For the fetch the
+venues are held in cooldown, so batch_fetch takes its own Yahoo chart fallback (5m, the last 30 ET
+days), the feed the GitHub Pages demo grades crypto on. Yahoo prints zero volume on about half of its
+5m crypto bars, so the VWAPs are built from the rest. --source coinbase pages through Coinbase's 5m
+candles instead (every bar has its volume): a data-source cross-check.
 
 Only complete sessions are replayed. A 24/7 market's current session is still open, so bars after
 --through (default: the day before the fetch, ET) are dropped. Fetched bars can be cached
@@ -65,8 +65,8 @@ def crypto_universe() -> List[str]:
 def fetch_yahoo_month(tickers: List[str]) -> Tuple[Dict[str, Any], Dict[str, str]]:
     """
     batch_fetch one name at a time with the crypto venues in cooldown, so crypto takes the Yahoo chart
-    path (5m, 1mo). One name at a time because a symbol Yahoo does not list (SUI-USD, say) puts the
-    shared Yahoo and yfinance providers in a 45 s cooldown, which in one batch starves every name after it.
+    path (5m, the last 30 ET days). One name at a time because a failed fetch puts the shared Yahoo and
+    yfinance providers in a 45 s cooldown, which in one batch starves every name after it.
     """
     bars: Dict[str, Any] = {}
     bar_prov: Dict[str, str] = {}
@@ -78,7 +78,7 @@ def fetch_yahoo_month(tickers: List[str]) -> Tuple[Dict[str, Any], Dict[str, str
                 providers._cooldown_until.clear()
                 for v in CRYPTO_VENUES:
                     providers._cooldown_until[v] = time.time() + 3600
-            b, _daily, p, _live, _q = batch_fetch([t], force=True, mode="hybrid", bars_interval="5m")
+            b, _daily, p, _live, _q = batch_fetch([t], force=True, mode="hybrid", bars_interval="5m", crypto_days=30)
             if t in b and b[t] is not None and len(b[t]):
                 bars[t], bar_prov[t] = b[t], p.get(t, "?")
     finally:
@@ -296,8 +296,8 @@ def main() -> int:
         fetch_meta[t] = {"provider": bar_prov.get(t), "bars": int(len(df)), "first": idx[0].isoformat(),
                          "last": idx[-1].isoformat(), "zero_volume_share": round(float((df["Volume"] <= 0).mean()), 3)}
     method: Dict[str, Any] = {
-        "bars": ("5m Yahoo chart, ~1 month: data.batch_fetch(mode='hybrid') with the crypto venues held in "
-                 "cooldown (OKX/Binance/Bybit/Coinbase return <= 350 5m bars)") if source == "yahoo"
+        "bars": ("5m Yahoo chart, the last 30 ET days: data.batch_fetch(mode='hybrid', crypto_days=30) with "
+                 "the crypto venues held in cooldown") if source == "yahoo"
                 else "5m Coinbase candles, 30 days, paged through the public candles endpoint",
         "session_clock": "UTC day (bars relabelled by their ET offset)" if args.utc_days else "ET calendar day",
         "window": [sessions[0], sessions[-1]] if sessions else None,
