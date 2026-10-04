@@ -21,14 +21,15 @@ from data import (
     passes_volume_filter,
     rotation_score,
 )
-from engine import analyze, build_chart_from_row
+import ledger
+from engine import DEFAULT_MAX_BAR_AGE_MIN, analyze, apply_stale_guard, bar_age_min, build_chart_from_row
 from providers import fetch_quote
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("vwap_blue")
 
 ROOT = Path(__file__).resolve().parent
-APP_VERSION = "1.3.1-blue"
+APP_VERSION = "1.4.0-blue"
 app = FastAPI(title="VWAP Blue", version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
@@ -37,6 +38,10 @@ POOL_MULT = max(1, int(os.environ.get("VWAP_BLUE_POOL_MULT", "10")))
 # Default $vol floor (equity); crypto uses a lower floor inside passes_volume_filter.
 # Set VWAP_BLUE_MIN_DVOL=0 to disable.
 _DEFAULT_MIN_DVOL = float(os.environ.get("VWAP_BLUE_MIN_DVOL", "2000000"))
+# Live triggers on bars older than this (minutes, market open) are demoted to WATCH.
+MAX_BAR_AGE_MIN = float(os.environ.get("VWAP_BLUE_MAX_BAR_AGE_MIN", str(DEFAULT_MAX_BAR_AGE_MIN)))
+# Forward ledger: record every live grade-A trigger (data/signals/). VWAP_BLUE_LEDGER=0 disables.
+LEDGER_ON = os.environ.get("VWAP_BLUE_LEDGER", "1") != "0"
 
 _last: Dict[str, Any] = {"ts": 0.0, "rows": [], "meta": {}, "by_ticker": {}}
 _live_lock = threading.Lock()
@@ -172,6 +177,19 @@ def _apply_one_conflict(
             row["signal"] = "WATCH"
 
 
+def _forward_brief() -> Optional[Dict[str, Any]]:
+    """Compact forward-ledger record for the scan meta (cheap: two small JSONL files)."""
+    if not LEDGER_ON:
+        return None
+    try:
+        rep = ledger.report()
+    except Exception:
+        return None
+    s = rep.get("net_r") or {}
+    return {"signals": rep["signals"], "resolved": rep["resolved"], "pending": rep["pending"],
+            "net_r": s.get("mean"), "se": s.get("se"), "sessions": s.get("clusters"), "verdict": rep["verdict"]}
+
+
 def run_scan(
     tickers: Optional[List[str]] = None,
     max_n: int = 16,
@@ -243,12 +261,20 @@ def run_scan(
         row["dollar_vol"] = round(dvol, 0) if dvol else 0
         floor = float(min_dvol) if min_dvol and min_dvol > 0 else 0.0
         row["illiquid"] = bool(floor > 0 and dvol > 0 and dvol < floor)
+        apply_stale_guard(row, bar_age_min(bars.get(t)), MAX_BAR_AGE_MIN)
         _apply_one_conflict(row, bars, daily, live, bar_prov, quote_meta)
         by_ticker[t] = row
         # strip heavy chart blob from table payload (kept in by_ticker)
         slim = {k: v for k, v in row.items() if k != "_chart"}
         slim["_rot"] = rotation_score(slim)
         rows.append(slim)
+
+    ledger_new = 0
+    if LEDGER_ON:
+        try:   # the ledger must never break a scan
+            ledger_new = ledger.record(by_ticker, version=APP_VERSION)
+        except Exception as e:
+            log.warning("ledger record failed: %s", e)
 
     if actionable_only:
         rows = [r for r in rows if r.get("actionable") or r.get("live_actionable")]
@@ -287,6 +313,10 @@ def run_scan(
         "setups": sum(1 for r in rows if r.get("signal") in ("SETUP", "TRIGGER", "TAGGED")),
         "grade_a": sum(1 for r in rows if (r.get("grade") or "").startswith("A") or (r.get("grade") or "").startswith("LA")),
         "conflicts": sum(1 for r in rows if r.get("conflict")),
+        "stale": sum(1 for r in rows if r.get("stale_bars")),
+        "max_bar_age_min": MAX_BAR_AGE_MIN,
+        "ledger_new": ledger_new,
+        "forward": _forward_brief(),
         "regime_counts": regimes,
         "grade_min": grade_min,
         "pool_scanned": len(tickers),
@@ -561,6 +591,19 @@ def critique():
             "yahoo_chart, stooq, eodhd_demo, yfinance",
         ],
     }
+
+
+@app.get("/api/ledger")
+def ledger_report(model: str = Query("classic"), entry: str = Query("next_open")):
+    """Forward record of live grade-A triggers, resolved after each session (see ledger.py)."""
+    return ledger.report(model=model, entry_mode=entry)
+
+
+@app.post("/api/ledger/resolve")
+def ledger_resolve():
+    """Resolve signals whose session has closed (fetches that session's bars)."""
+    counts = ledger.resolve()
+    return {"resolve": counts, "report": ledger.report()}
 
 
 @app.get("/api/universe")

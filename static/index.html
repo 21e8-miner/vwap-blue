@@ -326,6 +326,10 @@
         `<b>${m.elapsed_sec ?? '—'}s</b>${rtt!=null ? ' · '+rtt.toFixed(2)+'s rtt' : ''} · ${m.asof||''}` +
         (m.live ? ' · <span class="pos">LIVE</span>' : '') +
         (reg ? ` · regime {${reg}}` : '') +
+        (m.stale ? ` · <span class="neg">stale ${m.stale}</span>` : '') +
+        (m.forward ? ` · forward <b>${m.forward.resolved}</b>/${m.forward.signals} resolved` +
+          (m.forward.net_r != null ? ` net <b>${m.forward.net_r >= 0 ? '+' : ''}${m.forward.net_r.toFixed(2)}R</b>` +
+            (m.forward.se != null ? `±${m.forward.se.toFixed(2)} (${m.forward.sessions} sess, ${m.forward.verdict})` : '') : '') : '') +
         ` · <span class="src">VW-σ · KER gate · rotate universe</span>`;
       render();
     }
