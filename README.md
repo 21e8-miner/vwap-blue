@@ -79,9 +79,10 @@ python3 replay_sessions.py --entry trigger_close          # the old, optimistic 
 # Honest stats for a saved replay, no fetching
 python3 replay_sessions.py --rescore research/replay_2026-08-12.json
 
-# The crypto names (the replay above takes the first N names of universe.txt: all equities)
-python3 replay_crypto.py --save-bars data/backtests/crypto_bars.pkl
-python3 replay_crypto.py --bars data/backtests/crypto_bars.pkl --utc-days   # crypto's day from 00:00 UTC
+# The crypto names (the replay above takes the first N names of universe.txt: all equities).
+# Yahoo lists other tokens under ARB-USD, TON-USD and JUP-USD, so leave those out.
+python3 replay_crypto.py --save-bars data/backtests/crypto_bars.pkl --exclude ARB-USD,TON-USD,JUP-USD
+python3 replay_crypto.py --bars data/backtests/crypto_bars.pkl --exclude ARB-USD,TON-USD,JUP-USD --utc-days
 python3 replay_crypto.py --source coinbase                                  # Coinbase bars instead of Yahoo
 
 # Grade every bar's prefix as the desk saw it (slow): checks the replay's end-of-day trigger search
@@ -152,45 +153,50 @@ What this says:
   partial/trail exit lost least (−0.15R net vs −0.27R).
 - **Fill realism** (next bar open vs trigger close) costs ~0.015R on 5m bars here.
 
-#### Crypto (the 48 crypto names of `universe.txt`; 39 have Yahoo 5m bars)
+#### Crypto (the 48 crypto names of `universe.txt`; 36 have Yahoo 5m bars of the right token)
 
 No replay before v1.5.0 included crypto, yet the page graded it. `replay_crypto.py` runs the same
 replay on Yahoo's 5m bars (the page's feed; about half its 5m crypto bars report zero volume),
-complete ET days only, on sessions no rule was ever tuned on.
+complete ET days only, on sessions no rule was ever tuned on. Under ARB-USD, TON-USD and JUP-USD
+Yahoo lists other tokens (ARbit, TON Token, a second Jupiter), so those are left out; a first
+version of these results included them (4 v1.5.0 trades: 149 instead of 145, ± 0.12 instead of 0.13).
 
 | sessions | engine · crypto session | bars | n | gross R | **net R ± SE** | verdict |
 |---|---|---|--:|--:|--:|---|
 | Sep 5 – Oct 3 | v1.4.1 · equity clock: 00:00–16:00 ET, gap from the prior 15:55 close | Yahoo | 196 | −0.40 | **−0.91 ± 0.17** | negative (t −5.3) |
-| Sep 5 – Oct 3 | v1.4.1, graded bar by bar (`causal_check.py`) | Yahoo | 248 | −0.23 | −0.74 ± 0.16 | negative (t −4.6) |
-| **Sep 5 – Oct 3** | **v1.5.0 · the whole ET day, no gap fade** | Yahoo | 149 | +0.08 | **+0.01 ± 0.12** | inconclusive (t 0.1) |
-| Sep 5 – Oct 3 | v1.5.0 rules with the day starting 00:00 UTC | Yahoo | 154 | −0.26 | −0.34 ± 0.10 | negative (t −3.3) |
-| Sep 5 – Oct 3 | v1.4.1 with only its gap fade switched off | Yahoo | 141 | +0.09 | +0.01 ± 0.10 | inconclusive (t 0.1) |
+| Sep 5 – Oct 3 | v1.4.1, graded bar by bar (`causal_check.py`) | Yahoo | 245 | −0.24 | −0.75 ± 0.16 | negative (t −4.8) |
+| **Sep 5 – Oct 3** | **v1.5.0 · the whole ET day, no gap fade** | Yahoo | 145 | +0.08 | **+0.01 ± 0.13** | inconclusive (t 0.0) |
+| Sep 5 – Oct 3 | v1.5.0 rules with the day starting 00:00 UTC | Yahoo | 150 | −0.28 | −0.35 ± 0.10 | negative (t −3.4) |
+| Sep 5 – Oct 3 | v1.4.1 with only its gap fade switched off | Yahoo | 137 | +0.09 | +0.01 ± 0.11 | inconclusive (t 0.1) |
 | Sep 5 – Oct 3 | v1.4.1 | Coinbase, 43 names | 257 | −0.53 | −0.98 ± 0.12 | negative (t −8.3) |
 | Sep 5 – Oct 3 | v1.5.0 | Coinbase, 43 names | 128 | +0.18 | +0.13 ± 0.17 | inconclusive (t 0.7) |
 
-All Yahoo rows replay one fetch; the two Coinbase rows share another.
+All Yahoo rows replay one fetch of 36 names; the two Coinbase rows share another (on Coinbase,
+ARB-USD and TON-USD are Arbitrum and Toncoin).
 
 What this says:
 
 - **No edge on crypto in either version.** As graded through v1.4.1, crypto's grade-A triggers
-  lost about 0.9R per trade after costs, on Yahoo and Coinbase bars alike, and still −0.74R graded
+  lost about 0.9R per trade after costs, on Yahoo and Coinbase bars alike, and still −0.75R graded
   bar by bar.
 - **v1.4.1's crypto trades were an artifact of the equity clock.** 184 of 196 were gap fades and
   135 fired in the hour after midnight ET, minutes after blue reset, fading the move since the prior
   15:55 ET close on stops a median 0.43% of price wide: the 0.15% round trip alone cost 0.51R.
 - **v1.5.0 gives crypto the whole ET day and no gap fade.** A 24/7 market has no opening gap (a
   ≥ 0.15% step between consecutive 5m alt bars is routine), so only the multi-day reverse trades:
-  +0.01R ± 0.12 on the same bars. The +0.91R ± 0.20 paired change is the fades going away, not the
+  +0.01R ± 0.13 on the same bars. The +0.91R ± 0.20 paired change is the fades going away, not the
   longer day: v1.4.1 with only its gap fade switched off scores the same.
 - **Even the break-even is fragile.** Starting the day at 00:00 UTC instead of 00:00 ET changes
-  which reclaim is the day's first and where orange is anchored, and the same rules lose −0.34R
-  (t −3.3). ET was chosen before either day was replayed, because the replay, the ledger and
+  which reclaim is the day's first and where orange is anchored, and the same rules lose −0.35R
+  (t −3.4). ET was chosen before either day was replayed, because the replay, the ledger and
   every label already run on it; the UTC row is a sensitivity check, not a selection. Coinbase bars
   (full volume) give +0.13R ± 0.17, and a Coinbase fetch that began at noon on Sep 4 rather than
   midnight gave −0.09R: half a day of history moves this result by 0.2R.
 - **Coverage.** Yahoo has no 5m bars under 9 of the 48 symbols (MATIC, SUI, APT, UNI, PEPE, TAO,
-  IMX, GRT, STX). The local desk fetches crypto from exchange APIs (OKX first) that return at most
-  200–350 5m bars, about a day, so its crypto rows rarely have the three sessions RVOL needs.
+  IMX, GRT, STX) and other tokens under 3 (ARB, TON, JUP); all 12 are on Yahoo under other symbols
+  (SUI20947-USD, ARB11841-USD, POL28321-USD, ...). The local desk fetches crypto from exchange APIs
+  (OKX first) that return at most 200–350 5m bars, about a day, so its crypto rows rarely have the
+  three sessions RVOL needs.
 
 Treat the desk as a research scanner. The forward ledger (`ledger.py`) records every live
 grade-A trigger as it is shown and scores it after the close; trust a grade, gate or learned
