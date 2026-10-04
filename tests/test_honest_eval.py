@@ -195,6 +195,19 @@ class TestLedger(unittest.TestCase):
         self.assertAlmostEqual(rep["net_r"]["mean"], nxt["r_net"])
         self.assertEqual(ledger.resolve(after, fetch=lambda *a, **k: ({"AAPL": self.df},), base=self.dir)["pending_closed"], 0)
 
+    def test_equity_outcome_ends_at_the_close(self):
+        """After-hours prints fill nothing: a stop first traded at 16:30 leaves the trade to the 15:55 close."""
+        late = pd.DataFrame({"Open": [102.0, 98.0], "High": [102.0, 98.2], "Low": [97.6, 97.0], "Close": [98.0, 97.5],
+                             "Volume": [500, 500]},
+                            index=pd.DatetimeIndex([pd.Timestamp("2026-09-15 16:30", tz=ET),
+                                                    pd.Timestamp("2026-09-15 17:00", tz=ET)]))
+        df = pd.concat([self.df, late])
+        ledger.record({"AAPL": self._row(target=105.0)}, "t", base=self.dir)
+        ledger.resolve(datetime(2026, 9, 16, 9, 0, tzinfo=ET), fetch=lambda *a, **k: ({"AAPL": df},), base=self.dir)
+        out = [o for o in ledger._read(self.dir / "outcomes.jsonl")
+               if o["status"] == "resolved" and o["model"] == "classic" and o["entry_mode"] == "next_open"][0]
+        self.assertEqual((out["exit_reason"], out["exit"]), ("eod", 102.0))
+
     def test_session_outside_window_is_unresolvable(self):
         ledger.record({"AAPL": self._row(focus_day="2026-08-01")}, "t", base=self.dir)
         counts = ledger.resolve(datetime(2026, 9, 16, 9, 0, tzinfo=ET), fetch=lambda *a, **k: ({"AAPL": self.df},), base=self.dir)

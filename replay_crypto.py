@@ -146,28 +146,19 @@ def as_utc_days(bars: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def complete_sessions(bars: Dict[str, Any], through: date) -> Dict[str, Any]:
-    """Drop every bar after `through` (ET): the replay holds to a session's last bar, so it must be final."""
-    out = {}
-    for t, df in bars.items():
-        if df is None or df.empty:
-            continue
-        cut = df.loc[rs._et_index(df).date <= through]
-        if len(cut):
-            out[t] = cut
-    return out
+complete_sessions = rs.complete_sessions
 
 
 def load_engine(path: Optional[str]) -> str:
     """Point the replay at an engine file (same API; default ./engine.py); returns its version."""
     if not path:
         import engine
-        rs.analyze = engine.analyze
+        rs.ENGINE = engine
         return engine.ENGINE_VERSION
     spec = importlib.util.spec_from_file_location(f"engine_alt_{abs(hash(path))}", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    rs.analyze = mod.analyze
+    rs.ENGINE = mod
     return mod.ENGINE_VERSION
 
 

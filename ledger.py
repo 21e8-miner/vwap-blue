@@ -6,10 +6,10 @@ Every replay in this repo looks back at bars that already happened, so any rule 
 (grade floors, regime gates, the mdrev-in-chop demotion) is fitted to the same month it is
 judged on. The ledger is the other half: each live grade-A TRIGGER the desk shows is written
 down the moment it appears, with decision-time fields only, and resolved after its session
-closes with the replay's own exit simulator (next-bar-open fill + slippage, round-trip costs
-in R). The report clusters standard errors by session (honest.py). A few weeks of this is
-worth more than any re-tuning on last month's replay, and it is the dataset a learned setup
-filter would eventually need.
+closes with the replay's own exit simulator (next-bar-open fill + slippage, held to the
+session's close, which for equities is 16:00; round-trip costs in R). The report clusters
+standard errors by session (honest.py). A few weeks of this is worth more than any re-tuning
+on last month's replay, and it is the dataset a learned setup filter would eventually need.
 
 Files (data/signals/, gitignored):
   signals.jsonl    append-only, one line per new trigger (deduped by ticker|session|trigger bar)
@@ -153,7 +153,7 @@ def resolve(now: Optional[datetime] = None, fetch: Optional[Callable] = None, ba
 
 
 def _resolve(now: Optional[datetime], fetch: Optional[Callable], base: Optional[Path]) -> Dict[str, int]:
-    from replay_sessions import MODELS, _fill_entry, _simulate
+    from replay_sessions import MODELS, _fill_entry, _simulate, session_bars
     if fetch is None:
         from data import batch_fetch as fetch
     p = _paths(base)
@@ -177,7 +177,8 @@ def _resolve(now: Optional[datetime], fetch: Optional[Callable], base: Optional[
     stamp = now.isoformat(timespec="seconds")
     for s in pending:
         df = bars.get(s["ticker"])
-        day = _day_bars(df, s["session"]) if df is not None and len(df) else []
+        # as the replay: filled and held within the session (equities flatten at the 16:00 close)
+        day = session_bars(s["ticker"], _day_bars(df, s["session"])) if df is not None and len(df) else []
         idx = max((i for i, b in enumerate(day) if b["ts"] <= s["trigger_ts"]), default=None)
         age_days = (now.date() - datetime.strptime(s["session"], "%Y-%m-%d").date()).days
         reason = None
