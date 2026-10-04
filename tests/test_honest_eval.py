@@ -185,6 +185,38 @@ class TestLedger(unittest.TestCase):
         counts = ledger.resolve(datetime(2026, 9, 16, 9, 0, tzinfo=ET), fetch=lambda *a, **k: ({"AAPL": self.df},), base=self.dir)
         self.assertEqual(counts["unresolvable"], 1)
 
+    def test_app_auto_resolve_after_close(self):
+        import unittest.mock as mock
+        import app as desk_app
+
+        with mock.patch.object(desk_app.ledger, "resolve", return_value={"pending_closed": 1, "resolved": 1}) as mock_res:
+            desk_app._last_auto_resolve_session = None
+            desk_app._last_auto_resolve_check = 0.0
+
+            # Midday: runs once on boot / initial check
+            midday = datetime(2026, 9, 15, 14, 0, tzinfo=ET)
+            res1 = desk_app._maybe_auto_resolve_ledger(midday)
+            self.assertEqual(res1, {"pending_closed": 1, "resolved": 1})
+            self.assertEqual(mock_res.call_count, 1)
+
+            # Within throttle window: throttles
+            res2 = desk_app._maybe_auto_resolve_ledger(midday)
+            self.assertIsNone(res2)
+            self.assertEqual(mock_res.call_count, 1)
+
+            # Post close: triggers because today's post-close resolve hasn't run yet
+            post_close = datetime(2026, 9, 15, 16, 30, tzinfo=ET)
+            res3 = desk_app._maybe_auto_resolve_ledger(post_close)
+            self.assertEqual(res3, {"pending_closed": 1, "resolved": 1})
+            self.assertEqual(mock_res.call_count, 2)
+            self.assertEqual(desk_app._last_auto_resolve_session, "2026-09-15")
+
+            # Subsequent check after close today throttles
+            res4 = desk_app._maybe_auto_resolve_ledger(post_close)
+            self.assertIsNone(res4)
+            self.assertEqual(mock_res.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
+

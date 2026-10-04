@@ -1,7 +1,7 @@
 # VWAP Blue
 
 **Best-of Blueline + VWAP One** in the VWAP desk layout, with Modern-VWAP-style
-adaptive bands and Kaufman Efficiency Ratio regime gates (**v1.2**).
+adaptive bands and Kaufman Efficiency Ratio regime gates (**v1.4**).
 
 ## Share / live demo
 

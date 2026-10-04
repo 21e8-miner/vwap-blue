@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import logging
 import os
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse
@@ -344,6 +346,39 @@ def run_scan(
     return {"results": rows, "meta": meta}
 
 
+_ET = ZoneInfo("America/New_York")
+_last_auto_resolve_session: Optional[str] = None
+_last_auto_resolve_check: float = 0.0
+
+
+def _maybe_auto_resolve_ledger(now_dt: Optional[datetime] = None) -> Optional[Dict[str, int]]:
+    """Resolve forward-ledger signals once a day after market close (16:15 ET), or on boot for past sessions."""
+    global _last_auto_resolve_session, _last_auto_resolve_check
+    if not LEDGER_ON:
+        return None
+    now_dt = now_dt or datetime.now(_ET)
+    today_str = now_dt.strftime("%Y-%m-%d")
+    is_post_close = (now_dt.hour, now_dt.minute) >= (16, 15) or now_dt.weekday() >= 5
+    need_close_run = is_post_close and _last_auto_resolve_session != today_str
+
+    now_s = time.time()
+    # If today's post-close resolve hasn't run yet, fire immediately; otherwise throttle routine checks to 10 min
+    if not need_close_run and (now_s - _last_auto_resolve_check < 600):
+        return None
+    _last_auto_resolve_check = now_s
+
+    try:
+        counts = ledger.resolve(now=now_dt)
+        if is_post_close:
+            _last_auto_resolve_session = today_str
+        if counts.get("resolved") or counts.get("unresolvable"):
+            log.info("ledger auto-resolve: %s", counts)
+        return counts
+    except Exception as e:
+        log.warning("ledger auto-resolve failed: %s", e)
+        return None
+
+
 def _live_loop() -> None:
     log.info("live loop started")
     while True:
@@ -364,6 +399,10 @@ def _live_loop() -> None:
             )
         except Exception as e:
             log.exception("live scan failed: %s", e)
+        try:
+            _maybe_auto_resolve_ledger()
+        except Exception as e:
+            log.warning("auto-resolve step failed: %s", e)
         for _ in range(interval):
             with _live_lock:
                 if not _live_cfg["enabled"]:
@@ -406,6 +445,10 @@ def _boot_live_party() -> None:
         )
     except Exception as e:
         log.warning("boot scan: %s", e)
+    try:
+        _maybe_auto_resolve_ledger()
+    except Exception as e:
+        log.warning("boot auto-resolve failed: %s", e)
 
 
 @app.on_event("startup")
