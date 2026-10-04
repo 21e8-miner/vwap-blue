@@ -612,13 +612,16 @@ def critique():
             "Rank by |gap|×RVOL×edge×$vol, show top N; thin tape demoted before the desk list.",
             "Equity signals only in premarket + RTH (Blueline hygiene); crypto trades its whole ET day, and with no "
             "opening gap to fade only multi-day orange reclaims trigger (v1.5.0).",
+            "Crypto bars are one venue's 5m candles for 8 prior ET days (paged once, then only the tail is "
+            "refreshed), so crypto RVOL has its full 7-day baseline.",
             "Auditable feeds per row; never fabricates prices.",
         ],
         "strawman": [
             "Session replay (replay_sessions.py) is research — live params are not auto-tuned from it.",
             "Crypto has no edge either: its first replay (replay_crypto.py) lost 0.91R per trade on v1.4.1's equity "
             "clock and came out flat on the v1.5.0 24h session, losing again when the day starts at UTC midnight.",
-            "Crypto bars come from venue APIs that return ~200-350 5m bars (about a day): crypto RVOL rarely has a baseline.",
+            "The Pages demo grades crypto on Yahoo's 5m bars (zero volume on about half of them), the desk on "
+            "exchange candles (OKX first): the two can disagree.",
             "Walk-forward grid exists (walkforward.py) but is research — not auto-tuned live params.",
             "Orange anchor depends on clean multi-session bars — thin free history can mis-anchor.",
             "RVOL still n≤~6 free sessions max on 1m (Yahoo 8d hard-cap).",
