@@ -109,6 +109,7 @@ class Trade:
     cost_r: float = 0.0
     entry_mode: str = "trigger_close"
     entry_plan: float = 0.0     # the engine's printed entry (trigger-bar close)
+    trigger_time: str = ""      # the trigger bar, ET "MM-DD HH:MM"
 
 
 def _is_crypto(t: str) -> bool:
@@ -509,6 +510,7 @@ def replay(
                         cost_r=round(cost_r(t, entry, stop), 3),
                         entry_mode=entry_mode,
                         entry_plan=entry_plan,
+                        trigger_time=str(day_bars[trig_rel].get("time") or ""),
                     )
                 )
         if ti % 10 == 0:

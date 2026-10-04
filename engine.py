@@ -34,7 +34,7 @@ ET = ZoneInfo("America/New_York")
 
 # Bump with any change to what a bar sequence grades as; engine.js exports the same VERSION
 # (tests/test_engine_parity.py), the desk reports it and the forward ledger records it per signal.
-ENGINE_VERSION = "1.4.1"
+ENGINE_VERSION = "1.5.0"
 
 RTH_OPEN_M = 9 * 60 + 30   # 09:30
 RTH_CLOSE_M = 16 * 60      # 16:00
@@ -45,6 +45,13 @@ DEFAULT_GAP_MIN = 0.35     # % gap to arm setup
 DEFAULT_RMIN = 1.0
 DEFAULT_RVOL_MIN = 1.2
 LATE_CUT_M = 14 * 60 + 30  # 14:30 late trigger
+# Crypto trades around the clock (v1.5.0): its session is the whole ET calendar day, so blue, orange,
+# RVOL and signals use every bar, and the prior close is the prior day's last bar. Before, crypto ran
+# the equity clock (00:00-16:00 ET, "gap" = prior 15:55 close to the 09:30 open) and evenings were
+# ignored. A 24/7 market has no opening gap (midnight is one 5m step), so the gap fade is off for
+# crypto and only the multi-day reverse (orange reclaim) can trigger.
+CRYPTO_CLOSE_M = 24 * 60
+CRYPTO_LATE_CUT_M = CRYPTO_CLOSE_M - 90   # 22:30, as 14:30 is to 16:00
 # Multi-day VWAP reverse (orange = multi-day anchor)
 DEFAULT_MD_MIN_EXT = 8     # bars extended beyond orange before reclaim counts
 DEFAULT_MD_MIN_DIST = 0.25 # max % distance from orange during extension
@@ -178,9 +185,11 @@ def _last_idx(bars: List[Dict[str, Any]], day: str) -> int:
     return idx
 
 
-def _prior_rth_close(bars: List[Dict[str, Any]], i0: int) -> float:
+def _prior_rth_close(bars: List[Dict[str, Any]], i0: int,
+                     open_m: int = RTH_OPEN_M, close_m: int = RTH_CLOSE_M) -> float:
     """
     Close of the prior session's last RTH bar (else its last bar before 16:00, else its last bar).
+    Crypto passes its 24h window (0, 24:00): the prior day's last bar.
 
     v1.4.1: the scans walk backwards from the focus day and stop at the first match. Before, they
     kept overwriting and returned the prior session's *first* RTH bar (the 09:30 close), so every
@@ -193,13 +202,13 @@ def _prior_rth_close(bars: List[Dict[str, Any]], i0: int) -> float:
         b = bars[i]
         if b["d"] != prior_day:
             break
-        if RTH_OPEN_M <= b["mins"] < RTH_CLOSE_M:
+        if open_m <= b["mins"] < close_m:
             return b["c"]
     for i in range(i0 - 1, -1, -1):
         b = bars[i]
         if b["d"] != prior_day:
             break
-        if b["mins"] < RTH_CLOSE_M:
+        if b["mins"] < close_m:
             return b["c"]
     return bars[i0 - 1]["c"]
 
@@ -278,19 +287,21 @@ def _resolve_day(
     opts: Dict[str, Any],
 ) -> Dict[str, Any]:
     anchor = opts["anchor_mins"]
+    open_m = opts.get("open_mins", RTH_OPEN_M)
+    close_m = opts.get("close_mins", RTH_CLOSE_M)
     acc = {"bp": 0.0, "bv": 0.0, "bp2": 0.0, "op": 0.0, "ov": 0.0, "vol": 0.0, "trapV": 0.0}
-    # seed orange from prior day (from anchor through RTH close)
+    # seed orange from prior day (from anchor through the session close)
     for i in range(p0, i0):
         b = bars[i]
-        if b["mins"] >= anchor and b["mins"] < RTH_CLOSE_M and b["v"] > 0:
+        if b["mins"] >= anchor and b["mins"] < close_m and b["v"] > 0:
             tp = _tp(b["o"], b["h"], b["l"], b["c"])
             acc["op"] += tp * b["v"]
             acc["ov"] += b["v"]
 
-    prior_close = _prior_rth_close(bars, i0)
+    prior_close = _prior_rth_close(bars, i0, open_m, close_m)
     open_idx = None
     for i in range(i0, iN + 1):
-        if bars[i]["mins"] >= RTH_OPEN_M:
+        if bars[i]["mins"] >= open_m:
             open_idx = i
             break
     if open_idx is not None:
@@ -302,7 +313,7 @@ def _resolve_day(
         gap_provisional = True
 
     direction = 1 if gap_pct >= 0 else -1
-    dev_ok = abs(gap_pct) >= opts["gap_min"]
+    dev_ok = bool(opts.get("gap_fade", True)) and abs(gap_pct) >= opts["gap_min"]
 
     st: Dict[str, Any] = {
         "phase": "SIDE",
@@ -400,15 +411,16 @@ def _step_bar(
 ) -> None:
     b = bars[i]
     anchor = opts["anchor_mins"]
+    close_m = opts.get("close_mins", RTH_CLOSE_M)
     # accumulate blue (today window) and orange (prior+today)
-    if b["mins"] >= anchor and b["mins"] < RTH_CLOSE_M and b["v"] > 0:
+    if b["mins"] >= anchor and b["mins"] < close_m and b["v"] > 0:
         tp = _tp(b["o"], b["h"], b["l"], b["c"])
         acc["bp"] += tp * b["v"]
         acc["bv"] += b["v"]
         acc["bp2"] += tp * tp * b["v"]
         acc["op"] += tp * b["v"]
         acc["ov"] += b["v"]
-    if b["mins"] < RTH_CLOSE_M:
+    if b["mins"] < close_m:
         acc["vol"] += b["v"]
 
     if acc["bv"] > 0:
@@ -424,11 +436,11 @@ def _step_bar(
     st["atr"] = _atr(bars, i)
 
     # ── multi-day reverse: always track when orange exists (no gap required) ──
-    if st["orange"] is not None and b["mins"] < RTH_CLOSE_M and st["md_trig"] is None:
+    if st["orange"] is not None and b["mins"] < close_m and st["md_trig"] is None:
         _track_md_reverse(bars, i, st, opts)
 
     # Blueline gap path: signals only pre + RTH when gap armed
-    eligible = dev_ok and st["blue"] is not None and b["mins"] < RTH_CLOSE_M
+    eligible = dev_ok and st["blue"] is not None and b["mins"] < close_m
     if not eligible:
         return
 
@@ -756,6 +768,7 @@ def _day_trend_blocks_fade(
     gap_pct: float,
     side: str,
     min_cont: float = 0.6,
+    open_m: int = RTH_OPEN_M,
 ) -> bool:
     """
     Block gap-fade when the session has already continued hard in the gap direction.
@@ -766,7 +779,7 @@ def _day_trend_blocks_fade(
         return False
     open_px = None
     for i in range(i0, iN + 1):
-        if bars[i]["mins"] >= RTH_OPEN_M:
+        if bars[i]["mins"] >= open_m:
             open_px = bars[i]["o"] if bars[i]["o"] else bars[i]["c"]
             break
     if open_px is None or open_px <= 0:
@@ -793,7 +806,8 @@ RVOL_MIN_PRIORS = 2
 
 
 def _rvol(
-    bars: List[Dict[str, Any]], days: List[str], i0: int, iN: int, acc_vol: float
+    bars: List[Dict[str, Any]], days: List[str], i0: int, iN: int, acc_vol: float,
+    close_m: int = RTH_CLOSE_M,
 ) -> Tuple[Optional[float], int]:
     """
     Relative cumulative volume vs prior days at same minute-of-day.
@@ -810,7 +824,7 @@ def _rvol(
         for b in bars:
             if b["d"] != pd:
                 continue
-            if b["mins"] <= last_mins and b["mins"] < RTH_CLOSE_M:
+            if b["mins"] <= last_mins and b["mins"] < close_m:
                 cum += b["v"]
         if cum > 0:
             bases.append(cum)
@@ -893,12 +907,15 @@ def analyze(
 
     o = {
         "anchor_mins": DEFAULT_ANCHOR_M if not is_crypto else 0,
+        "open_mins": RTH_OPEN_M if not is_crypto else 0,
+        "close_mins": RTH_CLOSE_M if not is_crypto else CRYPTO_CLOSE_M,
+        "gap_fade": not is_crypto,
         "K": DEFAULT_K,
         "atr_mult": DEFAULT_ATR_MULT,
         "gap_min": DEFAULT_GAP_MIN if not is_crypto else 0.15,
         "Rmin": DEFAULT_RMIN,
         "rvol_min": DEFAULT_RVOL_MIN,
-        "late_cut": LATE_CUT_M,
+        "late_cut": LATE_CUT_M if not is_crypto else CRYPTO_LATE_CUT_M,
         "md_min_ext": DEFAULT_MD_MIN_EXT,
         "md_min_dist": DEFAULT_MD_MIN_DIST,
         "sigma_mult": DEFAULT_SIGMA_MULT,
@@ -950,7 +967,7 @@ def analyze(
     last = bars[iN]
     price = float(live_price) if live_price and live_price > 0 else float(last["c"])
 
-    rvol_val, rvol_n = _rvol(bars, days, i0, iN, resolved["acc"]["vol"])
+    rvol_val, rvol_n = _rvol(bars, days, i0, iN, resolved["acc"]["vol"], o["close_mins"])
     ker_val = _ker(bars, iN, int(o.get("ker_lookback", DEFAULT_KER_LOOKBACK)))
     regime = _regime_from_ker(
         ker_val,
@@ -1041,7 +1058,7 @@ def analyze(
             st["noRunway"] = True
     trend_block = False
     if st.get("setup_mode") in ("gap", "both", None) and st.get("trig") is not None:
-        if _day_trend_blocks_fade(bars, i0, iN, resolved["gap_pct"], side):
+        if _day_trend_blocks_fade(bars, i0, iN, resolved["gap_pct"], side, open_m=o["open_mins"]):
             trend_block = True
 
     # scrub untradeable levels (no-runway / inverted target / trend-day fade / regime)

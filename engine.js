@@ -16,7 +16,7 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
-  const VERSION = "1.4.1";   // engine.ENGINE_VERSION
+  const VERSION = "1.5.0";   // engine.ENGINE_VERSION
   const RTH_OPEN_M = 9 * 60 + 30;
   const RTH_CLOSE_M = 16 * 60;
   const DEFAULT_ANCHOR_M = 4 * 60;
@@ -26,6 +26,9 @@
   const DEFAULT_RMIN = 1.0;
   const DEFAULT_RVOL_MIN = 1.2;
   const LATE_CUT_M = 14 * 60 + 30;
+  // crypto: the whole ET day is the session and there is no gap fade (engine.CRYPTO_CLOSE_M)
+  const CRYPTO_CLOSE_M = 24 * 60;
+  const CRYPTO_LATE_CUT_M = CRYPTO_CLOSE_M - 90;
   const DEFAULT_MD_MIN_EXT = 8;
   const DEFAULT_MD_MIN_DIST = 0.25;
   const DEFAULT_SIGMA_MULT = 0.15;
@@ -129,19 +132,22 @@
     return -1;
   }
 
-  /** Close of the prior session's last RTH bar (else its last bar before 16:00, else its last bar). */
-  function priorRthClose(bars, i0) {
+  /**
+   * Close of the prior session's last RTH bar (else its last bar before 16:00, else its last bar).
+   * Crypto passes its 24h window (0, 24:00): the prior day's last bar.
+   */
+  function priorRthClose(bars, i0, openM = RTH_OPEN_M, closeM = RTH_CLOSE_M) {
     if (i0 <= 0) return bars[0].c;
     const priorDay = bars[i0 - 1].d;
     for (let i = i0 - 1; i >= 0; i--) {
       const b = bars[i];
       if (b.d !== priorDay) break;
-      if (RTH_OPEN_M <= b.mins && b.mins < RTH_CLOSE_M) return b.c;
+      if (openM <= b.mins && b.mins < closeM) return b.c;
     }
     for (let i = i0 - 1; i >= 0; i--) {
       const b = bars[i];
       if (b.d !== priorDay) break;
-      if (b.mins < RTH_CLOSE_M) return b.c;
+      if (b.mins < closeM) return b.c;
     }
     return bars[i0 - 1].c;
   }
@@ -194,19 +200,19 @@
   const tp = b => (b.h + b.l + b.c) / 3.0;
 
   function resolveDay(bars, i0, iN, p0, o) {
-    const anchor = o.anchor_mins;
+    const anchor = o.anchor_mins, openM = o.open_mins, closeM = o.close_mins;
     const acc = { bp: 0, bv: 0, bp2: 0, op: 0, ov: 0, vol: 0, trapV: 0 };
     for (let i = p0; i < i0; i++) {
       const b = bars[i];
-      if (b.mins >= anchor && b.mins < RTH_CLOSE_M && b.v > 0) {
+      if (b.mins >= anchor && b.mins < closeM && b.v > 0) {
         const t = tp(b);
         acc.op += t * b.v;
         acc.ov += b.v;
       }
     }
-    const priorClose = priorRthClose(bars, i0);
+    const priorClose = priorRthClose(bars, i0, openM, closeM);
     let openIdx = null;
-    for (let i = i0; i <= iN; i++) if (bars[i].mins >= RTH_OPEN_M) { openIdx = i; break; }
+    for (let i = i0; i <= iN; i++) if (bars[i].mins >= openM) { openIdx = i; break; }
     let gapPct, gapProvisional;
     if (openIdx != null) {
       const ob = bars[openIdx];
@@ -217,7 +223,7 @@
       gapProvisional = true;
     }
     const direction = gapPct >= 0 ? 1 : -1;
-    const devOk = Math.abs(gapPct) >= o.gap_min;
+    const devOk = !!o.gap_fade && Math.abs(gapPct) >= o.gap_min;
 
     const st = {
       phase: "SIDE", run: 0, fake: 0, firstBreak: null, trig: null, tagged: null, stopped: null,
@@ -260,8 +266,8 @@
 
   function stepBar(bars, i, acc, st, direction, devOk, o) {
     const b = bars[i];
-    const anchor = o.anchor_mins;
-    if (b.mins >= anchor && b.mins < RTH_CLOSE_M && b.v > 0) {
+    const anchor = o.anchor_mins, closeM = o.close_mins;
+    if (b.mins >= anchor && b.mins < closeM && b.v > 0) {
       const t = tp(b);
       acc.bp += t * b.v;
       acc.bv += b.v;
@@ -269,7 +275,7 @@
       acc.op += t * b.v;
       acc.ov += b.v;
     }
-    if (b.mins < RTH_CLOSE_M) acc.vol += b.v;
+    if (b.mins < closeM) acc.vol += b.v;
 
     if (acc.bv > 0) {
       st.blue = acc.bp / acc.bv;
@@ -283,10 +289,10 @@
     st.atr = atr(bars, i);
 
     // multi-day reverse: tracked whenever orange exists (no gap required)
-    if (st.orange != null && b.mins < RTH_CLOSE_M && st.md_trig == null) trackMdReverse(bars, i, st, o);
+    if (st.orange != null && b.mins < closeM && st.md_trig == null) trackMdReverse(bars, i, st, o);
 
     // Blueline gap path: signals only pre + RTH when the gap is armed
-    const eligible = devOk && st.blue != null && b.mins < RTH_CLOSE_M;
+    const eligible = devOk && st.blue != null && b.mins < closeM;
     if (!eligible) return;
 
     if ((direction > 0 && b.c > st.blue) || (direction < 0 && b.c < st.blue)) acc.trapV += b.v;
@@ -531,11 +537,11 @@
   }
 
   /** Block a gap fade when the session has already continued hard in the gap direction. */
-  function dayTrendBlocksFade(bars, i0, iN, gapPct, side, minCont = 0.6) {
+  function dayTrendBlocksFade(bars, i0, iN, gapPct, side, minCont = 0.6, openM = RTH_OPEN_M) {
     if (Math.abs(gapPct) < 0.35) return false;
     let openPx = null;
     for (let i = i0; i <= iN; i++) {
-      if (bars[i].mins >= RTH_OPEN_M) { openPx = bars[i].o ? bars[i].o : bars[i].c; break; }
+      if (bars[i].mins >= openM) { openPx = bars[i].o ? bars[i].o : bars[i].c; break; }
     }
     if (openPx == null || openPx <= 0) return false;
     const dayMove = (bars[iN].c - openPx) / openPx * 100.0;
@@ -547,7 +553,7 @@
   }
 
   /** Relative cumulative volume vs prior sessions at the same minute: [rvol, n baselines]. */
-  function rvolOf(bars, days, iN, accVol) {
+  function rvolOf(bars, days, iN, accVol, closeM = RTH_CLOSE_M) {
     if (days.length < 3 || accVol <= 0) return [null, 0];
     const lastMins = bars[iN].mins;
     const priors = days.slice(0, -1).slice(-RVOL_MAX_PRIORS);
@@ -556,7 +562,7 @@
       let cum = 0.0;
       for (const b of bars) {
         if (b.d !== pd) continue;
-        if (b.mins <= lastMins && b.mins < RTH_CLOSE_M) cum += b.v;
+        if (b.mins <= lastMins && b.mins < closeM) cum += b.v;
       }
       if (cum > 0) bases.push(cum);
     }
@@ -629,7 +635,11 @@
     const o = {
       ...DEFAULT_OPTS,
       anchor_mins: crypto ? 0 : DEFAULT_ANCHOR_M,
+      open_mins: crypto ? 0 : RTH_OPEN_M,
+      close_mins: crypto ? CRYPTO_CLOSE_M : RTH_CLOSE_M,
+      gap_fade: !crypto,
       gap_min: crypto ? 0.15 : DEFAULT_GAP_MIN,
+      late_cut: crypto ? CRYPTO_LATE_CUT_M : LATE_CUT_M,
       ...(ctx.opts || {}),
     };
     const base = {
@@ -659,7 +669,7 @@
     const st = resolved.st;
     const price = bars[iN].c;
 
-    const [rvolVal, rvolN] = rvolOf(bars, days, iN, resolved.acc.vol);
+    const [rvolVal, rvolN] = rvolOf(bars, days, iN, resolved.acc.vol, o.close_mins);
     const kerVal = ker(bars, iN, Math.trunc(o.ker_lookback));
     const regime = regimeFromKer(kerVal, +o.ker_trend, +o.ker_chop);
     const adaptNow = adaptiveSigmaMult(kerVal, 1.0);
@@ -716,7 +726,7 @@
     }
     let trendBlock = false;
     if ((st.setup_mode === "gap" || st.setup_mode === "both" || st.setup_mode == null) && st.trig != null) {
-      if (dayTrendBlocksFade(bars, i0, iN, resolved.gap_pct, side)) trendBlock = true;
+      if (dayTrendBlocksFade(bars, i0, iN, resolved.gap_pct, side, 0.6, o.open_mins)) trendBlock = true;
     }
 
     // scrub untradeable levels on open plans; TAGGED / STOPPED keep theirs for audit
