@@ -221,7 +221,7 @@
             <th data-k="entry">Entry</th>
             <th data-k="stop">Stop</th>
             <th data-k="target">Target</th>
-            <th data-k="rr">R:R</th>
+            <th data-k="rr" title="Reward : risk to target; grey = round-trip cost in R">R:R</th>
             <th data-k="rvol" title="Relative volume vs same-minute priors; n = baseline sessions">RVol (n)</th>
             <th data-k="provider">Feed</th>
           </tr>
@@ -425,6 +425,7 @@
           r.live_actionable ? 'liveact' : '',
           r.actionable ? 'act' : '',
           r.conflict ? 'neg' : '',
+          r.stale_bars ? 'stale' : '',
           selected === r.ticker ? 'sel' : '',
         ].filter(Boolean).join(' ');
         const feed = r.quote_provider || r.provider || r.bar_provider || '—';
@@ -450,7 +451,7 @@
           <td>${n(r.entry)}</td>
           <td class="neg">${n(r.stop)}</td>
           <td class="orangec">${n(r.target)}</td>
-          <td class="${(r.rr!=null && r.rr>=1)?'pos':(r.rr!=null?'neg':'m')}">${n(r.rr)}</td>
+          <td class="${(r.rr!=null && r.rr>=1)?'pos':(r.rr!=null?'neg':'m')}" title="${r.cost_r!=null?`round-trip cost ${n(r.cost_r)}R`:''}">${n(r.rr)}${r.cost_r!=null?` <span class="m" style="font-size:.7rem">−${n(r.cost_r)}</span>`:''}</td>
           <td class="m" title="${r.rvol_n!=null?`baseline n=${r.rvol_n}`:''}">${r.rvol==null?'—':n(r.rvol,2)}${r.rvol_n!=null?` <span style="opacity:.55">n=${r.rvol_n}</span>`:''}</td>
           <td class="src">${feed}</td>
         </tr>`;

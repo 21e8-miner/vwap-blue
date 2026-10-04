@@ -27,6 +27,7 @@ import argparse
 import json
 import threading
 import time
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -226,6 +227,8 @@ def report(base: Optional[Path] = None, model: str = "classic", entry_mode: str 
         "segments": segments(rows, ("setup_mode", "regime"), min_n=3),
         "median_observed_lag_min": lags[len(lags) // 2] if lags else None,
         "sessions": sorted({r["session"] for r in rows}),
+        # engine versions grade differently (v1.4.1 fixed the prior close): never pool them blindly
+        "versions": dict(sorted(Counter(s.get("version") or "?" for s in signals.values()).items())),
     }
 
 
@@ -241,6 +244,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"Forward record ({rep['model']}, {rep['entry_mode']}): {rep['signals']} signals, {rep['resolved']} resolved, "
           f"{rep['pending']} pending, {rep['skipped']} skipped fills, {rep['unresolvable']} unresolvable")
     print(f"  net R: {fmt_stat(rep['net_r'])}")
+    if len(rep["versions"]) > 1:
+        print(f"  mixed engine versions {rep['versions']}: compare them before pooling")
     if rep["median_observed_lag_min"] is not None:
         print(f"  the desk showed triggers a median {rep['median_observed_lag_min']} min after the trigger bar")
     for seg in rep["segments"]:

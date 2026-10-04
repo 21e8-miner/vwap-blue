@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 
 from data import batch_fetch, load_universe, passes_volume_filter
-from engine import analyze
+from engine import ENGINE_VERSION, analyze
 from honest import COST, clustered, cost_r, fmt_stat, net_r, segments, verdict
 
 ET = ZoneInfo("America/New_York")
@@ -636,6 +636,7 @@ def main() -> int:
     RESEARCH.mkdir(parents=True, exist_ok=True)
     payload = {
         "asof": now.isoformat(),
+        "engine_version": ENGINE_VERSION,
         "method": {
             "bars": f"{args.interval} hybrid ~{ '8d' if args.interval=='1m' else '1mo' }",
             "entry": ("next bar open + %.1f bps slippage" % args.slip_bps) if args.entry == "next_open"
@@ -655,8 +656,10 @@ def main() -> int:
     }
     out_json = OUT_DIR / f"replay_sessions_{stamp}.json"
     out_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    # also a stable research snapshot
+    # also a stable research snapshot; never overwrite one (committed results live there)
     snap = RESEARCH / f"replay_{now.strftime('%Y-%m-%d')}.json"
+    if snap.exists():
+        snap = RESEARCH / f"replay_{now.strftime('%Y-%m-%d_%H%M%S')}.json"
     snap.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     print(f"\n  Wrote {out_json}")
