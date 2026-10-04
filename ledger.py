@@ -44,7 +44,7 @@ SLIP_BPS = 2.0
 _lock = threading.Lock()            # record(): dedup set + append
 _resolve_lock = threading.Lock()    # resolve(): one resolver at a time, so a signal is never resolved twice
 _seen: Dict[str, set] = {}
-WINDOW_DAYS = 35                    # free 5m history reaches back ~1 month; older sessions cannot be refetched
+WINDOW_DAYS = 35                    # free 5m history reaches back ~1 month; older sessions are not refetched
 
 DECISION_FIELDS = ("side", "entry", "stop", "target", "rr", "grade", "regime", "setup_mode", "ker", "rvol", "rvol_n",
                    "gap_pct", "edge", "dollar_vol", "bar_provider", "quote_provider", "bar_age_min", "one_agree")
@@ -116,12 +116,21 @@ def record(by_ticker: Dict[str, Dict[str, Any]], version: str = "", now_s: Optio
 # Resolution (after the session closes)
 # ---------------------------------------------------------------------------
 
+def _is_crypto(ticker: str) -> bool:
+    return str(ticker).upper().endswith(("-USD", "-USDT", "-USDC"))
+
+
 def _session_closed(sig: Dict[str, Any], now: datetime) -> bool:
     day = datetime.strptime(sig["session"], "%Y-%m-%d").date()
     if day < now.date():
         return True
-    crypto = str(sig.get("ticker", "")).upper().endswith(("-USD", "-USDT", "-USDC"))
-    return (not crypto) and day == now.date() and (now.hour, now.minute) >= (16, 15)
+    return (not _is_crypto(sig.get("ticker", ""))) and day == now.date() and (now.hour, now.minute) >= (16, 15)
+
+
+def _runs_past(df, session: str) -> bool:
+    """A 24h session is final once the series has a bar from a later ET day (a stale feed has not)."""
+    from engine import _bar_day
+    return _bar_day(df.index[-1]) > session
 
 
 def _day_bars(df, session: str) -> List[Dict[str, Any]]:
@@ -135,9 +144,9 @@ def resolve(now: Optional[datetime] = None, fetch: Optional[Callable] = None, ba
 
     Serialized: concurrent callers (startup, the live loop, POST /api/ledger/resolve) wait their
     turn and then see the outcomes the first one wrote, so no signal is resolved twice. A fetch
-    that comes back empty, or without the session, leaves the signal pending for a later retry
-    (free feeds fail transiently); it becomes unresolvable only once the session is older than
-    the free data window.
+    that comes back empty, without the session, or (crypto) ending inside it leaves the signal
+    pending for a later retry (free feeds fail transiently); it becomes unresolvable only once the
+    session is older than the free data window.
     """
     with _resolve_lock:
         return _resolve(now, fetch, base)
@@ -156,7 +165,13 @@ def _resolve(now: Optional[datetime], fetch: Optional[Callable], base: Optional[
     if not pending:
         return counts
     tickers = sorted({s["ticker"] for s in pending})
-    bars, *_ = fetch(tickers, force=True, mode="hybrid", bars_interval="5m")
+    # crypto bars are paged from the venue CRYPTO_HISTORY_DAYS back: reach the oldest pending session
+    from providers import CRYPTO_HISTORY_DAYS
+    ages = [(now.date() - datetime.strptime(s["session"], "%Y-%m-%d").date()).days
+            for s in pending if _is_crypto(s["ticker"])]
+    crypto_days = min(max(ages), WINDOW_DAYS) if ages and max(ages) > CRYPTO_HISTORY_DAYS else None
+    got = fetch(tickers, force=True, mode="hybrid", bars_interval="5m", crypto_days=crypto_days)
+    bars, bar_prov = got[0], (got[2] if len(got) > 2 else {})
     models = [m for m in MODELS if m.name in RESOLVE_MODELS]
     out: List[Dict[str, Any]] = []
     stamp = now.isoformat(timespec="seconds")
@@ -168,7 +183,7 @@ def _resolve(now: Optional[datetime], fetch: Optional[Callable], base: Optional[
         reason = None
         if not (s.get("entry") and s.get("stop") and s.get("target")):
             reason = "no levels recorded"
-        elif not day or idx is None:
+        elif not day or idx is None or (_is_crypto(s["ticker"]) and not _runs_past(df, s["session"])):
             if age_days <= WINDOW_DAYS:
                 counts["retry_later"] += 1          # empty or partial fetch: keep it pending, try again later
                 continue
@@ -182,7 +197,7 @@ def _resolve(now: Optional[datetime], fetch: Optional[Callable], base: Optional[
             for m in models:
                 if entry is None:
                     out.append({"key": s["key"], "status": "skipped", "reason": fill, "model": m.name,
-                                "entry_mode": mode, "resolved_at": stamp})
+                                "entry_mode": mode, "resolved_on": bar_prov.get(s["ticker"]), "resolved_at": stamp})
                     continue
                 exit_px, reason, r, mfe, mae, held = _simulate(s["side"], entry, float(s["stop"]), float(s["target"]),
                                                                day, idx, m, s["ticker"])
@@ -190,7 +205,8 @@ def _resolve(now: Optional[datetime], fetch: Optional[Callable], base: Optional[
                             "entry_fill": round(entry, 6), "exit": round(float(exit_px), 6), "exit_reason": reason,
                             "r": round(float(r), 3), "r_net": round(net_r(float(r), s["ticker"], entry, float(s["stop"])), 3),
                             "mfe_r": round(float(mfe), 3), "mae_r": round(float(mae), 3), "bars_held": int(held),
-                            "resolved_at": stamp})
+                            # the feed that resolved it; the signal's own bar_provider says what graded it
+                            "resolved_on": bar_prov.get(s["ticker"]), "resolved_at": stamp})
         counts["resolved"] += 1
     _append(p["outcomes"], out)
     return counts

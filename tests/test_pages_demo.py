@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from data import load_universe          # noqa: E402
 from engine import ENGINE_VERSION       # noqa: E402
-from providers import looks_crypto      # noqa: E402
+from providers import YAHOO_CRYPTO_SYMBOLS, looks_crypto      # noqa: E402
 
 HTML = (ROOT / "index.html").read_text(encoding="utf-8")
 
@@ -27,6 +27,11 @@ class TestPagesDemo(unittest.TestCase):
     def test_universe_is_the_desk_universe(self):
         embedded = json.loads(re.search(r"const UNIVERSE = (\[.*?\]);", HTML, re.S).group(1))
         self.assertEqual(embedded, load_universe())
+
+    def test_yahoo_symbols_are_the_desks(self):
+        """The page asks Yahoo for the same coins as the desk (numbered symbols; three plain ones are other tokens)."""
+        page = json.loads(re.search(r"const YAHOO_SYMBOL = (\{.*?\});", HTML).group(1))
+        self.assertEqual(page, YAHOO_CRYPTO_SYMBOLS)
 
     def test_cloudflare_copy_is_identical(self):
         for name in ("index.html", "engine.js"):
