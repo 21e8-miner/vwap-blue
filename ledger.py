@@ -40,8 +40,10 @@ SIGNALS_DIR = ROOT / "data" / "signals"
 RESOLVE_MODELS = ("classic", "time_24")
 ENTRY_MODES = ("next_open", "trigger_close")
 SLIP_BPS = 2.0
-_lock = threading.Lock()
+_lock = threading.Lock()            # record(): dedup set + append
+_resolve_lock = threading.Lock()    # resolve(): one resolver at a time, so a signal is never resolved twice
 _seen: Dict[str, set] = {}
+WINDOW_DAYS = 35                    # free 5m history reaches back ~1 month; older sessions cannot be refetched
 
 DECISION_FIELDS = ("side", "entry", "stop", "target", "rr", "grade", "regime", "setup_mode", "ker", "rvol", "rvol_n",
                    "gap_pct", "edge", "dollar_vol", "bar_provider", "quote_provider", "bar_age_min", "one_agree")
@@ -127,7 +129,20 @@ def _day_bars(df, session: str) -> List[Dict[str, Any]]:
 
 
 def resolve(now: Optional[datetime] = None, fetch: Optional[Callable] = None, base: Optional[Path] = None) -> Dict[str, int]:
-    """Resolve every signal whose session has closed and that has no outcome yet."""
+    """
+    Resolve every signal whose session has closed and that has no outcome yet.
+
+    Serialized: concurrent callers (startup, the live loop, POST /api/ledger/resolve) wait their
+    turn and then see the outcomes the first one wrote, so no signal is resolved twice. A fetch
+    that comes back empty, or without the session, leaves the signal pending for a later retry
+    (free feeds fail transiently); it becomes unresolvable only once the session is older than
+    the free data window.
+    """
+    with _resolve_lock:
+        return _resolve(now, fetch, base)
+
+
+def _resolve(now: Optional[datetime], fetch: Optional[Callable], base: Optional[Path]) -> Dict[str, int]:
     from replay_sessions import MODELS, _fill_entry, _simulate
     if fetch is None:
         from data import batch_fetch as fetch
@@ -136,7 +151,7 @@ def resolve(now: Optional[datetime] = None, fetch: Optional[Callable] = None, ba
     signals = _read(p["signals"])
     done = {o["key"] for o in _read(p["outcomes"])}
     pending = [s for s in signals if s["key"] not in done and _session_closed(s, now)]
-    counts = {"pending_closed": len(pending), "resolved": 0, "unresolvable": 0}
+    counts = {"pending_closed": len(pending), "resolved": 0, "unresolvable": 0, "retry_later": 0}
     if not pending:
         return counts
     tickers = sorted({s["ticker"] for s in pending})
@@ -145,11 +160,20 @@ def resolve(now: Optional[datetime] = None, fetch: Optional[Callable] = None, ba
     out: List[Dict[str, Any]] = []
     stamp = now.isoformat(timespec="seconds")
     for s in pending:
-        day = _day_bars(bars.get(s["ticker"]), s["session"]) if bars.get(s["ticker"]) is not None else []
+        df = bars.get(s["ticker"])
+        day = _day_bars(df, s["session"]) if df is not None and len(df) else []
         idx = max((i for i, b in enumerate(day) if b["ts"] <= s["trigger_ts"]), default=None)
-        if not day or idx is None or not (s.get("entry") and s.get("stop") and s.get("target")):
-            out.append({"key": s["key"], "status": "unresolvable", "reason": "session not in the fetched window",
-                        "resolved_at": stamp})
+        age_days = (now.date() - datetime.strptime(s["session"], "%Y-%m-%d").date()).days
+        reason = None
+        if not (s.get("entry") and s.get("stop") and s.get("target")):
+            reason = "no levels recorded"
+        elif not day or idx is None:
+            if age_days <= WINDOW_DAYS:
+                counts["retry_later"] += 1          # empty or partial fetch: keep it pending, try again later
+                continue
+            reason = f"session older than the {WINDOW_DAYS}-day free data window"
+        if reason:
+            out.append({"key": s["key"], "status": "unresolvable", "reason": reason, "resolved_at": stamp})
             counts["unresolvable"] += 1
             continue
         for mode in ENTRY_MODES:
@@ -178,7 +202,12 @@ def resolve(now: Optional[datetime] = None, fetch: Optional[Callable] = None, ba
 def report(base: Optional[Path] = None, model: str = "classic", entry_mode: str = "next_open") -> Dict[str, Any]:
     p = _paths(base)
     signals = {s["key"]: s for s in _read(p["signals"])}
-    outcomes = _read(p["outcomes"])
+    outcomes, seen = [], set()
+    for o in _read(p["outcomes"]):        # ignore duplicate outcome lines (first one wins)
+        k = (o["key"], "unresolvable") if o.get("status") == "unresolvable" else (o["key"], o.get("model"), o.get("entry_mode"))
+        if k not in seen:
+            seen.add(k)
+            outcomes.append(o)
     resolved_keys = {o["key"] for o in outcomes}
     rows = [{**signals[o["key"]], **o} for o in outcomes
             if o.get("status") == "resolved" and o.get("model") == model and o.get("entry_mode") == entry_mode

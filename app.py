@@ -349,34 +349,47 @@ def run_scan(
 _ET = ZoneInfo("America/New_York")
 _last_auto_resolve_session: Optional[str] = None
 _last_auto_resolve_check: float = 0.0
+_auto_resolve_retry_after: float = 0.0
+_auto_resolve_gate = threading.Lock()     # startup and the live loop must not both enter
+AUTO_RESOLVE_EVERY_S = 600                # routine retries for pending signals
+AUTO_RESOLVE_MIN_GAP_S = 60               # never faster than this, even right after the close
+AUTO_RESOLVE_BACKOFF_S = 300              # after a resolve raised
 
 
 def _maybe_auto_resolve_ledger(now_dt: Optional[datetime] = None) -> Optional[Dict[str, int]]:
-    """Resolve forward-ledger signals once a day after market close (16:15 ET), or on boot for past sessions."""
-    global _last_auto_resolve_session, _last_auto_resolve_check
+    """Resolve forward-ledger signals once a day after market close (16:15 ET), or on boot for past sessions.
+    Throttled on the same clock as the session logic (now_dt), backs off after failures, and never runs twice at once
+    (ledger.resolve is serialized too, for the API endpoint)."""
+    global _last_auto_resolve_session, _last_auto_resolve_check, _auto_resolve_retry_after
     if not LEDGER_ON:
         return None
-    now_dt = now_dt or datetime.now(_ET)
-    today_str = now_dt.strftime("%Y-%m-%d")
-    is_post_close = (now_dt.hour, now_dt.minute) >= (16, 15) or now_dt.weekday() >= 5
-    need_close_run = is_post_close and _last_auto_resolve_session != today_str
-
-    now_s = time.time()
-    # If today's post-close resolve hasn't run yet, fire immediately; otherwise throttle routine checks to 10 min
-    if not need_close_run and (now_s - _last_auto_resolve_check < 600):
+    if not _auto_resolve_gate.acquire(blocking=False):
         return None
-    _last_auto_resolve_check = now_s
-
     try:
-        counts = ledger.resolve(now=now_dt)
+        now_dt = now_dt or datetime.now(_ET)
+        now_s = now_dt.timestamp()
+        today_str = now_dt.strftime("%Y-%m-%d")
+        is_post_close = (now_dt.hour, now_dt.minute) >= (16, 15) or now_dt.weekday() >= 5
+        need_close_run = is_post_close and _last_auto_resolve_session != today_str
+        elapsed = now_s - _last_auto_resolve_check
+        if now_s < _auto_resolve_retry_after:
+            return None
+        if elapsed < AUTO_RESOLVE_MIN_GAP_S or (not need_close_run and elapsed < AUTO_RESOLVE_EVERY_S):
+            return None
+        _last_auto_resolve_check = now_s
+        try:
+            counts = ledger.resolve(now=now_dt)
+        except Exception as e:
+            _auto_resolve_retry_after = now_s + AUTO_RESOLVE_BACKOFF_S
+            log.warning("ledger auto-resolve failed (retry in %ss): %s", AUTO_RESOLVE_BACKOFF_S, e)
+            return None
         if is_post_close:
             _last_auto_resolve_session = today_str
-        if counts.get("resolved") or counts.get("unresolvable"):
+        if counts.get("resolved") or counts.get("unresolvable") or counts.get("retry_later"):
             log.info("ledger auto-resolve: %s", counts)
         return counts
-    except Exception as e:
-        log.warning("ledger auto-resolve failed: %s", e)
-        return None
+    finally:
+        _auto_resolve_gate.release()
 
 
 def _live_loop() -> None:

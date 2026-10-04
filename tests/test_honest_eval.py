@@ -12,8 +12,10 @@ import math
 import shutil
 import sys
 import tempfile
+import threading
+import time
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -185,6 +187,39 @@ class TestLedger(unittest.TestCase):
         counts = ledger.resolve(datetime(2026, 9, 16, 9, 0, tzinfo=ET), fetch=lambda *a, **k: ({"AAPL": self.df},), base=self.dir)
         self.assertEqual(counts["unresolvable"], 1)
 
+    def test_concurrent_resolves_never_duplicate_outcomes(self):
+        ledger.record({"AAPL": self._row()}, "t", base=self.dir)
+        after = datetime(2026, 9, 16, 9, 0, tzinfo=ET)
+
+        def slow_fetch(*a, **k):
+            time.sleep(0.2)
+            return ({"AAPL": self.df},)
+        threads = [threading.Thread(target=ledger.resolve, args=(after, slow_fetch, self.dir)) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        outs = [o for o in ledger._read(self.dir / "outcomes.jsonl") if o["status"] == "resolved"]
+        self.assertEqual(len(outs), len(ledger.ENTRY_MODES) * len(ledger.RESOLVE_MODELS))
+        self.assertEqual(ledger.report(base=self.dir)["resolved"], 1)
+
+    def test_failed_or_partial_fetch_stays_pending(self):
+        ledger.record({"AAPL": self._row()}, "t", base=self.dir)
+        after = datetime(2026, 9, 16, 9, 0, tzinfo=ET)
+        for broken in ({}, {"AAPL": None}, {"AAPL": self.df.iloc[0:0]}, {"AAPL": session_df(day="2026-09-14")}):
+            counts = ledger.resolve(after, fetch=lambda *a, b=broken, **k: (b,), base=self.dir)
+            self.assertEqual((counts["retry_later"], counts["unresolvable"], counts["resolved"]), (1, 0, 0))
+        self.assertEqual(ledger._read(self.dir / "outcomes.jsonl"), [])
+        self.assertEqual(ledger.resolve(after, fetch=lambda *a, **k: ({"AAPL": self.df},), base=self.dir)["resolved"], 1)
+
+    def test_report_ignores_duplicate_outcome_lines(self):
+        ledger.record({"AAPL": self._row()}, "t", base=self.dir)
+        ledger.resolve(datetime(2026, 9, 16, 9, 0, tzinfo=ET), fetch=lambda *a, **k: ({"AAPL": self.df},), base=self.dir)
+        path = self.dir / "outcomes.jsonl"
+        path.write_text(path.read_text() * 2)                                # simulate a double write
+        rep = ledger.report(base=self.dir)
+        self.assertEqual((rep["resolved"], rep["net_r"]["n"]), (1, 1))
+
     def test_app_auto_resolve_after_close(self):
         import unittest.mock as mock
         import app as desk_app
@@ -192,6 +227,7 @@ class TestLedger(unittest.TestCase):
         with mock.patch.object(desk_app.ledger, "resolve", return_value={"pending_closed": 1, "resolved": 1}) as mock_res:
             desk_app._last_auto_resolve_session = None
             desk_app._last_auto_resolve_check = 0.0
+            desk_app._auto_resolve_retry_after = 0.0
 
             # Midday: runs once on boot / initial check
             midday = datetime(2026, 9, 15, 14, 0, tzinfo=ET)
@@ -215,6 +251,61 @@ class TestLedger(unittest.TestCase):
             res4 = desk_app._maybe_auto_resolve_ledger(post_close)
             self.assertIsNone(res4)
             self.assertEqual(mock_res.call_count, 2)
+
+
+class TestAutoResolve(unittest.TestCase):
+
+    def setUp(self):
+        import app as desk_app
+        self.app = desk_app
+        self._reset()
+
+    def tearDown(self):
+        self._reset()
+
+    def _reset(self):
+        self.app._last_auto_resolve_session = None
+        self.app._last_auto_resolve_check = 0.0
+        self.app._auto_resolve_retry_after = 0.0
+
+    def test_backs_off_after_a_failure(self):
+        import unittest.mock as mock
+        t0 = datetime(2026, 9, 15, 16, 20, tzinfo=ET)
+        with mock.patch.object(self.app.ledger, "resolve", side_effect=[RuntimeError("feed down"), {"resolved": 1}]) as res:
+            self.assertIsNone(self.app._maybe_auto_resolve_ledger(t0))
+            self.assertIsNone(self.app._maybe_auto_resolve_ledger(t0 + timedelta(seconds=90)))   # backing off, not every loop
+            self.assertEqual(res.call_count, 1)
+            self.assertIsNone(self.app._last_auto_resolve_session)                           # a failure is not "done"
+            self.assertEqual(self.app._maybe_auto_resolve_ledger(t0 + timedelta(seconds=301)), {"resolved": 1})
+            self.assertEqual(res.call_count, 2)
+            self.assertEqual(self.app._last_auto_resolve_session, "2026-09-15")
+
+    def test_minimum_gap_even_right_after_the_close(self):
+        import unittest.mock as mock
+        with mock.patch.object(self.app.ledger, "resolve", return_value={"resolved": 0}) as res:
+            self.app._maybe_auto_resolve_ledger(datetime(2026, 9, 15, 16, 14, 40, tzinfo=ET))     # routine check
+            self.assertIsNone(self.app._maybe_auto_resolve_ledger(datetime(2026, 9, 15, 16, 15, 0, tzinfo=ET)))
+            self.assertEqual(res.call_count, 1)
+            self.app._maybe_auto_resolve_ledger(datetime(2026, 9, 15, 16, 15, 41, tzinfo=ET))
+            self.assertEqual(res.call_count, 2)
+
+    def test_concurrent_callers_do_not_both_enter(self):
+        import unittest.mock as mock
+        started, release = threading.Event(), threading.Event()
+
+        def slow(**kw):
+            started.set()
+            release.wait(2)
+            return {"resolved": 0}
+        when = datetime(2026, 9, 15, 16, 20, tzinfo=ET)
+        with mock.patch.object(self.app.ledger, "resolve", side_effect=slow) as res:
+            t = threading.Thread(target=self.app._maybe_auto_resolve_ledger, args=(when,))
+            t.start()
+            started.wait(2)
+            self.assertIsNone(self.app._maybe_auto_resolve_ledger(when))     # the startup path and live loop can't both run it
+            release.set()
+            t.join()
+            self.assertEqual(res.call_count, 1)
 
 
 if __name__ == "__main__":
