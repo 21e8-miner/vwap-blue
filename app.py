@@ -24,14 +24,16 @@ from data import (
     rotation_score,
 )
 import ledger
-from engine import DEFAULT_MAX_BAR_AGE_MIN, analyze, apply_stale_guard, bar_age_min, build_chart_from_row
+from engine import (
+    DEFAULT_MAX_BAR_AGE_MIN, ENGINE_VERSION, analyze, apply_stale_guard, bar_age_min, build_chart_from_row,
+)
 from providers import fetch_quote
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("vwap_blue")
 
 ROOT = Path(__file__).resolve().parent
-APP_VERSION = "1.4.0-blue"
+APP_VERSION = f"{ENGINE_VERSION}-blue"
 app = FastAPI(title="VWAP Blue", version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 

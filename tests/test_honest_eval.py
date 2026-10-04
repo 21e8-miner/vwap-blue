@@ -3,7 +3,7 @@ Tests for the honest-evaluation additions (run: python3 -m unittest discover tes
 
   * honest.py: cost in R, session-clustered standard errors, verdicts, segments
   * replay_sessions: next-bar-open fills (with slippage, gap-through skips); trigger_close unchanged
-  * engine: stale-bar guard (live only, market open only)
+  * engine: stale-bar guard (live only, market open only); gap measured from the prior session's close
   * ledger: record (dedup, live-actionable triggers only), resolve with the replay simulator, report
 No network: the ledger's fetch is injected.
 """
@@ -24,7 +24,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import ledger                                                    # noqa: E402
-from engine import apply_stale_guard, bar_age_min                # noqa: E402
+from engine import analyze, apply_stale_guard, bar_age_min       # noqa: E402
 from honest import clustered, cost_r, net_r, segments, verdict   # noqa: E402
 from replay_sessions import MODELS, _fill_entry, _simulate       # noqa: E402
 
@@ -132,6 +132,19 @@ def session_df(day="2026-09-15", path=None):
     return pd.DataFrame({"Open": opens, "High": [max(o, c) + 0.05 for o, c in zip(opens, closes)],
                          "Low": [min(o, c) - 0.05 for o, c in zip(opens, closes)], "Close": closes,
                          "Volume": [10_000] * len(times)}, index=times)
+
+
+class TestPriorClose(unittest.TestCase):
+
+    def test_gap_is_measured_from_the_prior_sessions_last_rth_bar(self):
+        """v1.4.0 returned the prior session's 09:30 close here (100), turning this gap down into a gap up."""
+        prior = session_df("2026-09-14", [100 + 3 * i / 77 for i in range(78)])       # 100 → 103 by 15:55
+        post = pd.DataFrame({"Open": [103.0], "High": [103.6], "Low": [103.0], "Close": [103.5], "Volume": [500]},
+                            index=pd.DatetimeIndex([pd.Timestamp("2026-09-14 16:30", tz=ET)]))
+        row = analyze("XYZ", pd.concat([prior, post, session_df("2026-09-15", [102.0])]))
+        self.assertAlmostEqual(row["prior_close"], 103.0)
+        self.assertAlmostEqual(row["gap_pct"], round((102.0 - 103.0) / 103.0 * 100, 3))
+        self.assertEqual((row["dir"], row["side"]), (-1, "long"))                      # a gap down fades long
 
 
 class TestLedger(unittest.TestCase):

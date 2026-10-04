@@ -19,6 +19,7 @@ VWAP One:
 
 from __future__ import annotations
 
+import math
 import time
 from datetime import datetime, time as dtime
 from typing import Any, Dict, List, Optional, Tuple
@@ -27,7 +28,13 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+from honest import cost_r as _cost_r
+
 ET = ZoneInfo("America/New_York")
+
+# Bump with any change to what a bar sequence grades as; engine.js exports the same VERSION
+# (tests/test_engine_parity.py), the desk reports it and the forward ledger records it per signal.
+ENGINE_VERSION = "1.4.1"
 
 RTH_OPEN_M = 9 * 60 + 30   # 09:30
 RTH_CLOSE_M = 16 * 60      # 16:00
@@ -57,8 +64,8 @@ def _is_crypto(ticker: str) -> bool:
     return bare.endswith(("USDT", "USDC")) and len(bare) >= 6
 
 
-def _session_label(is_crypto: bool) -> Dict[str, Any]:
-    now = datetime.now(ET)
+def _session_label(is_crypto: bool, now: Optional[datetime] = None) -> Dict[str, Any]:
+    now = datetime.now(ET) if now is None else now.astimezone(ET)
     if is_crypto:
         return {"session_state": "crypto", "rth_open": True, "session_label": "24/7 crypto"}
     wd = now.weekday()
@@ -172,25 +179,29 @@ def _last_idx(bars: List[Dict[str, Any]], day: str) -> int:
 
 
 def _prior_rth_close(bars: List[Dict[str, Any]], i0: int) -> float:
+    """
+    Close of the prior session's last RTH bar (else its last bar before 16:00, else its last bar).
+
+    v1.4.1: the scans walk backwards from the focus day and stop at the first match. Before, they
+    kept overwriting and returned the prior session's *first* RTH bar (the 09:30 close), so every
+    gap, and with it the fade direction, was measured from the wrong price.
+    """
     if i0 <= 0:
         return bars[0]["c"]
     prior_day = bars[i0 - 1]["d"]
-    close = None
     for i in range(i0 - 1, -1, -1):
         b = bars[i]
         if b["d"] != prior_day:
             break
         if RTH_OPEN_M <= b["mins"] < RTH_CLOSE_M:
-            close = b["c"]
-    if close is not None:
-        return close
+            return b["c"]
     for i in range(i0 - 1, -1, -1):
         b = bars[i]
         if b["d"] != prior_day:
             break
         if b["mins"] < RTH_CLOSE_M:
-            close = b["c"]
-    return close if close is not None else bars[i0 - 1]["c"]
+            return b["c"]
+    return bars[i0 - 1]["c"]
 
 
 def _atr(bars: List[Dict[str, Any]], end: int, period: int = 14) -> Optional[float]:
@@ -708,8 +719,9 @@ def _signal_badge(grade: str, state_cls: str, st: Dict[str, Any]) -> str:
         return "TAGGED"
     if st.get("stopped") is not None:
         return "STOPPED"
-    # no-runway / inverted geometry must not look like a live trigger
-    if st.get("noRunway") or st.get("bad_geom"):
+    # no-runway / inverted geometry must not look like a live trigger, nor may a fade that the
+    # regime gate or the trend-day guard blocked (v1.4.1; neither was ever actionable)
+    if st.get("noRunway") or st.get("bad_geom") or st.get("regime_block") or st.get("trend_block"):
         return "WATCH"
     if st.get("trig") is not None:
         return "TRIGGER"
@@ -855,6 +867,14 @@ def _edge(grade: str, S: Dict[str, Any], state_cls: str) -> int:
     return max(0, min(100, score))
 
 
+def _plan_cost_r(ticker: str, entry: Optional[float], stop: Optional[float]) -> Optional[float]:
+    """Round-trip cost of the plan in R (honest.py); None without a plan or a zero-width stop."""
+    if not entry or not stop:
+        return None
+    c = _cost_r(ticker, entry, stop)
+    return round(c, 3) if math.isfinite(c) else None
+
+
 def analyze(
     ticker: str,
     bars_df: Optional[pd.DataFrame],
@@ -864,10 +884,12 @@ def analyze(
     quote_provider: Optional[str] = None,
     quote_latency_ms: Optional[float] = None,
     opts: Optional[Dict[str, Any]] = None,
+    now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
+    """`now` (tz-aware) fixes the session clock for live_actionable; default is the wall clock."""
     t = ticker.upper().strip()
     is_crypto = _is_crypto(t)
-    sess = _session_label(is_crypto)
+    sess = _session_label(is_crypto, now)
 
     o = {
         "anchor_mins": DEFAULT_ANCHOR_M if not is_crypto else 0,
@@ -1136,6 +1158,7 @@ def analyze(
         "rr": round(st["R"], 2) if st.get("R") is not None else None,
         "risk_pct": round(st["riskPct"], 3) if st.get("riskPct") is not None else None,
         "runway_pct": round(st["runwayPct"], 3) if st.get("runwayPct") is not None else None,
+        "cost_r": _plan_cost_r(t, st.get("entry"), st.get("stopPx")),
         "rvol": round(S["rvol"], 3) if S["rvol"] is not None else None,
         "rvol_n": int(S.get("rvol_n") or 0),
         "session_n": int(S.get("session_n") or len(days)),

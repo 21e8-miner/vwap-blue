@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VWAP Blue · dual VWAP desk (v1.2)</title>
-  <meta name="description" content="Blue day VWAP + orange prior-day anchor · KER regime · grade A desk · free multi-provider research scanner" />
-  <meta name="og:title" content="VWAP Blue — dual VWAP desk" />
-  <meta name="og:description" content="Blue day VWAP ± volume-weighted σ · orange prior-day anchor · free rotate · research only" />
+  <title>VWAP Blue · dual VWAP desk (v1.4.1)</title>
+  <meta name="description" content="Research scanner: blue day VWAP + orange prior-day anchor, KER regime gate, grade A desk. Same engine as the local desk; replayed out of sample with no demonstrated edge." />
+  <meta property="og:title" content="VWAP Blue — dual VWAP desk (research scanner)" />
+  <meta property="og:description" content="Blue day VWAP ± volume-weighted σ · orange prior-day anchor · KER regime · honest replay: no demonstrated edge" />
   <style>
     :root {
       --bg:#07090d; --line:#1a222e; --t:#e8eef6; --m:#7a8a9e;
@@ -16,9 +16,10 @@
     * { box-sizing: border-box; }
     body {
       margin:0; font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;
-      background:var(--bg); color:var(--t); height:100vh; overflow:hidden;
+      background:var(--bg); color:var(--t); height:100vh; height:100dvh; overflow:hidden;
       display:flex; flex-direction:column;
     }
+    a { color:var(--c); }
     header {
       display:flex; gap:8px; flex-wrap:wrap; align-items:center; flex-shrink:0;
       padding:10px 14px; border-bottom:1px solid var(--line);
@@ -44,6 +45,12 @@
     button.live { background:#14532d; color:#bbf7d0; }
     button.live.on { background:#166534; color:#fff; }
     button:disabled { opacity:.5; cursor:wait; }
+    #honest {
+      flex-shrink:0; padding:7px 14px; font-size:.78rem; color:#e9d9b4;
+      background:rgba(240,180,41,.07); border-bottom:1px solid rgba(240,180,41,.25);
+      box-shadow:inset 3px 0 0 var(--a);
+    }
+    #honest b { color:var(--a); }
     #meta { padding:6px 14px; color:var(--m); font-size:.8rem; border-bottom:1px solid #0f141c; flex-shrink:0; }
     #meta b { color:var(--t); }
     #provBox { display:none; padding:6px 14px; font-size:.75rem; color:var(--m); border-bottom:1px solid var(--line); flex-shrink:0; }
@@ -61,7 +68,7 @@
       flex-direction:column; overflow:hidden;
     }
     #desk.open .pane-chart { display:flex; }
-    table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; min-width:960px; }
+    table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; min-width:1040px; }
     th, td { text-align:left; padding:7px 8px; border-bottom:1px solid #121820; white-space:nowrap; }
     th {
       color:var(--m); font-weight:600; font-size:.66rem; text-transform:uppercase;
@@ -70,7 +77,8 @@
     tr { cursor:pointer; }
     tr:hover td { background:#0d1219; }
     tr.sel td { background:rgba(59,130,246,.1); box-shadow:inset 3px 0 0 var(--blue); }
-    tr.act td { box-shadow:inset 3px 0 0 var(--g); }
+    tr.act td:first-child { box-shadow:inset 3px 0 0 var(--g); }
+    tr.stale td { opacity:.55; }
     .tk { font-weight:700; font-family:ui-monospace,Menlo,monospace; }
     .badge { display:inline-block; padding:1px 7px; border-radius:999px; font-size:.7rem; font-weight:700; }
     .TRIGGER,.TAGGED { background:#064e3b; color:var(--g); }
@@ -93,6 +101,7 @@
     .bluec { color:var(--blue); font-weight:600; }
     .orangec { color:var(--orange); font-weight:600; }
     .src,.note { font-size:.7rem; color:var(--m); max-width:150px; overflow:hidden; text-overflow:ellipsis; }
+    .cost { font-size:.7rem; color:var(--m); margin-left:4px; }
     .ch-head { display:flex; justify-content:space-between; padding:16px 18px 8px; gap:12px; flex-shrink:0; }
     .ch-head h2 { margin:0; font-size:1.3rem; font-family:ui-monospace,Menlo,monospace; }
     .ch-sub { color:var(--m); font-size:.78rem; margin-top:4px; }
@@ -135,13 +144,24 @@
       flex-shrink:0; padding:6px 14px; border-top:1px solid var(--line);
       font-size:.72rem; color:var(--m);
     }
+    @media (max-width: 820px) {
+      #desk.open { grid-template-columns:1fr; }
+      #desk.open .pane-list { display:none; }
+      .pane-chart { border-left:0; overflow-y:auto; }
+      #chartWrap { flex:0 0 300px; }
+      .ch-stats { grid-template-columns:repeat(2,1fr); }
+      .crit { grid-template-columns:1fr; }
+      #myproxy, #interval, #mode, .hint { display:none; }
+      #tickers { max-width:none; }
+      footer { display:none; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <h1><span class="live-dot" id="dot"></span>VWAP Blue <em>v1.2 · blue · orange · KER · grade desk</em></h1>
-    <input id="tickers" type="text" placeholder="blank = universe" />
-    <input id="max" type="number" value="16" min="1" max="200" title="show top N after rank" />
+    <h1><span class="live-dot" id="dot"></span>VWAP Blue <em>v1.4.1 · same engine as the desk · research only</em></h1>
+    <input id="tickers" type="text" placeholder="blank = universe" aria-label="tickers" />
+    <input id="max" type="number" value="16" min="1" max="200" title="show top N after rank" aria-label="show top N" />
     <select id="mode" title="data mode">
       <option value="hybrid" selected>hybrid</option>
       <option value="rotate">rotate only</option>
@@ -152,20 +172,27 @@
       <option value="B">grade ≥ B</option>
       <option value="C">grade ≥ C</option>
     </select>
-    <input id="minDvol" type="number" value="2" min="0" max="500" step="0.5" title="min session $vol ($M). 0=off" style="width:64px" />
-    <span style="color:var(--m);font-size:.72rem" title="Session $ volume floor in millions">$M vol</span>
+    <input id="minDvol" type="number" value="2" min="0" max="500" step="0.5" title="min session $vol ($M). 0=off" style="width:64px" aria-label="minimum session dollar volume in millions" />
+    <span class="hint" style="color:var(--m);font-size:.72rem" title="Session $ volume floor in millions">$M vol</span>
     <label class="chk"><input type="checkbox" id="actOnly" /> actionable</label>
-    <button id="btn" onclick="scan(true)">Scan</button>
+    <button id="btn" onclick="scan()">Scan</button>
     <button class="live" id="liveBtn" type="button" onclick="toggleLive()">Live off</button>
-    <input id="interval" type="number" value="45" min="15" max="300" title="live sec" />
+    <input id="interval" type="number" value="45" min="15" max="300" title="live sec" aria-label="live interval seconds" />
     <button class="ghost" type="button" onclick="loadProviders()">Providers</button>
     <button class="ghost" type="button" onclick="loadCritique()">Method</button>
-    <input id="myproxy" type="text" placeholder="https://….workers.dev/?url=" title="CORS proxy (optional)" />
+    <input id="myproxy" type="text" placeholder="https://….workers.dev/?url=" title="CORS proxy (optional)" aria-label="CORS proxy" />
   </header>
-  <div id="meta">Click a row for dual-VWAP chart · free multi-provider · research only</div>
+  <div id="honest" role="note">
+    <b>No demonstrated edge.</b> Replayed on Sep 3 – Oct 2 (no rule was tuned on it), this engine's grade-A
+    triggers lost <b>−0.23R</b> per trade after costs (± 0.12 · 295 trades · 21 sessions · t −1.9).
+    A research scanner, not trade advice ·
+    <a href="https://github.com/21e8-miner/vwap-blue#honest-results" target="_blank" rel="noopener">how it was tested</a> ·
+    <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_2026-10-04_v1.4.1.json" target="_blank" rel="noopener">raw trades</a>
+  </div>
+  <div id="meta">Click a row for the dual-VWAP chart · ◆ live grade A · ● actionable · dimmed = stale bars</div>
   <div id="provBox"></div>
   <details id="critBox" style="display:none">
-    <summary>Best-of method · steelman / strawman</summary>
+    <summary>Method · steelman / strawman</summary>
     <div class="crit">
       <div class="s"><h3>Steelman</h3><ul id="steel"></ul></div>
       <div class="w"><h3>Strawman</h3><ul id="straw"></ul></div>
@@ -181,6 +208,7 @@
             <th data-k="ticker">Ticker</th>
             <th data-k="grade">Gr</th>
             <th data-k="signal">Signal</th>
+            <th data-k="regime" title="KER regime / setup mode">Reg</th>
             <th data-k="state">State</th>
             <th data-k="price">Price</th>
             <th data-k="blue">Blue</th>
@@ -190,12 +218,13 @@
             <th data-k="entry">Entry</th>
             <th data-k="stop">Stop</th>
             <th data-k="target">Target</th>
-            <th data-k="rr">R:R</th>
+            <th data-k="rr" title="Reward : risk to target; grey = round-trip cost in R">R:R</th>
             <th data-k="rvol" title="Relative volume vs same-minute priors; n = baseline sessions">RVol (n)</th>
+            <th data-k="bar_age_min" title="Minutes since the newest bar opened">Age</th>
             <th data-k="provider">Feed</th>
           </tr>
         </thead>
-        <tbody id="tb"><tr><td colspan="16" class="m" style="padding:28px;text-align:center">Press Scan</td></tr></tbody>
+        <tbody id="tb"><tr><td colspan="18" class="m" style="padding:28px;text-align:center">Press Scan</td></tr></tbody>
       </table>
     </div>
     <div class="pane pane-chart" id="chartPane">
@@ -216,32 +245,38 @@
         <span><i style="background:#94a3b8"></i>price</span>
         <span><i style="background:var(--blue)"></i>blue day VWAP</span>
         <span><i style="background:var(--orange)"></i>orange anchor</span>
+        <span><i style="background:#64748b"></i>prior close</span>
         <span>◇ break · ▼/▲ trig · ● tag · ✕ stop</span>
       </div>
     </div>
   </div>
   <footer>
-    Best-of Blueline dual-VWAP + VWAP One desk · signals pre+RTH only · free feeds delay · not financial advice ·
-    <span id="footProv"></span>
+    Engine v<span id="engVer"></span> (engine.js, a parity-tested port of engine.py) · 5m free feeds, delayed ·
+    signals pre + RTH only · not financial advice · <span id="footProv"></span>
   </footer>
 
+<script src="engine.js"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════
-   VWAP Blue — Cloudflare Pages SPA
-   Dual VWAP engine (Blueline) + desk layout (VWAP One) + free feeds
+   VWAP Blue — static demo (GitHub Pages / Cloudflare Pages)
+   engine.js grades the bars exactly as the desk's engine.py; this file fetches free 5m bars,
+   then runs the desk's scan pipeline (app.run_scan): $ volume floor → analyze → stale guard →
+   grade floor → rotation rank.
    ═══════════════════════════════════════════════════════════════ */
 
-const UNIVERSE = ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","TSLA","NFLX","AVGO","ORCL","CRM","ADBE","NOW","INTU","IBM","CSCO","AMD","SMCI","ARM","TSM","ASML","MU","INTC","QCOM","AMAT","LRCX","KLAC","MRVL","ADI","NXPI","ON","SWKS","MPWR","ENTG","GFS","STM","UMC","ASX","TER","COHR","TXN","CDNS","SNPS","ANET","PLTR","SNOW","PANW","CRWD","DDOG","NET","MDB","SHOP","UBER","ABNB","COIN","HOOD","RBLX","U","PATH","ZS","FTNT","OKTA","TEAM","WDAY","VEEV","TTD","ROKU","PINS","SNAP","TWLO","ZM","DOCU","BILL","AFRM","SOFI","UPST","AI","APP","TOST","DUOL","CELH","HIMS","OSCR","IONQ","RGTI","QUBT","F","GM","RIVN","LCID","RKLB","LUNR","ASTS","JOBY","ACHR","RDW","COST","WMT","TGT","HD","LOW","NKE","SBUX","MCD","DIS","CMCSA","TJX","ROST","DG","DLTR","BBY","ETSY","EBAY","BKNG","MAR","HLT","DASH","LYFT","EXPE","YUM","CMG","DPZ","WING","LULU","DECK","ULTA","EL","CL","PG","KO","PEP","PM","MO","CAVA","JPM","BAC","GS","MS","V","MA","BRK-B","SCHW","C","WFC","AXP","BLK","USB","PNC","TFC","COF","DFS","SYF","ALLY","KEY","CFG","RF","MTB","FITB","HBAN","NTRS","STT","BK","TROW","SPGI","MCO","ICE","CME","NDAQ","CBOE","MSCI","FICO","PYPL","XOM","CVX","COP","OXY","SLB","EOG","MPC","VLO","PSX","HES","DVN","FANG","HAL","BKR","XLE","XOP","OIH","USO","BNO","NEE","DUK","SO","D","AEP","SRE","EXC","XEL","PCG","CEG","AMT","PLD","CCI","EQIX","DLR","PSA","O","SPG","WELL","VICI","XLU","XLRE","IYR","VNQ","LLY","UNH","JNJ","ABBV","MRK","PFE","AMGN","ISRG","VRTX","MRNA","TMO","DHR","ABT","MDT","BSX","SYK","ZTS","REGN","GILD","BIIB","BMY","CVS","CI","ELV","HUM","CNC","HCA","DXCM","PODD","ALGN","IDXX","IQV","ILMN","CRSP","EXAS","NTRA","XBI","IBB","CAT","BA","GE","HON","RTX","LMT","DE","UNP","MMM","EMR","ETN","PH","ITW","ROK","CMI","PCAR","URI","CSX","NSC","FDX","UPS","DAL","UAL","AAL","LUV","ODFL","XLI","JETS","FCX","NEM","LIN","APD","SHW","ECL","DD","DOW","PPG","NUE","STLD","CLF","AA","VALE","RIO","BHP","SCCO","TECK","MP","ALB","MOS","CF","NTR","ADM","BG","CTVA","GLD","SLV","GDX","GDXJ","COPX","URA","LIT","T","VZ","TMUS","CHTR","WBD","PARA","FOX","FOXA","SPOT","TTWO","EA","MSGS","LYV","XLC","BABA","JD","PDD","NIO","LI","XPEV","NU","SE","MELI","FXI","KWEB","EEM","EWZ","INDA","EPI","EWY","EWT","EWH","EWJ","SPY","QQQ","IWM","DIA","IVV","VOO","VTI","VEA","VWO","IWF","IWD","IJH","IJR","MDY","RSP","MTUM","VLUE","QUAL","USMV","SPLV","XLK","XLF","XLV","XLP","XLY","XLB","XHB","ITB","XRT","ARKK","ARKW","ARKF","ARKG","BOTZ","ROBO","HACK","CIBR","SKYY","TQQQ","SQQQ","SOXL","SOXS","TNA","TZA","UPRO","SPXU","LABU","LABD","FAS","FAZ","UVXY","VIXY","BOIL","KOLD","UNG","TLT","IEF","SHY","TIP","LQD","HYG","JNK","EMB","BND","AGG","BIL","SGOV","JPST","EFA","IEFA","EWG","EWU","EWI","EWP","EWL","EWN","EWD","EWS","EWA","EWC","TM","SONY","HMC","NVO","AZN","GSK","SAP","UL","DEO","BP","SHEL","TTE","BUD","HSBC","BTC-USD","ETH-USD","SOL-USD","XRP-USD","DOGE-USD","ADA-USD","AVAX-USD","LINK-USD","BNB-USD","DOT-USD","MATIC-USD","ATOM-USD","NEAR-USD","SUI-USD","APT-USD","ARB-USD","OP-USD","INJ-USD","TIA-USD","SEI-USD","LTC-USD","BCH-USD","UNI-USD","AAVE-USD","FIL-USD","ICP-USD","HBAR-USD","ALGO-USD","XLM-USD","ETC-USD","TRX-USD","TON-USD","PEPE-USD","SHIB-USD","WIF-USD","BONK-USD","RENDER-USD","FET-USD","TAO-USD","IMX-USD","GRT-USD","STX-USD","RUNE-USD","JUP-USD","WLD-USD","PYTH-USD","MKR-USD","CRV-USD"];
-const RTH_OPEN = 9*60+30, RTH_CLOSE = 16*60, ANCHOR = 4*60, K_BARS = 2, GAP_MIN = 0.35, RMIN = 1.0, RVOL_MIN = 1.2, LATE = 14*60+30;
-const ATR_MULT = 0.35;
+const E = window.VWAPBlue;
+// universe.txt, in order (tests/test_engine_parity.py keeps the two identical)
+const UNIVERSE = ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","TSLA","NFLX","AVGO","ORCL","CRM","ADBE","NOW","INTU","IBM","CSCO","AMD","SMCI","ARM","TSM","ASML","MU","INTC","QCOM","AMAT","LRCX","KLAC","MRVL","ADI","NXPI","ON","SWKS","MPWR","ENTG","GFS","STM","UMC","ASX","TER","COHR","TXN","CDNS","SNPS","ANET","PLTR","SNOW","PANW","CRWD","DDOG","NET","MDB","SHOP","UBER","ABNB","COIN","HOOD","RBLX","U","PATH","ZS","FTNT","OKTA","TEAM","WDAY","VEEV","TTD","ROKU","PINS","SNAP","TWLO","ZM","DOCU","BILL","AFRM","SOFI","UPST","AI","APP","TOST","DUOL","CELH","HIMS","OSCR","IONQ","RGTI","QUBT","F","GM","RIVN","LCID","RKLB","LUNR","ASTS","JOBY","ACHR","RDW","COST","WMT","TGT","HD","LOW","NKE","SBUX","MCD","DIS","CMCSA","TJX","ROST","DG","DLTR","BBY","ETSY","EBAY","BKNG","MAR","HLT","DASH","LYFT","EXPE","YUM","CMG","DPZ","WING","LULU","DECK","ULTA","EL","CL","PG","KO","PEP","PM","MO","CAVA","JPM","BAC","GS","MS","V","MA","BRK-B","SCHW","C","WFC","AXP","BLK","USB","PNC","TFC","COF","SYF","ALLY","KEY","CFG","RF","MTB","FITB","HBAN","NTRS","STT","TROW","SPGI","MCO","ICE","CME","NDAQ","CBOE","MSCI","FICO","PYPL","XOM","CVX","COP","OXY","SLB","EOG","MPC","VLO","PSX","DVN","FANG","HAL","BKR","XLE","XOP","OIH","USO","BNO","NEE","DUK","SO","D","AEP","SRE","EXC","XEL","PCG","CEG","AMT","PLD","CCI","EQIX","DLR","PSA","O","SPG","WELL","VICI","XLU","XLRE","IYR","VNQ","LLY","UNH","JNJ","ABBV","MRK","PFE","AMGN","ISRG","VRTX","MRNA","TMO","DHR","ABT","MDT","BSX","SYK","ZTS","REGN","GILD","BIIB","BMY","CVS","CI","ELV","HUM","CNC","HCA","DXCM","PODD","ALGN","IDXX","IQV","ILMN","CRSP","NTRA","XBI","IBB","CAT","BA","GE","HON","RTX","LMT","DE","UNP","MMM","EMR","ETN","PH","ITW","ROK","CMI","PCAR","URI","CSX","NSC","FDX","UPS","DAL","UAL","AAL","LUV","ODFL","XLI","JETS","FCX","NEM","LIN","APD","SHW","ECL","DD","DOW","PPG","NUE","STLD","CLF","AA","VALE","RIO","BHP","SCCO","TECK","MP","ALB","MOS","CF","NTR","ADM","BG","CTVA","GLD","SLV","GDX","GDXJ","COPX","URA","LIT","T","VZ","TMUS","CHTR","WBD","PARA","FOX","FOXA","SPOT","TTWO","EA","MSGS","LYV","XLC","BABA","JD","PDD","NIO","LI","XPEV","NU","SE","MELI","FXI","KWEB","EEM","EWZ","INDA","EPI","EWY","EWT","EWH","EWJ","SPY","QQQ","IWM","DIA","IVV","VOO","VTI","VEA","VWO","IWF","IWD","IJH","IJR","MDY","RSP","MTUM","VLUE","QUAL","USMV","SPLV","XLK","XLF","XLV","XLP","XLY","XLB","XHB","ITB","XRT","ARKK","ARKW","ARKF","ARKG","BOTZ","ROBO","HACK","CIBR","SKYY","TQQQ","SQQQ","SOXL","SOXS","TNA","TZA","UPRO","SPXU","LABU","LABD","FAS","FAZ","UVXY","VIXY","BOIL","KOLD","UNG","TLT","IEF","SHY","TIP","LQD","HYG","JNK","EMB","BND","AGG","BIL","SGOV","JPST","EFA","IEFA","EWG","EWU","EWI","EWP","EWL","EWN","EWD","EWS","EWA","EWC","TM","SONY","HMC","NVO","AZN","GSK","SAP","UL","DEO","BP","SHEL","TTE","BUD","HSBC","BTC-USD","ETH-USD","SOL-USD","XRP-USD","DOGE-USD","ADA-USD","AVAX-USD","LINK-USD","BNB-USD","DOT-USD","MATIC-USD","ATOM-USD","NEAR-USD","SUI-USD","APT-USD","ARB-USD","OP-USD","INJ-USD","TIA-USD","SEI-USD","LTC-USD","BCH-USD","UNI-USD","AAVE-USD","FIL-USD","ICP-USD","HBAR-USD","ALGO-USD","XLM-USD","ETC-USD","TRX-USD","TON-USD","PEPE-USD","SHIB-USD","WIF-USD","BONK-USD","RENDER-USD","FET-USD","TAO-USD","IMX-USD","GRT-USD","STX-USD","RUNE-USD","JUP-USD","WLD-USD","PYTH-USD","MKR-USD","CRV-USD"];
+const HISTORY_DAYS = 14;   // ≥ 8 sessions: RVOL uses at most 7 priors, ATR/KER ≤ 40 bars, orange 1 prior
 
 const $ = id => document.getElementById(id);
-let rows = [], sortKey = "edge", sortAsc = false, liveOn = false, pollTimer = null;
+let rows = [], sortKey = "edge", sortAsc = false, liveOn = false, pollTimer = null, scanning = false;
 let selected = null, chartCache = new Map();
 
 const n = (x,d=2) => x==null||Number.isNaN(+x) ? "—" : Number(x).toFixed(d);
 const sgn = x => x==null ? "m" : (x>=0 ? "pos" : "neg");
 const money = x => x==null ? "—" : "$"+Number(x).toFixed(Number(x)<10?4:2);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[ch]));
 
 // ── proxy pool (personal worker first) ───────────────────────
 const DEFAULT_WORKER = "https://blueline-cors-proxy.sussman-adam.workers.dev/?url=";
@@ -256,11 +291,19 @@ function wrapUrl(u) {
     : base + (base.includes("?") ? "&" : "?") + "url=" + encodeURIComponent(u);
 }
 
+// corsproxy.io dropped: it now answers 401 without an API key
 const PUBLIC_PROXIES = [
   u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-  u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
   u => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
 ];
+
+// The venue's own error (unknown symbol, delisted) is final: another proxy only adds a timeout.
+function venueError(res, body) {
+  const y = body?.chart?.error;
+  if (y) return y.description || y.code || "Yahoo error";
+  if (res.status === 400 && typeof body?.code === "number" && body?.msg) return body.msg;   // Binance
+  return null;
+}
 
 async function fetchJson(url, timeoutMs=12000) {
   const attempts = [u => wrapUrl(u), ...PUBLIC_PROXIES];
@@ -270,145 +313,94 @@ async function fetchJson(url, timeoutMs=12000) {
     const t = setTimeout(() => ctl.abort(), timeoutMs);
     try {
       const res = await fetch(wrap(url), { signal: ctl.signal, cache: "no-store" });
-      clearTimeout(t);
-      if (!res.ok) throw new Error("HTTP " + res.status);
       const text = await res.text();
-      return JSON.parse(text);
+      clearTimeout(t);
+      let body = null;
+      try { body = JSON.parse(text); } catch (_) {}
+      const venue = venueError(res, body);
+      if (venue) throw Object.assign(new Error(venue), { final: true });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      if (body == null) throw new Error("not JSON");
+      return body;
     } catch (e) {
       clearTimeout(t);
-      lastErr = e;
+      if (e.final) throw e;
+      lastErr = e.name === "AbortError" ? new Error(`timeout after ${timeoutMs / 1000}s`) : e;
     }
   }
   throw lastErr || new Error("all proxies failed");
 }
 
-function isCrypto(t) {
-  t = t.toUpperCase();
-  return t.endsWith("-USD") || t.endsWith("-USDT") || t.endsWith("-USDC") || ["BTC","ETH","SOL"].includes(t);
-}
+// feed routing only: a bare BTC/ETH/SOL can still be tried on a crypto venue
+const isCryptoFeed = t => E.isCrypto(t) || ["BTC","ETH","SOL"].includes(t.toUpperCase());
 
-// ── bars: Yahoo chart (equity/crypto) + venue fallbacks ──────
+// ── bars: Yahoo chart (equity/crypto) + venue fallback ───────
 function parseYahoo(result) {
   const r = (result?.chart?.result || [])[0];
   if (!r) throw new Error("empty chart");
   const ts = r.timestamp || [];
   const q = (r.indicators?.quote || [{}])[0];
-  const bars = [];
-  for (let i = 0; i < ts.length; i++) {
-    const o=q.open?.[i], h=q.high?.[i], l=q.low?.[i], c=q.close?.[i];
-    const v = q.volume?.[i] || 0;
-    if ([o,h,l,c].some(x => x==null || Number.isNaN(x))) continue;
-    const d = new Date(ts[i]*1000);
-    // ET minutes
-    const et = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const mins = et.getHours()*60 + et.getMinutes();
-    const day = et.getFullYear() + "-" + String(et.getMonth()+1).padStart(2,"0") + "-" + String(et.getDate()).padStart(2,"0");
-    bars.push({
-      ts: ts[i]*1000, d: day, mins,
-      o:+o, h:+h, l:+l, c:+c, v:+v,
-      hlReal: h > l,
-      time: `${String(et.getMonth()+1).padStart(2,"0")}-${String(et.getDate()).padStart(2,"0")} ${String(et.getHours()).padStart(2,"0")}:${String(et.getMinutes()).padStart(2,"0")}`,
-    });
-  }
+  const raw = ts.map((s, i) => ({ ts: s * 1000, o: q.open?.[i], h: q.high?.[i], l: q.low?.[i], c: q.close?.[i], v: q.volume?.[i] }));
+  const bars = E.prepBars(raw);
   if (!bars.length) throw new Error("no bars");
   return bars;
 }
 
 async function fetchYahooBars(sym) {
-  // 5m free Yahoo history goes well past 5d; 1mo feeds RVOL more baselines
-  const yahoo = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&range=1mo&includePrePost=true`;
-  const j = await fetchJson(yahoo);
-  return { bars: parseYahoo(j), provider: "yahoo_chart" };
+  const p2 = Math.floor(Date.now() / 1000), p1 = p2 - HISTORY_DAYS * 86400;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}` +
+    `?interval=5m&period1=${p1}&period2=${p2}&includePrePost=true`;
+  return { bars: parseYahoo(await fetchJson(url)), provider: "yahoo_chart" };
 }
 
 async function fetchBinanceBars(sym) {
-  const base = sym.replace("-USD","").replace("-USDT","") + "USDT";
-  const url = `https://api.binance.com/api/v3/klines?symbol=${base}&interval=5m&limit=500`;
-  const raw = await fetchJson(url);
-  const bars = raw.map(k => {
-    const d = new Date(k[0]);
-    const et = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const mins = et.getHours()*60 + et.getMinutes();
-    const day = et.getFullYear() + "-" + String(et.getMonth()+1).padStart(2,"0") + "-" + String(et.getDate()).padStart(2,"0");
-    return {
-      ts: k[0], d: day, mins,
-      o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5],
-      hlReal: +k[2] > +k[3],
-      time: `${String(et.getMonth()+1).padStart(2,"0")}-${String(et.getDate()).padStart(2,"0")} ${String(et.getHours()).padStart(2,"0")}:${String(et.getMinutes()).padStart(2,"0")}`,
-    };
-  });
+  const base = sym.toUpperCase().replace("-USDT","").replace("-USD","") + "USDT";
+  const raw = await fetchJson(`https://api.binance.com/api/v3/klines?symbol=${base}&interval=5m&limit=1000`);
+  const bars = E.prepBars(raw.map(k => ({ ts: k[0], o: k[1], h: k[2], l: k[3], c: k[4], v: k[5] })));
+  if (!bars.length) throw new Error("no bars");
   return { bars, provider: "binance" };
 }
 
-// Track client-side feed health for Providers panel
-const feedStats = {
-  yahoo_chart: { ok: 0, fail: 0 },
-  binance: { ok: 0, fail: 0 },
-  proxy: { ok: 0, fail: 0 },
-};
+// client-side feed health for the Providers panel
+const feedStats = { yahoo_chart: { ok: 0, fail: 0 }, binance: { ok: 0, fail: 0 } };
 
 async function fetchBars(sym) {
-  const mode = ($("mode")?.value || "hybrid");
-  const tryYahoo = async () => {
-    try {
-      const r = await fetchYahooBars(sym);
-      feedStats.yahoo_chart.ok++;
-      return r;
-    } catch (e) {
-      feedStats.yahoo_chart.fail++;
-      throw e;
-    }
+  const mode = $("mode")?.value || "hybrid";
+  const tracked = (name, fn) => async () => {
+    try { const r = await fn(sym); feedStats[name].ok++; return r; }
+    catch (e) { feedStats[name].fail++; throw e; }
   };
-  const tryBinance = async () => {
-    try {
-      const r = await fetchBinanceBars(sym);
-      feedStats.binance.ok++;
-      return r;
-    } catch (e) {
-      feedStats.binance.fail++;
-      throw e;
-    }
-  };
+  const tryYahoo = tracked("yahoo_chart", fetchYahooBars);
+  const tryBinance = tracked("binance", fetchBinanceBars);
 
-  // yfinance mode: Yahoo only
   if (mode === "yfinance") return tryYahoo();
-
-  // rotate only: crypto → binance first, equities → yahoo (no fallback chain preference)
-  if (mode === "rotate") {
-    if (isCrypto(sym)) {
-      try { return await tryBinance(); } catch (_) { return tryYahoo(); }
-    }
-    try { return await tryYahoo(); } catch (_) {
-      if (isCrypto(sym)) return tryBinance();
-      throw _;
-    }
+  if (mode === "rotate" && isCryptoFeed(sym)) {
+    try { return await tryBinance(); } catch (_) { return tryYahoo(); }
   }
-
-  // hybrid (default): yahoo → crypto fallback binance
   try {
     return await tryYahoo();
   } catch (e1) {
-    if (isCrypto(sym)) return tryBinance();
+    if (isCryptoFeed(sym)) return tryBinance();
     throw e1;
   }
 }
 
 const CRITIQUE = {
   steelman: [
-    "VWAP One desk layout (scanner left · interactive chart right) with free multi-provider rotate.",
-    "Blueline dual VWAP: blue = day session VWAP ± volume-weighted σ · orange = prior-day anchor.",
-    "Kaufman Efficiency Ratio regime gate (full engine on local :8791): pure gap-fades suppressed in trend.",
-    "Adaptive band width (chop widens / trend tightens) inspired by Modern VWAP.",
-    "Desk grade floor (A/B/C) + actionable filter · universe scan top-N.",
-    "Signals only in premarket + RTH; crypto 24/7 path kept separate.",
+    "Same engine as the local desk: engine.js is a line-by-line port of engine.py, and CI runs both on hundreds of synthetic sessions and compares every field.",
+    "Blueline dual VWAP: blue = session VWAP ± volume-weighted σ · orange = prior-day-anchored VWAP.",
+    "Kaufman Efficiency Ratio regime gate: pure gap fades suppressed in a trending tape; multi-day orange reclaims kept.",
+    "Adaptive bands (chop wider, trend tighter), trend-day and geometry guards; a thin RVOL sample never grades A.",
+    "Stale-bar guard: while the market is open, a trigger on bars older than 15 min shows as WATCH.",
+    "Every plan shows its round-trip cost in R next to its R:R; tight stops pay the most.",
     "Auditable feed per row; never fabricates prices.",
   ],
   strawman: [
-    "GitHub Pages demo uses 5m free Yahoo/venue bars via CORS proxies — not the full 1m hybrid FastAPI desk.",
-    "Walk-forward grid exists (walkforward.py) but is research — not auto-tuned live params.",
-    "Orange anchor depends on clean multi-session bars — thin free history can mis-anchor.",
-    "RVOL baselines are limited on free chart ranges.",
-    "Free APIs delay/disagree; hybrid clocks differ across venues.",
+    "No demonstrated edge: grade-A triggers lost money after costs on the out-of-sample replay (numbers in the banner), and August's in-sample gain was inside the noise too.",
+    "Segments flip sign month to month (mdrev in mixed regimes was August's best and September's worst); a grade is a ranking, not a forecast.",
+    "Free 5m Yahoo bars through CORS proxies: they lag, and the guard only catches stalls over 15 min.",
+    "Smaller pool than the desk (≥160 names vs ~480) and no VWAP One cross-check; price is the last bar's close, not a live quote.",
+    "v1.4.0 measured gaps from the prior session's 09:30 close instead of its last regular-hours bar; fixed in v1.4.1 and the replay re-run.",
   ],
   from_blueline: [
     "blue / orange dual VWAP trails",
@@ -423,7 +415,7 @@ const CRITIQUE = {
     "Providers + Method panels",
   ],
   providers: [
-    "yahoo_chart (primary equities)",
+    "yahoo_chart (5m, 14 days, pre + post)",
     "binance (crypto fallback)",
     "CORS proxies: personal worker + public",
   ],
@@ -432,12 +424,12 @@ const CRITIQUE = {
 function loadCritique() {
   const box = $("critBox");
   if (box.style.display !== "none" && box.open) { box.open = false; return; }
-  $("steel").innerHTML = CRITIQUE.steelman.map(x => `<li>${x}</li>`).join("");
-  $("straw").innerHTML = CRITIQUE.strawman.map(x => `<li>${x}</li>`).join("");
+  $("steel").innerHTML = CRITIQUE.steelman.map(x => `<li>${esc(x)}</li>`).join("");
+  $("straw").innerHTML = CRITIQUE.strawman.map(x => `<li>${esc(x)}</li>`).join("");
   $("from").innerHTML =
-    '<b style="color:var(--blue)">From Blueline:</b> ' + CRITIQUE.from_blueline.join(" · ") +
-    '<br><b style="color:var(--c)">From VWAP One:</b> ' + CRITIQUE.from_vwap_one.join(" · ") +
-    '<br><b style="color:var(--m)">Providers:</b> ' + CRITIQUE.providers.join(" · ");
+    '<b style="color:var(--blue)">From Blueline:</b> ' + esc(CRITIQUE.from_blueline.join(" · ")) +
+    '<br><b style="color:var(--c)">From VWAP One:</b> ' + esc(CRITIQUE.from_vwap_one.join(" · ")) +
+    '<br><b style="color:var(--m)">Providers:</b> ' + esc(CRITIQUE.providers.join(" · "));
   box.style.display = "block";
   box.open = true;
 }
@@ -447,285 +439,10 @@ function loadProviders() {
   if (box.style.display === "block") { box.style.display = "none"; return; }
   const mode = $("mode")?.value || "hybrid";
   const bits = Object.entries(feedStats).map(([k, v]) =>
-    `<b style="color:var(--c)">${k}</b> ok=${v.ok||0} fail=${v.fail||0}`
-  );
-  box.innerHTML =
-    `mode <b>${mode}</b> · ` + bits.join(" · ") +
+    `<b style="color:var(--c)">${esc(k)}</b> ok=${v.ok||0} fail=${v.fail||0}`);
+  box.innerHTML = `mode <b>${esc(mode)}</b> · ` + bits.join(" · ") +
     ` · proxy <span class="src">${proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public"}</span>`;
   box.style.display = "block";
-}
-
-function passesGradeFloor(grade, floor) {
-  const rank = { A: 5, LA: 4, B: 3, LB: 2, C: 1, "✕": 0, "–": -1 };
-  const need = { A: 4, B: 2, C: 1 }[floor] ?? 4; // LA counts as A-tier floor
-  return (rank[grade] ?? -1) >= need;
-}
-
-// ── dual VWAP engine (Blueline port) ─────────────────────────
-function sessionsOf(bars) {
-  const s = [], seen = new Set();
-  for (const b of bars) if (!seen.has(b.d)) { seen.add(b.d); s.push(b.d); }
-  return s;
-}
-function firstIdx(bars, day) {
-  for (let i=0;i<bars.length;i++) if (bars[i].d===day) return i;
-  return -1;
-}
-function priorRthClose(bars, i0) {
-  if (i0<=0) return bars[0].c;
-  const pd = bars[i0-1].d;
-  let close = null;
-  for (let i=i0-1;i>=0;i--) {
-    const b = bars[i];
-    if (b.d !== pd) break;
-    if (b.mins >= RTH_OPEN && b.mins < RTH_CLOSE) close = b.c;
-  }
-  if (close != null) return close;
-  for (let i=i0-1;i>=0;i--) {
-    const b = bars[i];
-    if (b.d !== pd) break;
-    if (b.mins < RTH_CLOSE) close = b.c;
-  }
-  return close ?? bars[i0-1].c;
-}
-function atr(bars, end, period=14) {
-  const trs = []; let prev = null;
-  const start = Math.max(0, end-40);
-  for (let i=start;i<=end;i++) {
-    const b = bars[i];
-    if (!b.hlReal) continue;
-    if (prev==null) trs.push(b.h-b.l);
-    else trs.push(Math.max(b.h-b.l, Math.abs(b.h-prev), Math.abs(b.l-prev)));
-    prev = b.c;
-  }
-  if (trs.length < period) return null;
-  let a = trs.slice(0,period).reduce((x,y)=>x+y,0)/period;
-  for (let i=period;i<trs.length;i++) a = (a*(period-1)+trs[i])/period;
-  return a;
-}
-function tp(b) { return (b.h+b.l+b.c)/3; }
-
-function stepBar(bars, i, acc, st, dir, devOK, crypto) {
-  const b = bars[i];
-  const openM = crypto ? 0 : ANCHOR;
-  const closeM = crypto ? 24*60 : RTH_CLOSE;
-  if (b.mins >= openM && b.mins < closeM && b.v > 0) {
-    const t = tp(b);
-    acc.bp += t*b.v; acc.bv += b.v; acc.bp2 += t*t*b.v;
-    acc.op += t*b.v; acc.ov += b.v;
-  }
-  if (b.mins < closeM) acc.vol += b.v;
-  if (acc.bv > 0) {
-    st.blue = acc.bp/acc.bv;
-    st.sigma = Math.sqrt(Math.max(acc.bp2/acc.bv - st.blue*st.blue, 0));
-  }
-  if (acc.ov > 0) st.orange = acc.op/acc.ov;
-  st.blueTrail.push(st.blue);
-  st.orangeTrail.push(st.orange);
-  st.sigTrail.push(st.sigma);
-  st.atr = atr(bars, i);
-
-  const eligible = devOK && st.blue != null && b.mins < closeM;
-  if (!eligible) return;
-
-  if (dir>0 ? b.c>st.blue : b.c<st.blue) acc.trapV += b.v;
-
-  if (st.trig == null) {
-    const beyond = dir>0 ? (b.c < st.blue) : (b.c > st.blue);
-    if (beyond) {
-      if (st.phase !== "BEYOND") {
-        st.phase = "BEYOND"; st.run = 1;
-        if (st.firstBreak == null) st.firstBreak = i;
-      } else st.run++;
-      if (st.run >= K_BARS) {
-        st.trig = i; st.entry = b.c;
-        let buf = 0;
-        if (st.atr) buf = st.atr * ATR_MULT;
-        else if (st.sigma != null) buf = st.sigma * 0.25;
-        st.stopPx = st.blue + dir * buf;
-        st.target = st.orange;
-        st.riskPct = Math.abs(st.entry - st.stopPx) / st.entry * 100;
-        st.late = !crypto && b.mins >= LATE;
-        if (st.target != null) {
-          st.runwayPct = dir>0 ? (st.entry-st.target)/st.entry*100 : (st.target-st.entry)/st.entry*100;
-          st.noRunway = st.runwayPct <= 0;
-          st.R = (st.riskPct>0 && !st.noRunway) ? st.runwayPct/st.riskPct : null;
-        }
-        resolveOpen(bars, i, st, dir);
-      }
-    } else {
-      if (st.phase === "BEYOND") st.fake++;
-      st.phase = "SIDE"; st.run = 0;
-    }
-  } else if (st.tagged==null && st.stopped==null) {
-    resolveOpen(bars, i, st, dir);
-  }
-}
-
-function resolveOpen(bars, i, st, dir) {
-  const b = bars[i], or = st.orange;
-  if (or != null && b.hlReal) {
-    const hit = dir>0 ? (b.l <= or) : (b.h >= or);
-    if (hit) { st.tagged = i; return; }
-  }
-  if (st.stopPx != null && st.trig != null && i > st.trig) {
-    const out = dir>0 ? (b.c > st.stopPx) : (b.c < st.stopPx);
-    if (out) st.stopped = i;
-  }
-}
-
-function rvolOf(bars, days, iN, accVol) {
-  // Returns { rvol, n }. n is always usable prior count (even if rvol null).
-  if (days.length < 3 || accVol <= 0) return { rvol: null, n: 0 };
-  const m = bars[iN].mins;
-  const priors = days.slice(0,-1).slice(-7);
-  const bases = [];
-  for (const pd of priors) {
-    let cum = 0;
-    for (const b of bars) {
-      if (b.d===pd && b.mins<=m && b.mins<RTH_CLOSE) cum += b.v;
-    }
-    if (cum>0) bases.push(cum);
-  }
-  const n = bases.length;
-  if (n < 2) return { rvol: null, n };
-  return { rvol: accVol / (bases.reduce((a,b)=>a+b,0)/n), n };
-}
-
-function analyze(sym, bars, provider) {
-  const crypto = isCrypto(sym);
-  if (!bars || bars.length < 20) return { ticker:sym, error:"insufficient bars", edge:0, signal:"FLAT", grade:"–", provider };
-
-  let days = sessionsOf(bars);
-  // crypto single continuous — split mid
-  if (days.length < 2 && crypto && bars.length >= 40) {
-    const mid = Math.floor(bars.length/2);
-    bars = bars.map((b,i) => ({...b, d: i<mid?"D0":"D1", mins: (i%390)+RTH_OPEN}));
-    days = sessionsOf(bars);
-  }
-  if (days.length < 2) return { ticker:sym, error:"need ≥2 sessions", edge:0, signal:"FLAT", grade:"–", provider };
-
-  const d0 = days[days.length-1], d1 = days[days.length-2];
-  const i0 = firstIdx(bars, d0), p0 = firstIdx(bars, d1), iN = bars.length-1;
-  if (i0 < 1 || p0 < 0) return { ticker:sym, error:"anchor missing", edge:0, signal:"FLAT", grade:"–", provider };
-
-  const gapMin = crypto ? 0.15 : GAP_MIN;
-  const acc = { bp:0,bv:0,bp2:0,op:0,ov:0,vol:0,trapV:0 };
-  for (let i=p0;i<i0;i++) {
-    const b = bars[i];
-    if (b.mins >= (crypto?0:ANCHOR) && b.mins < (crypto?24*60:RTH_CLOSE) && b.v>0) {
-      const t = tp(b); acc.op += t*b.v; acc.ov += b.v;
-    }
-  }
-  const priorClose = priorRthClose(bars, i0);
-  let openIdx = null;
-  for (let i=i0;i<=iN;i++) if (bars[i].mins >= RTH_OPEN) { openIdx=i; break; }
-  let gapPct, gapProv;
-  if (openIdx != null) {
-    const ob = bars[openIdx];
-    gapPct = ((ob.o ?? ob.c) - priorClose) / priorClose * 100;
-    gapProv = false;
-  } else {
-    gapPct = (bars[iN].c - priorClose) / priorClose * 100;
-    gapProv = true;
-  }
-  const dir = gapPct >= 0 ? 1 : -1;
-  const devOK = Math.abs(gapPct) >= gapMin;
-  const st = {
-    phase:"SIDE", run:0, fake:0, firstBreak:null, trig:null, tagged:null, stopped:null,
-    entry:null, stopPx:null, target:null, riskPct:null, runwayPct:null, R:null, noRunway:false,
-    blue:null, sigma:null, orange:null, blueTrail:[], orangeTrail:[], sigTrail:[], atr:null, late:false,
-  };
-  for (let i=i0;i<=iN;i++) stepBar(bars, i, acc, st, dir, devOK, crypto);
-
-  const price = bars[iN].c;
-  const { rvol, n: rvolN } = rvolOf(bars, days, iN, acc.vol);
-  const sessionN = days.length;
-  const blue = st.blue, orange = st.orange, sigma = st.sigma;
-  const dist = (blue!=null && sigma>0) ? (price-blue)/sigma : null;
-
-  // state / grade
-  let state, stateCls;
-  if (!devOK) { state = gapProv ? "NO GAP (pre)" : "NO GAP"; stateCls="none"; }
-  else if (st.trig==null) {
-    if (st.firstBreak==null) { state = (dir>0?"GAP ▲ · above blue":"GAP ▼ · below blue")+(gapProv?" (pre)":""); stateCls="gap"; }
-    else if (st.phase==="BEYOND") { state = `FIRST BREAK ${st.run}/${K_BARS}`; stateCls="break"; }
-    else { state = `FAKEOUT ×${st.fake}`; stateCls="fake"; }
-  } else if (st.noRunway) { state="CONFIRMED · NO RUNWAY"; stateCls="none"; }
-  else if (st.tagged!=null) { state = dir>0 ? "TAGGED ✓ short" : "TAGGED ✓ long"; stateCls="tag"; }
-  else if (st.stopped!=null) { state="STOPPED ✕"; stateCls="err"; }
-  else { state = (st.fake>0?"FSB ":"") + (dir>0?"CONFIRMED ▼":"CONFIRMED ▲") + (st.late?" LATE":""); stateCls="conf"; }
-
-  let grade = "–";
-  if (!devOK) grade = "–";
-  else if (st.trig==null) grade = "C";
-  else if (st.stopped!=null) grade = "✕";
-  else if (st.noRunway || st.R==null) grade = "B";
-  else {
-    const gR = st.R >= RMIN;
-    const gV = rvol==null ? true : rvol >= RVOL_MIN;
-    grade = (gR && gV) ? "A" : "B";
-    if (st.late) grade = "L"+grade;
-  }
-
-  let signal = "FLAT";
-  if (st.tagged!=null) signal="TAGGED";
-  else if (st.stopped!=null) signal="STOPPED";
-  else if (st.trig!=null) signal="TRIGGER";
-  else if (stateCls==="break") signal="SETUP";
-  else if (stateCls==="fake") signal="FAKE";
-  else if (stateCls==="gap") signal="WATCH";
-
-  // edge
-  const gmap = {A:40,LA:32,B:22,LB:16,C:8,"✕":2,"–":0};
-  let edge = gmap[grade]||0;
-  if (stateCls==="conf") edge+=20; else if (stateCls==="break") edge+=14; else if (stateCls==="tag") edge+=18;
-  if (st.R!=null) edge += Math.min(20, Math.floor(st.R*8));
-  if (rvol!=null) edge += Math.min(12, Math.floor(Math.max(0,(rvol-1)*10)));
-  edge += Math.min(10, Math.floor(Math.abs(gapPct)*2));
-  if (st.late) edge -= 8;
-  if (st.stopped!=null) edge = Math.min(edge, 15);
-  edge = Math.max(0, Math.min(100, edge));
-
-  const side = dir>0 ? "short" : "long";
-  const actionable = ["A","LA","B","LB"].includes(grade) && st.trig!=null && st.tagged==null && st.stopped==null;
-
-  const focusBars = bars.slice(i0, iN+1);
-  const rel = idx => idx==null ? null : idx - i0;
-
-  // session $ volume (last day bars)
-  let dollarVol = 0;
-  if (i0 >= 0 && iN >= i0) {
-    for (let i = i0; i <= iN; i++) dollarVol += (bars[i].c || 0) * (bars[i].v || 0);
-  }
-
-  return {
-    ticker: sym, provider, price, blue, orange, sigma,
-    dist_std: dist!=null ? +dist.toFixed(2) : null,
-    gap_pct: +gapPct.toFixed(3), gap_provisional: gapProv, prior_close: priorClose,
-    dir, side, grade, state, state_cls: stateCls, signal, edge,
-    entry: st.entry, stop: st.stopPx, target: st.target,
-    rr: st.R!=null ? +st.R.toFixed(2) : null,
-    rvol: rvol!=null ? +rvol.toFixed(3) : null,
-    rvol_n: rvolN,
-    session_n: sessionN,
-    dollar_vol: Math.round(dollarVol),
-    fakes: st.fake, late: st.late, actionable, live_actionable: actionable,
-    note: state,
-    _chart: {
-      series: focusBars.map((b,i) => ({
-        t:b.ts, time:b.time, open:b.o, high:b.h, low:b.l, price:b.c, volume:b.v,
-        blue: st.blueTrail[i], orange: st.orangeTrail[i],
-        upper: st.blueTrail[i]!=null && st.sigTrail[i]!=null ? st.blueTrail[i]+st.sigTrail[i] : null,
-        lower: st.blueTrail[i]!=null && st.sigTrail[i]!=null ? st.blueTrail[i]-st.sigTrail[i] : null,
-      })),
-      levels: { entry: st.entry, stop: st.stopPx, target: st.target, blue, orange },
-      markers: { firstBreak: rel(st.firstBreak), trig: rel(st.trig), tagged: rel(st.tagged), stopped: rel(st.stopped) },
-      prior_close: priorClose, dir, side, grade, state, signal, edge, rvol, rvol_n: rvolN, session_n: sessionN,
-      price, blue, orange, gap_pct: gapPct,
-      entry: st.entry, stop: st.stopPx, target: st.target, rr: st.R, provider,
-    },
-  };
 }
 
 // ── scan / UI ────────────────────────────────────────────────
@@ -746,10 +463,11 @@ function gradeCls(g) {
 }
 
 function sorted() {
-  const rank = {A:5,LA:4,B:3,LB:2,C:1,"✕":0,"–":-1};
+  const regRank = { chop: 3, mixed: 2, trend: 1, unknown: 0 };
   return [...rows].sort((a,b) => {
     let va=a[sortKey], vb=b[sortKey];
-    if (sortKey==="grade") { va=rank[a.grade]??-1; vb=rank[b.grade]??-1; }
+    if (sortKey==="grade") { va=E.GRADE_RANK[a.grade]??-1; vb=E.GRADE_RANK[b.grade]??-1; }
+    if (sortKey==="regime") { va=regRank[a.regime]??0; vb=regRank[b.regime]??0; }
     if (va==null) va = sortAsc?Infinity:-Infinity;
     if (vb==null) vb = sortAsc?Infinity:-Infinity;
     if (typeof va==="string") { const c=va.localeCompare(String(vb)); return sortAsc?c:-c; }
@@ -760,19 +478,25 @@ function sorted() {
 function render() {
   const list = sorted();
   if (!list.length) {
-    $("tb").innerHTML = `<tr><td colspan="16" class="m" style="padding:24px;text-align:center">No rows</td></tr>`;
+    $("tb").innerHTML = `<tr><td colspan="18" class="m" style="padding:24px;text-align:center">No rows</td></tr>`;
     return;
   }
   $("tb").innerHTML = list.map(r => {
-    if (r.error) return `<tr data-tk="${r.ticker}"><td></td><td class="tk">${r.ticker}</td><td colspan="14" class="note">${r.error}</td></tr>`;
-    const cls = [r.actionable?"act":"", selected===r.ticker?"sel":""].filter(Boolean).join(" ");
+    const tk = esc(r.ticker);
+    if (r.error) return `<tr data-tk="${tk}"><td></td><td class="tk">${tk}</td><td colspan="16" class="note">${esc(r.error)}</td></tr>`;
+    const cls = [r.actionable?"act":"", r.stale_bars?"stale":"", selected===r.ticker?"sel":""].filter(Boolean).join(" ");
+    const mark = r.live_actionable ? " ◆" : (r.actionable ? " ●" : "");
     const d = r.dist_std;
-    return `<tr class="${cls}" data-tk="${r.ticker}">
+    const reg = r.regime || "—";
+    const regCls = reg === "chop" ? "pos" : (reg === "trend" ? "neg" : "m");
+    const age = r.bar_age_min;
+    return `<tr class="${cls}" data-tk="${tk}" title="${esc(r.note||"")}${r.ker!=null?` · KER ${r.ker}`:""}">
       <td class="edge">${r.edge??0}</td>
-      <td class="tk">${r.ticker}${r.actionable?" ●":""}</td>
-      <td><span class="grade ${gradeCls(r.grade)}">${r.grade||"–"}</span></td>
-      <td><span class="badge ${r.signal||"FLAT"}">${r.signal||"FLAT"}</span></td>
-      <td class="note">${r.state||""}</td>
+      <td class="tk">${tk}${mark}</td>
+      <td><span class="grade ${gradeCls(r.grade)}">${esc(r.grade||"–")}</span></td>
+      <td><span class="badge ${esc(r.signal||"FLAT")}">${esc(r.signal||"FLAT")}</span></td>
+      <td class="${regCls}" title="KER ${r.ker??"—"} · adapt ${r.adapt_mult??"—"}">${esc(reg)}${r.setup_mode?"/"+esc(r.setup_mode):""}</td>
+      <td class="note">${esc(r.note||"")}</td>
       <td>${n(r.price)}</td>
       <td class="bluec">${n(r.blue)}</td>
       <td class="orangec">${n(r.orange)}</td>
@@ -781,105 +505,125 @@ function render() {
       <td>${n(r.entry)}</td>
       <td class="neg">${n(r.stop)}</td>
       <td class="orangec">${n(r.target)}</td>
-      <td class="${(r.rr!=null&&r.rr>=1)?"pos":(r.rr!=null?"neg":"m")}">${n(r.rr)}</td>
+      <td class="${(r.rr!=null&&r.rr>=1)?"pos":(r.rr!=null?"neg":"m")}">${n(r.rr)}${r.cost_r!=null?`<span class="cost">−${n(r.cost_r)}</span>`:""}</td>
       <td class="m">${r.rvol==null?"—":n(r.rvol,2)}${r.rvol_n!=null?` <span style="opacity:.55">n=${r.rvol_n}</span>`:""}</td>
-      <td class="src">${r.provider||"—"}</td>
+      <td class="${r.stale_bars?"neg":"m"}">${age==null?"—":(age<100?n(age,0)+"m":">99m")}</td>
+      <td class="src">${esc(r.provider||"—")}</td>
     </tr>`;
   }).join("");
   $("tb").querySelectorAll("tr[data-tk]").forEach(tr => tr.onclick = () => selectTicker(tr.dataset.tk));
 }
 
-async function scanOne(sym) {
-  const { bars, provider } = await fetchBars(sym);
-  const row = analyze(sym, bars, provider);
-  if (row._chart) chartCache.set(sym, row._chart);
+function analyzeRow(sym, bars, provider, nowMs) {
+  const row = E.analyze(sym, bars, { nowMs, provider });
+  E.applyStaleGuard(row, E.barAgeMin(bars, nowMs));
   return row;
 }
 
-async function scan(force=true) {
+async function scan() {
+  if (scanning) return;
+  scanning = true;
   const btn = $("btn");
   btn.disabled = true; btn.textContent = "…";
+  try {
+    await runScan();
+  } catch (e) {
+    $("meta").textContent = "Scan failed: " + (e && e.message || e);
+  } finally {
+    scanning = false;
+    btn.disabled = false; btn.textContent = "Scan";
+  }
+}
+
+async function runScan() {
   const raw = $("tickers").value.trim();
-  let list = raw ? raw.split(/[,\s]+/).filter(Boolean).map(s=>s.toUpperCase()) : UNIVERSE.slice();
   const max = +$("max").value || 16;
-  // 10× pool vs show-N (capped at universe); volume filter ranks down to max
-  const poolN = Math.min(list.length, Math.max(max * 10, 160));
-  list = list.slice(0, poolN);
+  let list = raw ? [...new Set(raw.split(/[,\s]+/).filter(Boolean).map(s => s.toUpperCase()))].slice(0, Math.max(max * 10, 80))
+                 : UNIVERSE.slice(0, Math.min(UNIVERSE.length, Math.max(max * 10, 160)));
   const minDvolM = parseFloat($("minDvol")?.value);
   const minDvol = Number.isFinite(minDvolM) && minDvolM > 0 ? minDvolM * 1e6 : 0;
   const t0 = performance.now();
-  const out = [];
-  const conc = 6;
-  let i = 0;
+  const fetched = new Map();
+  let i = 0, done = 0;
   async function worker() {
     while (i < list.length) {
       const sym = list[i++];
-      try { out.push(await scanOne(sym)); }
-      catch (e) { out.push({ ticker:sym, error:String(e.message||e), edge:0, signal:"FLAT", grade:"–", dollar_vol:0 }); }
-      $("meta").innerHTML = `Scanning <b>${out.length}/${list.length}</b> (10× pool)…`;
+      try { fetched.set(sym, await fetchBars(sym)); }
+      catch (e) { fetched.set(sym, { error: String(e && e.message || e) }); }
+      $("meta").innerHTML = `Scanning <b>${++done}/${list.length}</b>…`;
     }
   }
-  await Promise.all(Array.from({length: Math.min(conc, list.length)}, worker));
-  const floor = $("gradeMin")?.value || "A";
-  const mode = $("mode")?.value || "hybrid";
-  let pool = out.filter(r => !r.error);
-  let volDrop = 0;
-  if (minDvol > 0) {
-    const kept = pool.filter(r => (r.dollar_vol || 0) >= minDvol);
-    volDrop = pool.length - kept.length;
-    // if too aggressive, keep top half by $vol
-    if (kept.length < Math.max(8, max)) {
-      pool = [...pool].sort((a,b)=>(b.dollar_vol||0)-(a.dollar_vol||0)).slice(0, Math.max(max * 4, 64));
-      volDrop = Math.max(0, out.filter(r=>!r.error).length - pool.length);
-    } else {
-      pool = kept;
-    }
+  await Promise.all(Array.from({ length: Math.min(6, list.length) }, worker));
+
+  // liquidity gate (data.passes_volume_filter); fetch errors stay so they can surface
+  const dvol = new Map(list.map(t => [t, fetched.get(t).bars ? E.sessionDollarVolume(fetched.get(t).bars) : 0]));
+  let liquid = list.filter(t => !fetched.get(t).bars || !minDvol || dvol.get(t) >= minDvol);
+  let volDrop = list.length - liquid.length;
+  if (liquid.filter(t => fetched.get(t).bars).length < Math.max(8, max)) {
+    liquid = [...list].sort((a, b) => dvol.get(b) - dvol.get(a)).slice(0, Math.max(max * 4, 64));   // never an empty desk
+    volDrop = Math.max(0, list.length - liquid.length);
   }
-  rows = pool.filter(r => passesGradeFloor(r.grade, floor));
-  if ($("actOnly").checked) rows = rows.filter(r => r.actionable);
-  if (!rows.length) rows = out.filter(r => r.error);
-  rows.sort((a,b)=>{
-    const de = (b.edge||0)-(a.edge||0);
-    if (de) return de;
-    return (b.dollar_vol||0)-(a.dollar_vol||0);
+
+  const nowMs = Date.now();
+  const all = liquid.map(t => {
+    const f = fetched.get(t);
+    if (!f.bars) return { ticker: t, error: f.error, edge: 0, signal: "FLAT", grade: "–", dollar_vol: 0 };
+    const row = analyzeRow(t, f.bars, f.provider, nowMs);
+    const dv = dvol.get(t);
+    row.dollar_vol = dv ? Math.round(dv) : 0;
+    row.illiquid = minDvol > 0 && dv > 0 && dv < minDvol;
+    return row;
   });
-  const liquidN = pool.length;
-  rows = rows.slice(0, max);
-  const feeds = [...new Set(out.map(r=>r.provider).filter(Boolean))];
-  const aN = rows.filter(r=>r.actionable).length;
-  const aG = rows.filter(r=>(r.grade||"").includes("A")).length;
+  chartCache = new Map(all.filter(r => r._chart).map(r => [r.ticker, E.chartFromRow(r)]));
+
+  const floor = $("gradeMin")?.value || "A";
+  let shown = all;
+  if ($("actOnly").checked) shown = shown.filter(r => r.actionable || r.live_actionable);
+  if (!["", "C", "–", "-"].includes(floor.toUpperCase())) shown = shown.filter(r => E.gradeOk(r.grade || "–", floor));
+  const rot = new Map(shown.map(r => [r, E.rotationScore(r)]));
+  shown.sort((a, b) => (rot.get(b) - rot.get(a)) || ((b.edge||0) - (a.edge||0)) ||
+    ((b.dollar_vol||0) - (a.dollar_vol||0)) || ((E.GRADE_RANK[b.grade] ?? -1) - (E.GRADE_RANK[a.grade] ?? -1)));
+  rows = shown.slice(0, max);
+  if (!rows.length) rows = all.filter(r => r.error).slice(0, max);
+
+  const ok = all.filter(r => !r.error);
+  const regimes = {};
+  for (const r of rows) if (!r.error) regimes[r.regime || "unknown"] = (regimes[r.regime || "unknown"] || 0) + 1;
+  const eq = E.sessionLabel(false, nowMs).session_label;
+  const lastDay = ok.filter(r => !r.is_crypto).map(r => r.focus_day).sort().pop();
+  const feeds = [...new Set(ok.map(r => r.provider).filter(Boolean))];
+  const errN = all.length - ok.length;
   $("meta").innerHTML =
-    `<b>${rows.length}</b> shown · pool <b>${out.length}</b> · liquid <b>${liquidN}</b>` +
-    (volDrop ? ` · vol-drop <b>${volDrop}</b>` : "") +
-    (minDvol ? ` · floor <b>$${(minDvol/1e6)}M</b>` : "") +
-    ` · <b>${aN}</b> actionable · <b>${aG}</b> grade A · grade <b>${floor}</b> · <b>${mode}</b> · ` +
-    `feeds <b>${feeds.join(", ")||"—"}</b> · <b>${((performance.now()-t0)/1000).toFixed(1)}s</b> · ` +
-    `${new Date().toLocaleTimeString()} · <span class="src">10× pool · $vol filter</span>`;
+    `<b>${rows.length}</b> shown · pool <b>${list.length}</b> · liquid <b>${liquid.length}</b>` +
+    (volDrop ? ` · vol-drop <b>${volDrop}</b>` : "") + (minDvol ? ` · floor <b>$${minDvol/1e6}M</b>` : "") +
+    ` · <b>${rows.filter(r=>r.actionable).length}</b> actionable · <b>${rows.filter(r=>r.live_actionable).length}</b> live` +
+    ` · <b>${rows.filter(r=>/^L?A$/.test(r.grade||"")).length}</b> grade A · grade ≥ <b>${esc(floor)}</b>` +
+    (rows.some(r => r.stale_bars) ? ` · <span class="neg">stale ${rows.filter(r=>r.stale_bars).length}</span>` : "") +
+    (Object.keys(regimes).length ? ` · regime {${Object.entries(regimes).map(([k,v]) => `${esc(k)}:${v}`).join(" ")}}` : "") +
+    ` · equities <b>${esc(eq)}</b>` + (lastDay && eq !== "rth" ? ` (session ${esc(lastDay)})` : "") +
+    (errN ? ` · <span class="neg">${errN} feed errors</span>` : "") +
+    ` · feeds <b>${esc(feeds.join(", ") || "—")}</b> · <b>${((performance.now()-t0)/1000).toFixed(1)}s</b> · ${new Date(nowMs).toLocaleTimeString()}`;
   $("footProv").textContent = "proxies: " + (proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public");
-  if ($("provBox").style.display === "block") {
-    $("provBox").style.display = "none";
-    loadProviders();
-  }
+  if ($("provBox").style.display === "block") { $("provBox").style.display = "none"; loadProviders(); }
   render();
-  btn.disabled = false; btn.textContent = "Scan";
   if (selected) showChart(selected);
 }
 
 function toggleLive() {
   liveOn = !liveOn;
   const btn = $("liveBtn");
-  const interval = +$("interval").value || 45;
+  const interval = Math.max(15, +$("interval").value || 45);
   btn.textContent = liveOn ? `Live ${interval}s` : "Live off";
   btn.classList.toggle("on", liveOn);
   $("dot").classList.toggle("on", liveOn);
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   if (liveOn) {
-    scan(true);
-    pollTimer = setInterval(() => scan(true), interval * 1000);
+    scan();
+    pollTimer = setInterval(scan, interval * 1000);
   }
 }
 
-async function selectTicker(tk) {
+function selectTicker(tk) {
   selected = tk;
   render();
   $("desk").classList.add("open");
@@ -894,38 +638,35 @@ function closeChart() {
 
 function showChart(tk) {
   const load = $("chLoad");
+  load.innerHTML = '<div class="spin"></div>';
   load.style.display = "flex";
-  let d = chartCache.get(tk);
-  const row = rows.find(r => r.ticker === tk);
-  if (!d && row?._chart) d = row._chart;
-  if (!d) {
-    // fetch
-    (async () => {
-      try {
-        const { bars, provider } = await fetchBars(tk);
-        const r = analyze(tk, bars, provider);
-        d = r._chart;
-        chartCache.set(tk, d);
-        paintChart(d);
-      } catch (e) {
-        load.innerHTML = `<div>${e.message||e}</div>`;
-      }
-    })();
-    return;
-  }
-  paintChart(d);
+  const d = chartCache.get(tk);
+  if (d) { paintChart(d); return; }
+  (async () => {
+    try {
+      const { bars, provider } = await fetchBars(tk);
+      const row = analyzeRow(tk, bars, provider, Date.now());
+      if (!row._chart) throw new Error(row.error || "no chart");
+      const c = E.chartFromRow(row);
+      chartCache.set(tk, c);
+      if (selected === tk) paintChart(c);
+    } catch (e) {
+      load.textContent = String(e && e.message || e);
+    }
+  })();
 }
 
 function paintChart(d) {
   $("chLoad").style.display = "none";
   $("chTicker").textContent = d.ticker || selected;
-  $("chSub").textContent = `Grade ${d.grade||"–"} · ${d.state||""} · ${d.side||""} · ${d.provider||""}`;
+  $("chSub").textContent = [`Grade ${d.grade||"–"}`, d.state, d.side, d.regime && `${d.regime}${d.setup_mode ? "/" + d.setup_mode : ""}`, d.provider]
+    .filter(Boolean).join(" · ");
   $("chStats").innerHTML = [
     ["Price", money(d.price)], ["Blue", money(d.blue)], ["Orange", money(d.orange)],
     ["Gap", d.gap_pct==null?"—":((d.gap_pct>0?"+":"")+n(d.gap_pct)+"%")],
     ["Entry", money(d.entry)], ["Stop", money(d.stop)], ["Target", money(d.target)],
-    ["R:R", d.rr==null?"—":n(d.rr)],
-  ].map(([k,v]) => `<div class="ch-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+    [d.cost_r!=null ? `R:R · cost ${n(d.cost_r)}R` : "R:R", d.rr==null?"—":n(d.rr)],
+  ].map(([k,v]) => `<div class="ch-stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("");
   drawChart(d);
 }
 
@@ -1016,8 +757,9 @@ function drawChart(d) {
     ctx.fillText(symb, xOf(rel), yOf(series[rel].price)+(dy||-8));
   };
   mark(mk.firstBreak,"◇","#f0b429",-10);
-  if (mk.trig!=null) mark(mk.trig, (d.dir||1)>0?"▼":"▲", (d.dir||1)>0?"#ff6b6b":"#3dd68c",-10);
-  if (mk.tagged!=null) {
+  const long = d.side === "long";
+  if (mk.trig!=null) mark(mk.trig, long?"▲":"▼", long?"#3dd68c":"#ff6b6b", -10);
+  if (mk.tagged!=null && mk.tagged < series.length) {
     ctx.fillStyle="#e08c3f"; ctx.beginPath();
     ctx.arc(xOf(mk.tagged), yOf(series[mk.tagged].price), 4, 0, Math.PI*2); ctx.fill();
   }
@@ -1030,7 +772,7 @@ function drawChart(d) {
     if (i<0||i>=series.length) { tip.style.display="none"; return; }
     const s = series[i];
     tip.style.display="block"; tip.style.left=Math.min(rect.width-160,Math.max(8,mx+12))+"px"; tip.style.top="12px";
-    tip.innerHTML = `<b>${s.time}</b><br>O ${n(s.open)} H ${n(s.high)}<br>L ${n(s.low)} C ${n(s.price)}<br>
+    tip.innerHTML = `<b>${esc(s.time)}</b><br>O ${n(s.open)} H ${n(s.high)}<br>L ${n(s.low)} C ${n(s.price)}<br>
       <span style="color:#3b82f6">blue ${n(s.blue)}</span><br><span style="color:#e08c3f">orange ${n(s.orange)}</span>`;
   };
   canvas.onmouseleave = () => { tip.style.display="none"; };
@@ -1043,7 +785,7 @@ window.addEventListener("resize", () => {
 document.addEventListener("keydown", e => {
   if (["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) return;
   const k = e.key.toLowerCase();
-  if (k==="s") { e.preventDefault(); scan(true); }
+  if (k==="s") { e.preventDefault(); scan(); }
   else if (k==="l") { e.preventDefault(); toggleLive(); }
   else if (k==="escape") closeChart();
   else if (/^[1-9]$/.test(k)) {
@@ -1054,6 +796,7 @@ document.addEventListener("keydown", e => {
 
 // boot
 (function init() {
+  $("engVer").textContent = E.VERSION;
   try {
     const saved = localStorage.getItem("vwap_blue_proxy");
     $("myproxy").value = saved || DEFAULT_WORKER;
@@ -1061,8 +804,7 @@ document.addEventListener("keydown", e => {
   $("myproxy").addEventListener("change", () => {
     try { localStorage.setItem("vwap_blue_proxy", $("myproxy").value||""); } catch {}
   });
-  // auto-scan on load
-  setTimeout(() => scan(true), 400);
+  setTimeout(scan, 400);   // auto-scan on load
 })();
 </script>
 </body>
