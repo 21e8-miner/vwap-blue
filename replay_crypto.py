@@ -22,10 +22,15 @@ versions are compared on identical bars. --utc-days relabels every bar by its ET
 engine's ET calendar day becomes the UTC day: a sensitivity check on where crypto's day starts
 (windows without a DST switch only).
 
+Check what a symbol fetched. Under the plain ARB-USD, TON-USD and JUP-USD Yahoo lists other tokens
+(ARbit, TON Token, a second Jupiter); fetches now ask for providers.YAHOO_CRYPTO_SYMBOLS instead, but
+bars cached before that hold the wrong ones. --exclude drops such names.
+
   python3 replay_crypto.py --save-bars data/backtests/crypto_bars.pkl
   git show <commit>:engine.py > /tmp/engine_old.py
   python3 replay_crypto.py --bars data/backtests/crypto_bars.pkl --paired-engine /tmp/engine_old.py
   python3 replay_crypto.py --bars data/backtests/crypto_bars.pkl --utc-days --out /tmp/utc.json
+  python3 replay_crypto.py --bars <a cache from before the symbol map> --exclude ARB-USD,TON-USD,JUP-USD
 
 Research only. Free delayed data. Not trade advice.
 """
@@ -256,7 +261,9 @@ def main() -> int:
     ap.add_argument("--jobs", type=int, default=1, help="worker processes (split by ticker)")
     ap.add_argument("--out", help="output JSON (default: research/replay_crypto_<fetch date>_v<engine>.json)")
     ap.add_argument("--note", default="", help="free-text note stored in method.note")
+    ap.add_argument("--exclude", default="", help="comma-separated names to leave out (e.g. a symbol that fetched another token)")
     args = ap.parse_args()
+    exclude = sorted({t.strip().upper() for t in args.exclude.split(",") if t.strip()})
 
     if args.bars:
         cache = pickle.loads(Path(args.bars).read_bytes())
@@ -275,9 +282,10 @@ def main() -> int:
     fetched_at = datetime.fromisoformat(cache["fetched_at"])
     source = cache.get("source", "yahoo")
     through = date.fromisoformat(args.through) if args.through else fetched_at.date() - timedelta(days=1)
-    tickers, bar_prov = cache["tickers"], cache["bar_prov"]
-    bars = as_utc_days(cache["bars"]) if args.utc_days else cache["bars"]
-    bars = complete_sessions(bars, through)
+    tickers = [t for t in cache["tickers"] if t not in exclude]
+    bar_prov = cache["bar_prov"]
+    bars = {t: df for t, df in cache["bars"].items() if t not in exclude}
+    bars = complete_sessions(as_utc_days(bars) if args.utc_days else bars, through)
 
     version, trades, skips = run(tickers, bars, bar_prov, args.engine, args.grade_min, args.entry, args.slip_bps, args.jobs)
     summaries = summarize(trades)
@@ -316,6 +324,8 @@ def main() -> int:
         "fetched_at": cache["fetched_at"],
         "fetch": fetch_meta,
     }
+    if exclude:
+        method["excluded"] = exclude
     if args.note:
         method["note"] = args.note
     if args.paired_engine:

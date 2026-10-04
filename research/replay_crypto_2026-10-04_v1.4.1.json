@@ -1,6 +1,6 @@
 {
   "asof": "2026-10-04T12:06:53-04:00",
-  "run_at": "2026-10-04T12:53:33-04:00",
+  "run_at": "2026-10-04T16:44:20-04:00",
   "engine_version": "1.4.1",
   "method": {
     "bars": "5m Yahoo chart, ~1 month: data.batch_fetch(mode='hybrid') with the crypto venues held in cooldown (OKX/Binance/Bybit/Coinbase return <= 350 5m bars)",
@@ -123,13 +123,6 @@
         "provider": null,
         "bars": 0
       },
-      "ARB-USD": {
-        "provider": "yahoo_chart",
-        "bars": 8640,
-        "first": "2026-09-04T12:05:00-04:00",
-        "last": "2026-10-04T12:05:04-04:00",
-        "zero_volume_share": 1.0
-      },
       "OP-USD": {
         "provider": "yahoo_chart",
         "bars": 8642,
@@ -232,13 +225,6 @@
         "last": "2026-10-04T12:05:04-04:00",
         "zero_volume_share": 0.507
       },
-      "TON-USD": {
-        "provider": "yahoo_chart",
-        "bars": 8641,
-        "first": "2026-09-04T12:05:00-04:00",
-        "last": "2026-10-04T12:05:04-04:00",
-        "zero_volume_share": 0.995
-      },
       "PEPE-USD": {
         "provider": null,
         "bars": 0
@@ -301,13 +287,6 @@
         "last": "2026-10-04T12:05:04-04:00",
         "zero_volume_share": 0.496
       },
-      "JUP-USD": {
-        "provider": "yahoo_chart",
-        "bars": 8640,
-        "first": "2026-09-04T12:05:00-04:00",
-        "last": "2026-10-04T12:05:04-04:00",
-        "zero_volume_share": 0.95
-      },
       "WLD-USD": {
         "provider": "yahoo_chart",
         "bars": 8642,
@@ -337,33 +316,44 @@
         "zero_volume_share": 0.526
       }
     },
+    "excluded": [
+      "ARB-USD",
+      "JUP-USD",
+      "TON-USD"
+    ],
+    "note": "The first replay of crypto in this repo; no rule was ever tuned on crypto. Engine v1.4.1 as published: crypto on the equity clock (blue, orange, RVOL and signals stop at 16:00 ET; the gap runs from the prior 15:55 ET close to the 09:30 ET open and is provisional before 09:30). 184 of the 196 classic trades are gap fades and 192 triggered before 09:30 ET, 135 of them in the hour after midnight ET, right after blue resets; the median stop is 0.43% of price, so the 0.15% round trip costs 0.51R a trade. 36 of the 48 universe names: Yahoo lists no 5m bars under 9 symbols (MATIC, SUI, APT, UNI, PEPE, TAO, IMX, GRT, STX) and other tokens under 3 (ARB-USD is ARbit, TON-USD is TON Token, JUP-USD a second Jupiter), which are excluded. Yahoo reports zero volume on about half of its 5m crypto bars. Corrected 2026-10-04: the first version of this file also replayed those 3 tokens (no trades on them here; 3 in the bar-by-bar check). causal_check: replay_sessions.replay searches the premarket with the side fixed by the 09:30 gap; graded bar by bar as the desk saw it, the same bars give more trades, still negative.",
     "causal_check": {
       "engine_version": "1.4.1",
       "through": "2026-10-03",
       "bars_fetched_at": "2026-10-04T12:06:53-04:00",
       "rule": "first bar whose decision-time row is tradeable with its trigger on that bar (causal_check.py)",
+      "excluded": [
+        "ARB-USD",
+        "JUP-USD",
+        "TON-USD"
+      ],
       "classic": {
-        "n": 248,
+        "n": 245,
         "net": {
-          "n": 248,
+          "n": 245,
           "clusters": 29,
-          "mean": -0.7367,
-          "se": 0.1596,
-          "t": -4.62,
+          "mean": -0.7507,
+          "se": 0.158,
+          "t": -4.75,
           "ci90": [
-            -0.9992,
-            -0.4742
+            -1.0107,
+            -0.4908
           ]
         },
         "gross": {
-          "n": 248,
+          "n": 245,
           "clusters": 29,
-          "mean": -0.2286,
-          "se": 0.1407,
-          "t": -1.62,
+          "mean": -0.2374,
+          "se": 0.1401,
+          "t": -1.69,
           "ci90": [
-            -0.4601,
-            0.0029
+            -0.4679,
+            -0.0069
           ]
         },
         "verdict": "negative"
@@ -380,31 +370,27 @@
         ]
       },
       "same_trigger": 187,
-      "only_causal": 61,
+      "only_causal": 58,
       "only_replay": 9,
       "only_causal_by_mode": {
         "premarket/gap": 43,
-        "premarket/mdrev": 16,
-        "rth/mdrev": 2
+        "premarket/mdrev": 14,
+        "rth/mdrev": 1
       },
       "only_causal_net": {
-        "n": 61,
-        "clusters": 22,
-        "mean": -0.059,
-        "se": 0.2545,
-        "t": -0.23,
+        "n": 58,
+        "clusters": 21,
+        "mean": -0.0833,
+        "se": 0.2649,
+        "t": -0.31,
         "ci90": [
-          -0.4777,
-          0.3597
+          -0.519,
+          0.3525
         ]
       },
       "identical_trades": false,
-      "skipped_entries": {
-        "gapped_through_target": 1
-      }
-    },
-    "engine": "v1.4.1 as published: crypto on the equity clock (blue, orange, RVOL and signals stop at 16:00 ET; the gap runs from the prior 15:55 ET close to the 09:30 ET open and is provisional before 09:30)",
-    "note": "The first replay of crypto in this repo; no rule was ever tuned on crypto. 184 of the 196 classic trades are gap fades and 192 triggered before 09:30 ET, 135 of them in the hour after midnight ET, right after blue resets; the median stop is 0.43% of price, so the 0.15% round trip costs 0.51R a trade. Yahoo lists no 5m bars under 9 of the 48 universe symbols (MATIC, SUI, APT, UNI, PEPE, TAO, IMX, GRT, STX) and reports zero volume on about half of its 5m crypto bars. causal_check: replay_sessions.replay searches the premarket with the side fixed by the 09:30 gap; graded bar by bar as the desk saw it, the same bars give 248 trades, still negative."
+      "skipped_entries": {}
+    }
   },
   "tickers": [
     "BTC-USD",
@@ -419,7 +405,6 @@
     "DOT-USD",
     "ATOM-USD",
     "NEAR-USD",
-    "ARB-USD",
     "OP-USD",
     "INJ-USD",
     "TIA-USD",
@@ -434,14 +419,12 @@
     "XLM-USD",
     "ETC-USD",
     "TRX-USD",
-    "TON-USD",
     "SHIB-USD",
     "WIF-USD",
     "BONK-USD",
     "RENDER-USD",
     "FET-USD",
     "RUNE-USD",
-    "JUP-USD",
     "WLD-USD",
     "PYTH-USD",
     "MKR-USD",

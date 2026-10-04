@@ -137,18 +137,21 @@ def main() -> int:
     ap.add_argument("--grade-min", default="A")
     ap.add_argument("--jobs", type=int, default=8)
     ap.add_argument("--merge-into", help="research JSON whose method gets this as causal_check")
+    ap.add_argument("--exclude", default="", help="comma-separated names to leave out (as replay_crypto.py --exclude)")
     args = ap.parse_args()
+    exclude = {t.strip().upper() for t in args.exclude.split(",") if t.strip()}
 
     cache = pickle.loads(Path(args.bars).read_bytes())
     fetched = datetime.fromisoformat(cache["fetched_at"])
     through = date.fromisoformat(args.through) if args.through else fetched.date() - timedelta(days=1)
-    tickers = [t for t in cache["tickers"] if t in cache["bars"]]
+    tickers = [t for t in cache["tickers"] if t in cache["bars"] and t not in exclude]
     bars = rc.complete_sessions(cache["bars"], through)
     version, replay_trades, _ = rc.run(tickers, bars, cache.get("bar_prov", {}), args.engine, args.grade_min,
                                        "next_open", 2.0, args.jobs)
     causal_trades, skips = causal(tickers, bars, args.engine, through, args.grade_min, args.jobs)
     out = {"engine_version": version, "through": str(through), "bars_fetched_at": cache["fetched_at"],
            "rule": "first bar whose decision-time row is tradeable with its trigger on that bar (causal_check.py)",
+           "excluded": sorted(exclude),
            **compare(causal_trades, replay_trades), "skipped_entries": skips}
     print(f"  engine v{version} · {len(tickers)} names · sessions through {through}")
     print(f"  replay  classic net {fmt_stat(out['replay_classic_net'])}")
