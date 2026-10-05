@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from providers import (
@@ -307,6 +308,35 @@ def load_universe(max_n: Optional[int] = None) -> List[str]:
 EQUITY_MIN_DVOL = 2_000_000.0
 CRYPTO_DVOL_SHARE = 0.25
 
+# The session's day is read in this tz by name, as it always was (pytz on pandas 2, zoneinfo on 3).
+_ET_NAME = "America/New_York"
+# Stamps _utc_stamps takes: [1900, 2100), far inside the range of every DatetimeIndex unit.
+_UTC_STAMPS_SPAN = ("1900-01-01", "2100-01-01")
+
+
+def _utc_stamps(idx: pd.Index) -> Optional[pd.DatetimeIndex]:
+    """
+    The index as tz-aware UTC stamps (naive stamps are UTC): the instants pd.to_datetime(idx, utc=True)
+    returns, without its cache check, which boxed every stamp as a Timestamp. None for an index it does
+    not cover (not a DatetimeIndex, NaT, a stamp outside 1900-2100), which session_dollar_volume then
+    reads through pd.to_datetime and per-stamp dates, as before.
+    """
+    if not isinstance(idx, pd.DatetimeIndex) or idx.hasnans:
+        return None
+    i8 = idx.asi8   # UTC instants in the index's unit
+    lo, hi = (np.datetime64(x, idx.unit).astype(np.int64) for x in _UTC_STAMPS_SPAN)
+    if i8.min() < lo or i8.max() >= hi:
+        return None
+    return idx.tz_localize("UTC") if idx.tz is None else idx.tz_convert("UTC")
+
+
+def _et_days(utc: pd.DatetimeIndex) -> np.ndarray:
+    """
+    The ET calendar day of every stamp as datetime64[D], for the whole index at once: the same
+    per-stamp conversion DatetimeIndex.date ran, without a date object per bar.
+    """
+    return utc.tz_convert(_ET_NAME).tz_localize(None).values.astype("datetime64[D]")
+
 
 def session_dollar_volume(df: Optional[pd.DataFrame], ticker: Optional[str] = None) -> float:
     """
@@ -324,15 +354,19 @@ def session_dollar_volume(df: Optional[pd.DataFrame], ticker: Optional[str] = No
             n = df
         if n is None or n.empty:
             return 0.0
-        ts = pd.to_datetime(n.index, utc=True, errors="coerce")
+        utc = _utc_stamps(n.index)
+        ts = utc if utc is not None else pd.to_datetime(n.index, utc=True, errors="coerce")
         if ts.isna().all():
             day = n.tail(min(100, len(n)))
         elif ticker and looks_crypto(ticker):
             day = n.loc[ts > ts[-1] - pd.Timedelta(hours=24)]
+        elif utc is not None:
+            days = _et_days(utc)
+            day = n.loc[days == days[-1]]   # no NaT, so the last row is always in it
         else:
             # group by US/Eastern calendar day
             try:
-                days = ts.tz_convert("America/New_York").date
+                days = ts.tz_convert(_ET_NAME).date
             except Exception:
                 days = pd.DatetimeIndex(ts).tz_localize(None).date
             last = days[-1]
