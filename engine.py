@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 import time
-from datetime import datetime, time as dtime
+from datetime import date, datetime, time as dtime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -132,10 +132,76 @@ def _tp(o, h, l, c) -> float:
     return (float(h) + float(l) + float(c)) / 3.0
 
 
+_NS_PER_MIN = 60 * 10**9
+_NS_PER_DAY = 1440 * _NS_PER_MIN
+_EPOCH = date(1970, 1, 1)
+# Stamps _prep_bars_arrays takes: whole seconds in [1900, 2100), far from the ns range's ends.
+_ARRAY_NS_RANGE = ((date(1900, 1, 1) - _EPOCH).days * _NS_PER_DAY, (date(2100, 1, 1) - _EPOCH).days * _NS_PER_DAY)
+_HHMM = tuple(f"{m // 60:02d}:{m % 60:02d}" for m in range(1440))   # strftime("%H:%M") by minute of day
+
+
 def _prep_bars(df: pd.DataFrame) -> List[Dict[str, Any]]:
-    bars: List[Dict[str, Any]] = []
+    """
+    One dict per bar, in frame order: ts (epoch ms), d / mins / time (ET day, minute of day, chart
+    label; naive timestamps are UTC, as in _to_et), o h l c v, hlReal. Rows with a NaN or non-numeric
+    O/H/L/C are skipped; a NaN or negative volume is 0.
+    """
     if df is None or df.empty:
-        return bars
+        return []
+    bars = _prep_bars_arrays(df)
+    return _prep_bars_rows(df) if bars is None else bars
+
+
+def _prep_bars_arrays(df: pd.DataFrame) -> Optional[List[Dict[str, Any]]]:
+    """
+    _prep_bars on whole columns, ~1 µs a bar against the row loop's 20-30 (the desk scan parses ~480
+    frames of up to ~4,000 bars). Returns exactly what _prep_bars_rows returns (tests/test_prep_bars.py),
+    or None for a frame it does not cover, which then takes the row loop: Open..Volume missing, repeated
+    or not plain numpy numbers (object, nullable), MultiIndex columns, or an index that is not a
+    DatetimeIndex of whole seconds in 1900-2100 without NaT.
+    """
+    idx = df.index
+    if not isinstance(idx, pd.DatetimeIndex) or idx.hasnans or isinstance(df.columns, pd.MultiIndex):
+        return None
+    cols = []
+    for name in ("Open", "High", "Low", "Close", "Volume"):
+        col = df.get(name)
+        if not isinstance(col, pd.Series) or not isinstance(col.dtype, np.dtype) or col.dtype.kind not in "fiu":
+            return None
+        cols.append(col.to_numpy(dtype=np.float64))
+    try:
+        utc = idx.as_unit("ns")
+    except pd.errors.OutOfBoundsDatetime:
+        return None
+    if utc.tz is None:
+        utc = utc.tz_localize("UTC")
+    ns = utc.asi8
+    if ns.min() < _ARRAY_NS_RANGE[0] or ns.max() >= _ARRAY_NS_RANGE[1] or (ns % 10**9).any():
+        return None
+    o, h, l, c, v = cols
+    keep = ~(np.isnan(o) | np.isnan(h) | np.isnan(l) | np.isnan(c))
+    o, h, l, c, v, ns = o[keep], h[keep], l[keep], c[keep], v[keep], ns[keep]
+    # ET wall clock: the same zoneinfo conversion _to_et makes one stamp at a time
+    day, mins = np.divmod(utc.tz_convert(ET).tz_localize(None).asi8[keep], _NS_PER_DAY)
+    mins //= _NS_PER_MIN
+    days, k = np.unique(day, return_inverse=True)
+    dates = [_EPOCH + timedelta(days=x) for x in days.tolist()]
+    d_lbl = [x.strftime("%Y-%m-%d") for x in dates]
+    t_pfx = [x.strftime("%m-%d ") for x in dates]
+    v = np.where(v > 0.0, v, 0.0)   # the row loop's max(0.0, v), with NaN already 0.0
+    # whole seconds: int(Timestamp.timestamp() * 1000) is exactly ns // 10**6
+    return [
+        {"ts": t, "d": d_lbl[i], "mins": m, "o": oo, "h": hh, "l": ll, "c": cc, "v": vv,
+         "hlReal": hl, "time": t_pfx[i] + _HHMM[m]}
+        for t, i, m, oo, hh, ll, cc, vv, hl in zip(
+            (ns // 10**6).tolist(), k.tolist(), mins.tolist(), o.tolist(), h.tolist(), l.tolist(),
+            c.tolist(), v.tolist(), (h > l).tolist())
+    ]
+
+
+def _prep_bars_rows(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """The original row loop, for frames _prep_bars_arrays does not cover."""
+    bars: List[Dict[str, Any]] = []
     for ts, row in df.iterrows():
         try:
             o, h, l, c = float(row["Open"]), float(row["High"]), float(row["Low"]), float(row["Close"])
