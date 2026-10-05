@@ -228,8 +228,9 @@ def run_scan(
     if min_dvol is None:
         min_dvol = _live_cfg.get("min_dvol", _DEFAULT_MIN_DVOL)
 
+    # daily bars only feed VWAP One's cross-check: without it they were half the scan's Yahoo requests
     bars, daily, bar_prov, live, quote_meta = batch_fetch(
-        tickers, force=force, mode=mode,
+        tickers, force=force, mode=mode, with_daily=one_analyze is not None,
     )
 
     # Liquidity gate: drop thin-tape names before full engine work
@@ -349,7 +350,7 @@ def run_scan(
     _last["meta"] = meta
     _last["by_ticker"] = by_ticker
     log.info(
-        "scan ok n=%s pool=%s liquid=%s drop_vol=%s A=%s conflicts=%s feeds=%s in %.2ss",
+        "scan ok n=%s pool=%s liquid=%s drop_vol=%s A=%s conflicts=%s feeds=%s in %.1fs",
         meta["count"], meta["pool_scanned"], meta["pool_liquid"], vol_dropped,
         meta["grade_a"], meta["conflicts"], provs, meta["elapsed_sec"],
     )
@@ -567,7 +568,7 @@ def chart(ticker: str, mode: str = Query("hybrid"), force: bool = Query(False)):
         payload["cached"] = True
         return payload
 
-    bars, daily, bar_prov, live, quote_meta = batch_fetch([t], force=force, mode=mode)
+    bars, daily, bar_prov, live, quote_meta = batch_fetch([t], force=force, mode=mode, with_daily=one_analyze is not None)
     qm = quote_meta.get(t) or {}
     row = analyze(
         t, bars.get(t), daily.get(t),

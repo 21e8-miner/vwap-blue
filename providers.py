@@ -733,18 +733,65 @@ def _quote_yahoo_chart(ticker: str) -> Tuple[float, str]:
     return px, src
 
 
+# ── yfinance: the desk's bulk equity download (data.py) and the last-resort fallbacks ───────────────
+
+YF_RETRIES = 2
+_yf = None
+
+
+def yf_module():
+    """
+    yfinance, configured once. Its network.retries default is 0, so one blip failed every stock in a
+    bulk download: transient errors now retry twice. And yf.download unhides exceptions on
+    config.network while history() reads config.debug (yfinance 1.0 to 1.7), so each failed request
+    surfaced as TypeError("'NoneType' object is not subscriptable") and its real cause was lost: errors
+    now show. history() then raises YFTickerMissingError where it used to log "possibly delisted" and
+    return nothing; _yf_history turns that back into None.
+    """
+    global _yf
+    if _yf is None:
+        import yfinance as yf
+        cfg = getattr(yf, "config", None)       # yfinance >= 1.0
+        if cfg is not None:
+            cfg.network.retries = YF_RETRIES
+            cfg.debug.hide_exceptions = False
+        _yf = yf
+    return _yf
+
+
+def _yf_missing(e: Exception) -> bool:
+    try:
+        from yfinance.exceptions import YFTickerMissingError
+    except ImportError:
+        return False
+    return isinstance(e, YFTickerMissingError)
+
+
+def _yf_history(symbol: str, **kw) -> Optional[pd.DataFrame]:
+    """yf.Ticker(symbol).history(**kw), or None when Yahoo has no prices for the symbol."""
+    try:
+        return yf_module().Ticker(symbol).history(**kw)
+    except Exception as e:
+        if _yf_missing(e):
+            return None
+        raise
+
+
 def _quote_yfinance(ticker: str) -> Tuple[float, str]:
-    import yfinance as yf
-    t = yf.Ticker(to_yahoo_symbol(ticker))
-    info = getattr(t, "fast_info", None)
-    if info is not None:
-        px = float(getattr(info, "last_price", None) or 0)
-        if px > 0:
-            return px, "yfinance"
-    hist = t.history(period="1d", interval="1m", prepost=True)
+    try:
+        t = yf_module().Ticker(to_yahoo_symbol(ticker))
+        info = getattr(t, "fast_info", None)
+        if info is not None:
+            px = float(getattr(info, "last_price", None) or 0)
+            if px > 0:
+                return px, "yfinance"
+    except Exception as e:
+        if not _yf_missing(e):
+            raise
+    hist = _yf_history(to_yahoo_symbol(ticker), period="1d", interval="1m", prepost=True)
     if hist is not None and not hist.empty:
         return float(hist["Close"].iloc[-1]), "yfinance"
-    raise RuntimeError("yfinance empty")
+    raise NotListed("yfinance: no prices")
 
 
 def fetch_quote(ticker: str, prefer: Optional[str] = None) -> Dict[str, Any]:
@@ -863,22 +910,18 @@ def fetch_intraday(ticker: str, interval: str = "5m", history_days: Optional[int
     # last resort yfinance single (start/end so 7d is not silently collapsed to 5d)
     if _available("yfinance", t):
         try:
-            import yfinance as yf
-
             lookback = RANGE_LOOKBACK_DAYS.get(range_, RANGE_LOOKBACK_DAYS[DEFAULT_BARS_RANGE])
             if (interval or "").lower() in ("1m", "1min", "2m"):
                 lookback = min(lookback, YAHOO_1M_MAX_DAYS)
             end = datetime.now(timezone.utc)
             start = end - timedelta(days=lookback) if start_s is None else datetime.fromtimestamp(start_s, timezone.utc)
-            hist = yf.Ticker(to_yahoo_symbol(t)).history(
-                start=start, end=end, interval=interval, prepost=True
-            )
+            hist = _yf_history(to_yahoo_symbol(t), start=start, end=end, interval=interval, prepost=True)
             if hist is None or hist.empty:
                 # named-period fallback (5d is the longest named period safe for 1m)
                 period = range_ if range_ in ("1d", "5d", "1mo", "3mo", "6mo", "1y", "2y") else "5d"
                 if (interval or "").lower() in ("1m", "1min", "2m") and period not in ("1d", "5d"):
                     period = "5d"
-                hist = yf.Ticker(to_yahoo_symbol(t)).history(period=period, interval=interval, prepost=True)
+                hist = _yf_history(to_yahoo_symbol(t), period=period, interval=interval, prepost=True)
             if hist is not None and not hist.empty:
                 df = hist.rename(columns=str.title) if "Close" not in hist.columns else hist
                 need = ["Open", "High", "Low", "Close", "Volume"]
@@ -898,6 +941,10 @@ def fetch_intraday(ticker: str, interval: str = "5m", history_days: Optional[int
                     "latency_ms": round((time.time() - t0) * 1000, 1),
                     "error": None,
                 }
+            raise NotListed("no prices")
+        except NotListed as e:
+            _miss("yfinance", t)
+            errors.append(f"yfinance:{e}")
         except Exception as e:
             _bump("yfinance", False)
             errors.append(f"yfinance:{e}")
@@ -961,15 +1008,18 @@ def fetch_daily(ticker: str) -> Dict[str, Any]:
 
     if _available("yfinance", t):
         try:
-            import yfinance as yf
-            hist = yf.Ticker(to_yahoo_symbol(t)).history(period="2y", interval="1d")
-            if hist is not None and not hist.empty:
-                df = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
-                _bump("yfinance", True)
-                return {
-                    "ticker": t, "provider": "yfinance", "bars": df, "state": "live",
-                    "latency_ms": round((time.time() - t0) * 1000, 1), "error": None,
-                }
+            hist = _yf_history(to_yahoo_symbol(t), period="2y", interval="1d")
+            if hist is None or hist.empty:
+                raise NotListed("no prices")
+            df = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
+            _bump("yfinance", True)
+            return {
+                "ticker": t, "provider": "yfinance", "bars": df, "state": "live",
+                "latency_ms": round((time.time() - t0) * 1000, 1), "error": None,
+            }
+        except NotListed as e:
+            _miss("yfinance", t)
+            errors.append(f"yfinance:{e}")
         except Exception as e:
             _bump("yfinance", False)
             errors.append(f"yfinance:{e}")
@@ -986,11 +1036,13 @@ def batch_rotate_fetch(
     bars_interval: str = "5m",
     max_workers: int = 8,
     history_days: Optional[int] = None,
+    with_daily: bool = True,
 ) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, str], Dict[str, float], Dict[str, Any]]:
     """
     Parallel per-ticker free rotation.
     Returns (intraday, daily, bar_provider, live_price, quote_provider_meta)
     history_days: whole prior ET days of crypto bars (default CRYPTO_HISTORY_DAYS).
+    with_daily=False skips the daily bars (one request a name; the engine does not read them).
     """
     tickers = [t.upper().strip() for t in tickers if t.strip()]
     tickers = list(dict.fromkeys(tickers))
@@ -1002,7 +1054,7 @@ def batch_rotate_fetch(
 
     def one(t: str):
         bi = fetch_intraday(t, bars_interval, history_days)
-        dy = fetch_daily(t)
+        dy = fetch_daily(t) if with_daily else {"bars": pd.DataFrame()}
         q = fetch_quote(t, prefer=bi.get("provider"))
         return t, bi, dy, q
 
