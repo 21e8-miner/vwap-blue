@@ -22,6 +22,7 @@ from __future__ import annotations
 import math
 import time
 from datetime import date, datetime, time as dtime, timedelta
+from operator import itemgetter
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -227,13 +228,12 @@ def _prep_bars_rows(df: pd.DataFrame) -> List[Dict[str, Any]]:
     return bars
 
 
+_DAY = itemgetter("d")
+
+
 def _sessions(bars: List[Dict[str, Any]]) -> List[str]:
-    seen, out = set(), []
-    for b in bars:
-        if b["d"] not in seen:
-            seen.add(b["d"])
-            out.append(b["d"])
-    return out
+    """The bars' ET days in order of first appearance (analyze_bars takes them from its day list)."""
+    return list(dict.fromkeys(map(_DAY, bars)))
 
 
 def _first_idx(bars: List[Dict[str, Any]], day: str) -> int:
@@ -1065,7 +1065,10 @@ def analyze_bars(
     if len(bars) < 20:
         return {**base, "error": "insufficient bars", "edge": 0, "signal": "FLAT", "grade": "–"}
 
-    days = _sessions(bars)
+    # Every bar's ET day, read once: the days (_sessions) and the first bars of the last two (_first_idx)
+    # come from this list, where they were three passes over the bars.
+    ds = list(map(_DAY, bars))
+    days = list(dict.fromkeys(ds))
     if len(days) < 2:
         # crypto single continuous session — synthesize prior window
         if is_crypto and len(bars) >= 40:
@@ -1075,13 +1078,14 @@ def analyze_bars(
             for i, b in enumerate(bars):
                 b["d"] = "D0" if i < mid else "D1"
                 b["mins"] = (i % 390) + RTH_OPEN_M  # synthetic RTH mins
-            days = _sessions(bars)
+            ds = list(map(_DAY, bars))
+            days = list(dict.fromkeys(ds))
         else:
             return {**base, "error": "need ≥2 sessions for orange anchor", "edge": 0, "signal": "FLAT", "grade": "–"}
 
     d0, d1 = days[-1], days[-2]
-    i0 = _first_idx(bars, d0)
-    p0 = _first_idx(bars, d1)
+    i0 = ds.index(d0)
+    p0 = ds.index(d1)
     iN = len(bars) - 1
     if i0 < 1 or p0 < 0:
         return {**base, "error": "anchor bars missing", "edge": 0, "signal": "FLAT", "grade": "–"}
