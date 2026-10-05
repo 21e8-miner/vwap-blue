@@ -10,12 +10,14 @@ so far is minutes old in premarket), and the reference below computes that rule 
 
   * real-shaped frames take the fast path: tz ET by name (providers._bars_from_rows), tz UTC
     (yfinance's bulk download through _split_batch), naive UTC, zoneinfo and dateutil ET, a fixed
-    offset; a month of equity bars, 24/7 crypto, DST weeks and nights, a last bar at ET midnight, the
-    24h window's edges, NaN rows, zero / NaN / negative volume, inf, int / float32 / nullable / object
+    offset; a month of equity bars, 24/7 crypto, DST weeks and nights, a last bar at ET midnight,
+    premarket after a weekend and after a holiday (the day before is the last day with bars), the 24h
+    window's edges, NaN rows, zero / NaN / negative volume, inf, int / float32 / nullable / object
     columns, s/ms/us/ns stamps, unsorted and repeated stamps, and 150 random feeds mixing them
   * frames outside its shape (a non-datetime index, NaT, stamps outside 1900-2100) take the
-    pd.to_datetime path, frames without Close/Volume columns go through _norm_ohlcv, frames that
-    raise take the fallbacks, and all of them return what they always did
+    pd.to_datetime path, where three ET days check that the day before is the latest earlier one;
+    frames without Close/Volume columns go through _norm_ohlcv, frames that raise take the fallbacks,
+    and all of them return what they always did
 """
 
 import math
@@ -24,7 +26,7 @@ import struct
 import sys
 import unittest
 import warnings
-from datetime import timedelta, timezone
+from datetime import date, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -187,6 +189,15 @@ def independent_sum(df, crypto):
     return total, sum(on)
 
 
+def day_sum(df, day):
+    """math.fsum of close × volume over the rows on one ET day (naive stamps are UTC)."""
+    idx = df.index if df.index.tz is not None else df.index.tz_localize("UTC")
+    on = [t.astimezone(ET).date() == day for t in idx.to_pydatetime()]
+    c = pd.to_numeric(df["Close"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    v = pd.to_numeric(df["Volume"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    return math.fsum(c[i] * v[i] for i in range(len(df)) if on[i])
+
+
 class DollarVolumeCase(unittest.TestCase):
 
     def assertSameDvol(self, df, fast=True, ticker=None):
@@ -327,6 +338,25 @@ class TestRealShapedFrames(DollarVolumeCase):
                     self.assertSums(df, day_rows, h24_rows)
                     self.assertSameDays(df.index)
 
+    def test_premarket_after_a_weekend_and_after_a_holiday(self):
+        """The day before is the last day with bars (Friday), not the calendar day before, and in thin
+        premarket its tape is the equity's float."""
+        cases = {
+            "Monday premarket after a weekend": (equity_stamps("2026-09-28", "2026-10-02"), "2026-10-05"),
+            "Tuesday premarket after Labor Day": (equity_stamps("2026-08-31", "2026-09-04"), "2026-09-08"),
+        }
+        for k, (name, (before, today)) in enumerate(cases.items()):
+            premarket = pd.date_range(f"{today} 04:00", f"{today} 08:25", freq="5min", tz=ET).tz_convert("UTC")
+            for flavor in FLAVORS:
+                with self.subTest(case=name, flavor=flavor):
+                    df = frame(before.append(premarket), flavor, 110 + k)
+                    df.iloc[-len(premarket):, 4] //= 20                # premarket trades thin
+                    self.assertSums(df, len(premarket), len(premarket))   # no bars within 24h before today
+                    friday = day_sum(df, before[-1].tz_convert(ET).date())
+                    self.assertGreater(friday, day_sum(df, date.fromisoformat(today)))
+                    self.assertTrue(math.isclose(data.session_dollar_volume(df), friday, rel_tol=1e-12))
+                    self.assertSameDays(df.index)
+
     def test_nan_rows_and_zero_nan_negative_volume(self):
         for k, flavor in enumerate(FLAVORS):
             with self.subTest(flavor=flavor):
@@ -462,6 +492,25 @@ class TestFramesOutsideTheFastPath(DollarVolumeCase):
         for name, idx in frames.items():
             with self.subTest(frame=name):
                 self.assertSameBothWays(self.bars(pd.DatetimeIndex(idx)), fast=False)
+
+    def test_the_day_before_on_the_pd_to_datetime_path(self):
+        """Three ET days through pd.to_datetime (string stamps, NaT in the index): the day before is the
+        latest earlier day, whichever earlier day traded more."""
+        stamps = pd.DatetimeIndex([f"2026-10-0{d} {h}:00" for d in (1, 2, 5) for h in (14, 16, 18)], tz="UTC")
+        indexes = {
+            "strings": pd.Index(stamps.strftime("%Y-%m-%d %H:%M:%S")),
+            "NaT on the first day": stamps.where(np.arange(9) != 1, pd.NaT),
+        }
+        for heavy, vols in {"the day before": (1, 50, 2), "the first day": (50, 1, 2)}.items():
+            for name, idx in indexes.items():
+                with self.subTest(heavy=heavy, index=name):
+                    df = self.bars(idx).assign(Volume=np.repeat(np.array(vols, dtype=np.float64) * 1e3, 3))
+                    self.assertSameBothWays(df, fast=False)
+                    c, v = df["Close"].to_numpy(), df["Volume"].to_numpy()
+                    oct1, oct2, oct5 = (math.fsum(c[i] * v[i] for i in rows if df.index[i] is not pd.NaT)
+                                        for rows in (range(0, 3), range(3, 6), range(6, 9)))
+                    self.assertNotEqual(max(oct5, oct2), max(oct5, oct1))   # the first day would change it
+                    self.assertTrue(math.isclose(data.session_dollar_volume(df), max(oct5, oct2), rel_tol=1e-12))
 
     def test_stamps_outside_1900_2100(self):
         def stamps(*s, unit="ns"):
