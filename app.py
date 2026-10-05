@@ -41,7 +41,8 @@ app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
 # Scan ~10× more names than the old 48-symbol pool, then volume-filter + rank to max_n.
 POOL_MULT = max(1, int(os.environ.get("VWAP_BLUE_POOL_MULT", "10")))
-# Default $vol floor (equity session); crypto gets a quarter of it on 24h volume (data.min_dollar_volume_for).
+# Default $vol floor (equity: today so far or the prior session, the larger); crypto gets a quarter of it on
+# 24h volume (data.session_dollar_volume, data.min_dollar_volume_for).
 # Set VWAP_BLUE_MIN_DVOL=0 to disable.
 _DEFAULT_MIN_DVOL = float(os.environ.get("VWAP_BLUE_MIN_DVOL", "2000000"))
 # Live triggers on bars older than this (minutes, market open) are demoted to WATCH.
@@ -106,8 +107,8 @@ class ScanBody(BaseModel):
     grade_min: str = Field(default="A")
     min_dvol: Optional[float] = Field(
         default=None,
-        description="Equity session $ volume floor (0=off); crypto gets a quarter of it on 24h volume. "
-                    "Default $2M / $0.5M.",
+        description="Equity $ volume floor (0=off), on the larger of today so far and the prior session; "
+                    "crypto gets a quarter of it on 24h volume. Default $2M / $0.5M.",
     )
 
 
@@ -613,7 +614,7 @@ def critique():
             "Walk-forward grid exists (walkforward.py) but is research — not auto-tuned live params.",
             "Orange anchor depends on clean multi-session bars — thin free history can mis-anchor.",
             "RVOL still n≤~6 free sessions max on 1m (Yahoo 8d hard-cap).",
-            "Session $vol filter uses free bar Volume×Close — not exchange ADV; premarket can understate.",
+            "The $vol filter uses free bar Volume×Close (one venue's for crypto), not exchange ADV.",
             "Full 10× pool fetch is slower on cold cache; hybrid yfinance bulk helps equities.",
             "One conflict uses free delayed bars; disagreement can be noise.",
             "Free APIs delay/disagree; hybrid yfinance vs OKX clocks differ.",

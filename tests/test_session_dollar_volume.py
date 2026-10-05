@@ -5,6 +5,8 @@ and a list mask. That is a pure speedup: it must return exactly the float the ol
 an equity (the latest ET day) and for crypto (the 24 hours to the newest bar, PR #9), compared here
 bit for bit with a frozen copy of it (data.py at cb60410). The float feeds the liquidity floor, the
 desk's dollar_vol column and rotation_score, and the Python side of tests/test_engine_parity.py.
+Since PR #12 an equity's float is the larger of its latest ET day so far and the ET day before (a day
+so far is minutes old in premarket), and the reference below computes that rule the old way.
 
   * real-shaped frames take the fast path: tz ET by name (providers._bars_from_rows), tz UTC
     (yfinance's bulk download through _split_batch), naive UTC, zoneinfo and dateutil ET, a fixed
@@ -42,7 +44,13 @@ FLAVORS = ("et", "et_zoneinfo", "et_dateutil", "utc", "naive")
 COIN = "BTC-USD"          # any crypto ticker: the 24 hours to the newest bar
 
 
-# ── the reference: session_dollar_volume as it was in data.py at cb60410 ────────────────────────────
+# ── the reference: session_dollar_volume as it was in data.py at cb60410, with PR #12's equity rule ──
+
+def _dollars_ref(day):
+    c = pd.to_numeric(day["Close"], errors="coerce").fillna(0.0)
+    v = pd.to_numeric(day["Volume"], errors="coerce").fillna(0.0)
+    return float((c * v).sum())
+
 
 def session_dollar_volume_ref(df, ticker=None):
     if df is None or getattr(df, "empty", True):
@@ -70,9 +78,12 @@ def session_dollar_volume_ref(df, ticker=None):
             day = n.loc[mask]
             if day is None or len(day) == 0:
                 day = n.tail(min(100, len(n)))
-        c = pd.to_numeric(day["Close"], errors="coerce").fillna(0.0)
-        v = pd.to_numeric(day["Volume"], errors="coerce").fillna(0.0)
-        return float((c * v).sum())
+            else:   # PR #12: or the ET day before, when that traded more
+                prior = [d for d in days if d is not pd.NaT and d < last]
+                if prior:
+                    prev = max(prior)
+                    return max(_dollars_ref(day), _dollars_ref(n.loc[[d == prev for d in days]]))
+        return _dollars_ref(day)
     except Exception:
         try:
             c = pd.to_numeric(df["Close"], errors="coerce").fillna(0.0).tail(100)
@@ -156,7 +167,8 @@ def with_gaps(df, seed, frac=0.04):
 def independent_sum(df, crypto):
     """The answer worked out without pandas' datetime machinery, for a frame with a datetime index:
     math.fsum of close × volume over the rows on the last row's ET day (one zoneinfo conversion per
-    stamp), or for crypto less than 24 hours before the last row; and how many rows that is."""
+    stamp), or that of the ET day before when it is larger, or for crypto less than 24 hours before the
+    last row; and how many rows that is (the last ET day's, for an equity)."""
     idx = df.index if df.index.tz is not None else df.index.tz_localize("UTC")
     stamps = idx.to_pydatetime()
     if crypto:   # in UTC: Python compares and subtracts datetimes that share a tzinfo on the wall clock
@@ -167,7 +179,12 @@ def independent_sum(df, crypto):
         on = [d == days[-1] for d in days]
     c = pd.to_numeric(df["Close"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
     v = pd.to_numeric(df["Volume"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
-    return math.fsum(c[i] * v[i] for i in range(len(df)) if on[i]), sum(on)
+    total = math.fsum(c[i] * v[i] for i in range(len(df)) if on[i])
+    prior = [d for d in days if d < days[-1]] if not crypto else []
+    if prior:
+        prev = max(prior)
+        total = max(total, math.fsum(c[i] * v[i] for i in range(len(df)) if days[i] == prev))
+    return total, sum(on)
 
 
 class DollarVolumeCase(unittest.TestCase):
@@ -331,7 +348,7 @@ class TestRealShapedFrames(DollarVolumeCase):
             "inf close on a bar with volume": inf_last.assign(Volume=np.where(on_last, 3.0, 0.0)),
             "inf close on a bar without volume": inf_last.assign(Volume=np.where(on_last, 0.0, 3.0)),
             "inf close and -inf volume": inf_minus_inf,
-            "inf close before the last day": inf_early,
+            "inf close on the day before": inf_early,
             "no volume on the last day": base.assign(Volume=np.where(on_last, 0, base["Volume"])),
             "-0.0 close": base.assign(Close=-0.0, Volume=np.where(on_last, 7.0, 0.0)),
             "huge values": base.assign(Close=1e300, Volume=1e10),
@@ -344,7 +361,8 @@ class TestRealShapedFrames(DollarVolumeCase):
         self.assertEqual(dvol["inf close on a bar with volume"], float("inf"))
         self.assertTrue(math.isfinite(dvol["inf close on a bar without volume"]))   # inf × 0 is a NaN sum() skips
         self.assertTrue(math.isnan(dvol["inf close and -inf volume"]))
-        self.assertTrue(math.isfinite(dvol["inf close before the last day"]))
+        self.assertEqual(dvol["inf close on the day before"], float("inf"))         # the prior session counts
+        self.assertTrue(math.isfinite(data.session_dollar_volume(inf_early, COIN)))   # outside crypto's 24h
         self.assertEqual(bits(dvol["-0.0 close"]), bits(0.0))                        # numpy's sum starts at +0.0
 
     def test_feed_dtypes_units_and_order(self):

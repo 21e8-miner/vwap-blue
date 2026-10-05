@@ -913,18 +913,26 @@
   }
 
   /**
-   * Σ close × volume (data.session_dollar_volume): over the newest ET calendar day, or for crypto over
-   * the 24 hours to the newest bar (a 24/7 market's ET day is only minutes old after midnight).
+   * Σ close × volume (data.session_dollar_volume): for crypto the 24 hours to the newest bar; otherwise
+   * the larger of the newest ET day and the ET day before. A day so far is minutes old early on: a 24/7
+   * market's after midnight ET, a stock's in premarket once it first trades.
    */
   function sessionDollarVolume(bars, ticker) {
     if (!bars || !bars.length) return 0.0;
     const last = bars[bars.length - 1];
-    const crypto = ticker != null && looksCrypto(ticker);
-    let s = 0.0;
-    for (const b of bars) {
-      if (crypto ? b.ts > last.ts - 86400000 : b.d === last.d) s += (b.c || 0) * (b.v || 0);
+    if (ticker != null && looksCrypto(ticker)) {
+      let s = 0.0;
+      for (const b of bars) if (b.ts > last.ts - 86400000) s += (b.c || 0) * (b.v || 0);
+      return s;
     }
-    return s;
+    let prev = null;
+    for (const b of bars) if (b.d < last.d && (prev === null || b.d > prev)) prev = b.d;
+    let today = 0.0, before = 0.0;
+    for (const b of bars) {
+      if (b.d === last.d) today += (b.c || 0) * (b.v || 0);
+      else if (b.d === prev) before += (b.c || 0) * (b.v || 0);
+    }
+    return prev === null ? today : Math.max(today, before);
   }
 
   // data.EQUITY_MIN_DVOL / CRYPTO_DVOL_SHARE
