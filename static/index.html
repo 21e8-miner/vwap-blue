@@ -318,7 +318,7 @@
         `<b>${m.count ?? rows.length}</b> shown · pool <b>${m.pool_scanned||'—'}</b>` +
         (m.pool_liquid!=null ? ` · liquid <b>${m.pool_liquid}</b>` : '') +
         (m.volume_dropped!=null ? ` · vol-drop <b>${m.volume_dropped}</b>` : '') +
-        (dvolM!=null ? ` · floor <b>$${dvolM}M</b>` : '') +
+        (dvolM!=null ? ` · floor <b>$${dvolM}M</b>` + (m.min_dvol_crypto ? ` (crypto $${m.min_dvol_crypto / 1e6}M 24h)` : '') : '') +
         ` · ` +
         `<b>${m.actionable||0}</b> actionable · <b>${m.live_actionable||0}</b> live · ` +
         `<b>${m.grade_a||0}</b> grade A · conflicts <b>${m.conflicts||0}</b> · ` +

@@ -302,10 +302,18 @@ def load_universe(max_n: Optional[int] = None) -> List[str]:
     return tickers[:max_n] if max_n else tickers
 
 
-def session_dollar_volume(df: Optional[pd.DataFrame]) -> float:
+# The desk's liquidity floor (VWAP_BLUE_MIN_DVOL, the $M box) is an equity session floor. Crypto's is a
+# quarter of it, on 24h volume: $2M / $0.5M at the default, as the README and /api/scan always said.
+EQUITY_MIN_DVOL = 2_000_000.0
+CRYPTO_DVOL_SHARE = 0.25
+
+
+def session_dollar_volume(df: Optional[pd.DataFrame], ticker: Optional[str] = None) -> float:
     """
-    Approx session $ volume from the latest calendar day of free bars.
-    Uses sum(Volume × Close) on that day — good enough for liquidity rank/filter.
+    Approx $ volume for the liquidity rank/filter: sum(Volume × Close) over the latest ET calendar day
+    of free bars, or, for crypto (pass `ticker`), over the 24 hours to the newest bar. A 24/7 market's
+    ET day is only minutes old after midnight: on day-so-far volume 9% of the desk's crypto names cleared
+    $2M at 00:55 ET and 79% at 23:55; on 24h volume the share is the same all day.
     """
     if df is None or getattr(df, "empty", True):
         return 0.0
@@ -319,6 +327,8 @@ def session_dollar_volume(df: Optional[pd.DataFrame]) -> float:
         ts = pd.to_datetime(n.index, utc=True, errors="coerce")
         if ts.isna().all():
             day = n.tail(min(100, len(n)))
+        elif ticker and looks_crypto(ticker):
+            day = n.loc[ts > ts[-1] - pd.Timedelta(hours=24)]
         else:
             # group by US/Eastern calendar day
             try:
@@ -343,13 +353,13 @@ def session_dollar_volume(df: Optional[pd.DataFrame]) -> float:
 
 
 def min_dollar_volume_for(ticker: str, override: Optional[float] = None) -> float:
-    """Default liquidity floor. Crypto lower; equities need real session tape."""
-    if override is not None and override >= 0:
-        return float(override)
-    t = (ticker or "").upper()
-    if looks_crypto(t):
-        return 500_000.0  # $0.5M
-    return 2_000_000.0  # $2M session $vol
+    """
+    The liquidity floor for `ticker`. `override` is the desk's floor (default EQUITY_MIN_DVOL):
+    equities use it as is, crypto a quarter of it. The desk always passed its floor, and this used to
+    return it unchanged for crypto too, so crypto was held to the equity $2M.
+    """
+    floor = EQUITY_MIN_DVOL if override is None else max(0.0, float(override))
+    return floor * CRYPTO_DVOL_SHARE if looks_crypto(ticker or "") else floor
 
 
 def passes_volume_filter(
@@ -357,12 +367,11 @@ def passes_volume_filter(
     bars_df: Optional[pd.DataFrame],
     min_dvol: Optional[float] = None,
 ) -> Tuple[bool, float]:
-    """Return (pass, dollar_vol). min_dvol=0 disables floor (still reports dvol)."""
-    dvol = session_dollar_volume(bars_df)
-    floor = min_dollar_volume_for(ticker, min_dvol if min_dvol and min_dvol > 0 else None)
+    """Return (pass, dollar_vol). min_dvol is the desk's floor (see min_dollar_volume_for); 0 disables it."""
+    dvol = session_dollar_volume(bars_df, ticker)
     if min_dvol is not None and min_dvol <= 0:
         return True, dvol
-    return dvol >= floor, dvol
+    return dvol >= min_dollar_volume_for(ticker, min_dvol), dvol
 
 
 def rotation_score(row: Dict[str, Any]) -> float:

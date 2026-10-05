@@ -567,9 +567,10 @@ async function runScan() {
   }
   await Promise.all(Array.from({ length: Math.min(6, list.length) }, worker));
 
-  // liquidity gate (data.passes_volume_filter); fetch errors stay so they can surface
-  const dvol = new Map(list.map(t => [t, fetched.get(t).bars ? E.sessionDollarVolume(fetched.get(t).bars) : 0]));
-  let liquid = list.filter(t => !fetched.get(t).bars || !minDvol || dvol.get(t) >= minDvol);
+  // liquidity gate (data.passes_volume_filter): crypto on 24h volume, against a quarter of the floor;
+  // fetch errors stay so they can surface
+  const dvol = new Map(list.map(t => [t, fetched.get(t).bars ? E.sessionDollarVolume(fetched.get(t).bars, t) : 0]));
+  let liquid = list.filter(t => !fetched.get(t).bars || !minDvol || dvol.get(t) >= E.dollarVolumeFloor(t, minDvol));
   let volDrop = list.length - liquid.length;
   if (liquid.filter(t => fetched.get(t).bars).length < Math.max(8, max)) {
     liquid = [...list].sort((a, b) => dvol.get(b) - dvol.get(a)).slice(0, Math.max(max * 4, 64));   // never an empty desk
@@ -583,7 +584,7 @@ async function runScan() {
     const row = analyzeRow(t, f.bars, f.provider, nowMs);
     const dv = dvol.get(t);
     row.dollar_vol = dv ? Math.round(dv) : 0;
-    row.illiquid = minDvol > 0 && dv > 0 && dv < minDvol;
+    row.illiquid = minDvol > 0 && dv > 0 && dv < E.dollarVolumeFloor(t, minDvol);
     return row;
   });
   chartCache = new Map(all.filter(r => r._chart).map(r => [r.ticker, E.chartFromRow(r)]));
@@ -607,7 +608,7 @@ async function runScan() {
   const errN = all.length - ok.length;
   $("meta").innerHTML =
     `<b>${rows.length}</b> shown · pool <b>${list.length}</b> · liquid <b>${liquid.length}</b>` +
-    (volDrop ? ` · vol-drop <b>${volDrop}</b>` : "") + (minDvol ? ` · floor <b>$${minDvol/1e6}M</b>` : "") +
+    (volDrop ? ` · vol-drop <b>${volDrop}</b>` : "") + (minDvol ? ` · floor <b>$${minDvol/1e6}M</b> (crypto $${E.dollarVolumeFloor("BTC-USD", minDvol)/1e6}M 24h)` : "") +
     ` · <b>${rows.filter(r=>r.actionable).length}</b> actionable · <b>${rows.filter(r=>r.live_actionable).length}</b> live` +
     ` · <b>${rows.filter(r=>/^L?A$/.test(r.grade||"")).length}</b> grade A · grade ≥ <b>${esc(floor)}</b>` +
     (rows.some(r => r.stale_bars) ? ` · <span class="neg">stale ${rows.filter(r=>r.stale_bars).length}</span>` : "") +
