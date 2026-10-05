@@ -338,12 +338,21 @@ def _et_days(utc: pd.DatetimeIndex) -> np.ndarray:
     return utc.tz_convert(_ET_NAME).tz_localize(None).values.astype("datetime64[D]")
 
 
+def _dollars(frame: pd.DataFrame) -> float:
+    c = pd.to_numeric(frame["Close"], errors="coerce").fillna(0.0)
+    v = pd.to_numeric(frame["Volume"], errors="coerce").fillna(0.0)
+    return float((c * v).sum())
+
+
 def session_dollar_volume(df: Optional[pd.DataFrame], ticker: Optional[str] = None) -> float:
     """
-    Approx $ volume for the liquidity rank/filter: sum(Volume × Close) over the latest ET calendar day
-    of free bars, or, for crypto (pass `ticker`), over the 24 hours to the newest bar. A 24/7 market's
-    ET day is only minutes old after midnight: on day-so-far volume 9% of the desk's crypto names cleared
-    $2M at 00:55 ET and 79% at 23:55; on 24h volume the share is the same all day.
+    Approx $ volume for the liquidity rank/filter, sum(Volume × Close): for crypto (pass `ticker`) the
+    24 hours to the newest bar; otherwise the larger of the latest ET day so far and the ET day before.
+    A day so far is minutes old early on. A 24/7 market's ET day after midnight: 9% of the desk's crypto
+    names cleared $2M at 00:55 ET and 79% at 23:55, and 96-97% at every hour on 24h volume and $0.5M.
+    A stock in premarket, once it first trades: 27% of the desk's stocks cleared $2M at 04:30 ET and
+    9.5% at 09:00 on the day so far, 99.7% at every hour on the larger of today and its prior session,
+    which also lets a normally thin stock in once a heavy day takes it past the floor.
     """
     if df is None or getattr(df, "empty", True):
         return 0.0
@@ -362,7 +371,11 @@ def session_dollar_volume(df: Optional[pd.DataFrame], ticker: Optional[str] = No
             day = n.loc[ts > ts[-1] - pd.Timedelta(hours=24)]
         elif utc is not None:
             days = _et_days(utc)
-            day = n.loc[days == days[-1]]   # no NaT, so the last row is always in it
+            last = days[-1]
+            day = n.loc[days == last]       # no NaT, so the last row is always in it
+            prior = days[days < last]
+            if len(prior):
+                return max(_dollars(day), _dollars(n.loc[days == prior.max()]))
         else:
             # group by US/Eastern calendar day
             try:
@@ -374,9 +387,12 @@ def session_dollar_volume(df: Optional[pd.DataFrame], ticker: Optional[str] = No
             day = n.loc[mask]
             if day is None or len(day) == 0:
                 day = n.tail(min(100, len(n)))
-        c = pd.to_numeric(day["Close"], errors="coerce").fillna(0.0)
-        v = pd.to_numeric(day["Volume"], errors="coerce").fillna(0.0)
-        return float((c * v).sum())
+            else:
+                prior = [d for d in days if d is not pd.NaT and d < last]
+                if prior:
+                    prev = max(prior)
+                    return max(_dollars(day), _dollars(n.loc[[d == prev for d in days]]))
+        return _dollars(day)
     except Exception:
         try:
             c = pd.to_numeric(df["Close"], errors="coerce").fillna(0.0).tail(100)
