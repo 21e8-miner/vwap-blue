@@ -922,16 +922,16 @@ def _rvol(
         return None, 0
     last_mins = bars[iN]["mins"]
     priors = days[:-1][-RVOL_MAX_PRIORS:]
-    bases = []
-    for pd in priors:
-        cum = 0.0
-        for b in bars:
-            if b["d"] != pd:
-                continue
-            if b["mins"] <= last_mins and b["mins"] < close_m:
-                cum += b["v"]
-        if cum > 0:
-            bases.append(cum)
+    # One pass over the bars, ~4x faster than one per prior day: each day's volume still adds up in
+    # bar order, so its sum is the same float, whether or not the bars are sorted.
+    cum = dict.fromkeys(priors, 0.0)
+    for b in bars:
+        d = b["d"]
+        if d in cum:
+            m = b["mins"]
+            if m <= last_mins and m < close_m:
+                cum[d] += b["v"]
+    bases = [cum[d] for d in priors if cum[d] > 0]
     n = len(bases)
     if n < RVOL_MIN_PRIORS:
         return None, n
