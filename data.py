@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -99,6 +100,59 @@ def _split_batch(raw: pd.DataFrame, tickers: List[str]) -> Dict[str, pd.DataFram
     return out
 
 
+# Yahoo rate-limits bursts. yfinance's bulk download sends one request per name, one after another (its
+# threads share one session), about 45 a second whatever `threads` says: the desk's 437 stocks went out in
+# ~10 s every scan, and a second scan in the same minute drew HTTP 429s. The desk paces it instead.
+YF_BULK_RPS = float(os.environ.get("VWAP_BLUE_YF_RPS", "20"))   # requests a second, on average; 0 = no pacing
+YF_BULK_CHUNK = 25                                               # names per yf.download call
+YF_RATE_LIMIT_PAUSE = 15.0                                       # after a chunk Yahoo rate-limited
+# Per request. A response takes tens of ms; yfinance's 10 s default and its 2 retries (providers.yf_module)
+# let one stuck request hold the whole download ~33 s (its requests take turns on one session).
+YF_TIMEOUT = 5.0
+
+
+def _paced_download(yf, names: List[str], **kw) -> Dict[str, pd.DataFrame]:
+    """
+    yf.download(names, **kw) in chunks of YF_BULK_CHUNK names, at no more than YF_BULK_RPS requests a
+    second on average, split per name. A chunk Yahoo rate-limited (YFRateLimitError, HTTP 429) holds the
+    next one back YF_RATE_LIMIT_PAUSE seconds, and its limited names are asked for once more at the end,
+    at half the pace. Names that still fail are left to the caller (batch_fetch's rotate fallback).
+    """
+    out: Dict[str, pd.DataFrame] = {}
+    next_at = 0.0
+
+    def chunk(part: List[str], rps: float) -> List[str]:
+        nonlocal next_at
+        time.sleep(max(0.0, next_at - time.monotonic()))
+        t0 = time.monotonic()
+        try:
+            df = yf.download(" ".join(part), **kw)
+        except Exception as e:
+            log.warning("yfinance download (%d names): %s", len(part), e)
+            df = pd.DataFrame()
+        got = _split_batch(df, part)
+        if len(part) == 1 and part[0] not in got:         # a lone name's frame, as it was always kept
+            n = _norm_ohlcv(df)
+            if n is not None:
+                got[part[0]] = n
+        out.update(got)
+        next_at = t0 + (len(part) / rps if rps > 0 else 0.0)
+        errors = getattr(getattr(yf, "shared", None), "_ERRORS", None) or {}
+        limited = [t for t in part if t not in out and "RateLimit" in str(errors.get(t.upper(), ""))]
+        if limited:
+            next_at = max(next_at, time.monotonic() + YF_RATE_LIMIT_PAUSE)
+        return limited
+
+    limited: List[str] = []
+    for i in range(0, len(names), YF_BULK_CHUNK):
+        limited += chunk(names[i:i + YF_BULK_CHUNK], YF_BULK_RPS)
+    if limited:
+        log.warning("yfinance: Yahoo rate-limited %d names; asking for them again at half the pace", len(limited))
+        for i in range(0, len(limited), YF_BULK_CHUNK):
+            chunk(limited[i:i + YF_BULK_CHUNK], YF_BULK_RPS / 2)
+    return out
+
+
 def _yfinance_bulk(
     tickers: List[str],
     bars_period: str = "8d",
@@ -134,43 +188,12 @@ def _yfinance_bulk(
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=lookback)
 
-    syms = " ".join(equity)
-    try:
-        bars = yf.download(
-            syms, start=start, end=end, interval=bars_interval,
-            group_by="ticker", threads=True, progress=False, auto_adjust=True, prepost=True,
-        )
-        if bars is None or (hasattr(bars, "empty") and bars.empty):
-            named = period_label if period_label in ("1d", "5d", "1mo", "3mo", "6mo", "1y", "2y") else "5d"
-            bars = yf.download(
-                syms, period=named, interval=bars_interval,
-                group_by="ticker", threads=True, progress=False, auto_adjust=True, prepost=True,
-            )
-    except Exception as e:
-        log.warning("yfinance bars: %s", e)
-        bars = pd.DataFrame()
-    days = pd.DataFrame()
-    if with_daily:
-        try:
-            days = yf.download(
-                syms, period=daily_period, interval="1d",
-                group_by="ticker", threads=True, progress=False, auto_adjust=True,
-            )
-        except Exception as e:
-            log.warning("yfinance daily: %s", e)
-
-    bar_map = _split_batch(bars, equity)
-    day_map = _split_batch(days, equity)
-    if len(equity) == 1:
-        t = equity[0]
-        if t not in bar_map:
-            n = _norm_ohlcv(bars)
-            if n is not None:
-                bar_map[t] = n
-        if t not in day_map and with_daily:
-            n = _norm_ohlcv(days)
-            if n is not None:
-                day_map[t] = n
+    common = {"group_by": "ticker", "threads": True, "progress": False, "auto_adjust": True, "timeout": YF_TIMEOUT}
+    bar_map = _paced_download(yf, equity, start=start, end=end, interval=bars_interval, prepost=True, **common)
+    if not bar_map:
+        named = period_label if period_label in ("1d", "5d", "1mo", "3mo", "6mo", "1y", "2y") else "5d"
+        bar_map = _paced_download(yf, equity, period=named, interval=bars_interval, prepost=True, **common)
+    day_map = _paced_download(yf, equity, period=daily_period, interval="1d", **common) if with_daily else {}
     return bar_map, day_map
 
 
