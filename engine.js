@@ -902,13 +902,39 @@
 
   // ── scan helpers around the engine (data.py / app.py) ────────────────────
 
-  /** Σ close × volume over the newest ET calendar day (data.session_dollar_volume). */
-  function sessionDollarVolume(bars) {
+  /** providers.looks_crypto: the desk's crypto routing and liquidity floor (bare BTC/ETH/SOL included). */
+  function looksCrypto(ticker) {
+    const t = String(ticker || "").toUpperCase().replace(/\//g, "-");
+    if (t.endsWith("-USD") || t.endsWith("-USDT") || t.endsWith("-USDC")) return true;
+    const bare = t.replace(/-/g, "");
+    if ((bare.endsWith("USDT") || bare.endsWith("USDC") || bare.endsWith("BUSD")) && bare.length >= 6) return true;
+    if (["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "DOGEUSD", "BNBUSD"].includes(bare)) return true;
+    return bare.endsWith("USDT") || ["BTC", "ETH", "SOL"].includes(bare);
+  }
+
+  /**
+   * Σ close × volume (data.session_dollar_volume): over the newest ET calendar day, or for crypto over
+   * the 24 hours to the newest bar (a 24/7 market's ET day is only minutes old after midnight).
+   */
+  function sessionDollarVolume(bars, ticker) {
     if (!bars || !bars.length) return 0.0;
-    const last = bars[bars.length - 1].d;
+    const last = bars[bars.length - 1];
+    const crypto = ticker != null && looksCrypto(ticker);
     let s = 0.0;
-    for (const b of bars) if (b.d === last) s += (b.c || 0) * (b.v || 0);
+    for (const b of bars) {
+      if (crypto ? b.ts > last.ts - 86400000 : b.d === last.d) s += (b.c || 0) * (b.v || 0);
+    }
     return s;
+  }
+
+  // data.EQUITY_MIN_DVOL / CRYPTO_DVOL_SHARE
+  const EQUITY_MIN_DVOL = 2000000.0;
+  const CRYPTO_DVOL_SHARE = 0.25;
+
+  /** data.min_dollar_volume_for: the desk's floor for equities, a quarter of it for crypto (24h volume). */
+  function dollarVolumeFloor(ticker, floor) {
+    const f = floor == null ? EQUITY_MIN_DVOL : Math.max(0.0, +floor);
+    return looksCrypto(ticker) ? f * CRYPTO_DVOL_SHARE : f;
   }
 
   /** Desk ranking for a wide pool (data.rotation_score). */
@@ -948,7 +974,7 @@
 
   return {
     analyze, prepBars, sessionLabel, barAgeMin, applyStaleGuard, chartFromRow, costR, isCrypto,
-    sessionDollarVolume, rotationScore, gradeOk, geomOk, etParts,
+    looksCrypto, sessionDollarVolume, dollarVolumeFloor, rotationScore, gradeOk, geomOk, etParts,
     VERSION, GRADE_RANK, DEFAULT_MAX_BAR_AGE_MIN, COST,
   };
 });

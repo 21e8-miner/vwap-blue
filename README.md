@@ -54,7 +54,9 @@ Env:
 - `VWAP_BLUE_PORT=8791`
 - `VWAP_BLUE_GRADE_MIN=A` — desk grade floor (default A)
 - `VWAP_BLUE_POOL_MULT=10` — universe pool multiplier (was effectively ~3× / 48 names)
-- `VWAP_BLUE_MIN_DVOL=2000000` — equity session $ volume floor (`0` = off; crypto default $0.5M)
+- `VWAP_BLUE_MIN_DVOL=2000000` — equity session $ volume floor (`0` = off). Crypto gets a quarter of it
+  ($0.5M at the default) on its last 24 hours of volume, not its ET day so far, which right after
+  midnight ET is minutes old; the desk's $M box and `min_dvol` work the same way
 - `VWAP_BLUE_MAX_BAR_AGE_MIN=15` — while the market is open, a TRIGGER on bars older than this is demoted to WATCH (STALE)
 - `VWAP_BLUE_LEDGER=0` — stop recording live grade-A triggers to `data/signals/`
 
