@@ -365,7 +365,7 @@
     async function pollLast() {
       try {
         const data = await (await fetch('/api/last')).json();
-        if (data.results && data.results.length) applyData(data, null);
+        if (data.age_sec != null) applyData(data, null);     // once the server has finished a scan, even an empty one
       } catch (_) {}
     }
 
@@ -389,7 +389,8 @@
       $('dot').classList.toggle('on', liveOn);
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       if (liveOn) {
-        await scan(true);
+        // the server's live loop scans now with these settings; poll its results instead of a second scan
+        await pollLast();
         pollTimer = setInterval(pollLast, Math.min(5000, interval * 500));
       }
     }
@@ -745,7 +746,7 @@
       }
     });
 
-    // boot: poll health then scan / sync live
+    // boot: poll health; live → show the live loop's results (no second scan), else scan once
     (async function boot() {
       try {
         const h = await (await fetch('/api/health')).json();
@@ -757,7 +758,7 @@
           pollTimer = setInterval(pollLast, 4000);
         }
       } catch (_) {}
-      await scan(false);
+      if (liveOn) await pollLast(); else await scan(false);
     })();
   </script>
 </body>
