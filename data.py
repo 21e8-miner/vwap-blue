@@ -104,10 +104,12 @@ def _yfinance_bulk(
     bars_period: str = "8d",
     bars_interval: str = "5m",
     daily_period: str = "2y",
+    with_daily: bool = True,
 ) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
-    """Legacy bulk path — equities only works well."""
+    """Legacy bulk path — equities only works well. with_daily=False skips the daily download."""
+    from providers import yf_module
     try:
-        import yfinance as yf
+        yf = yf_module()
     except ImportError:
         return {}, {}
 
@@ -147,25 +149,26 @@ def _yfinance_bulk(
     except Exception as e:
         log.warning("yfinance bars: %s", e)
         bars = pd.DataFrame()
-    try:
-        daily = yf.download(
-            syms, period=daily_period, interval="1d",
-            group_by="ticker", threads=True, progress=False, auto_adjust=True,
-        )
-    except Exception as e:
-        log.warning("yfinance daily: %s", e)
-        daily = pd.DataFrame()
+    days = pd.DataFrame()
+    if with_daily:
+        try:
+            days = yf.download(
+                syms, period=daily_period, interval="1d",
+                group_by="ticker", threads=True, progress=False, auto_adjust=True,
+            )
+        except Exception as e:
+            log.warning("yfinance daily: %s", e)
 
     bar_map = _split_batch(bars, equity)
-    day_map = _split_batch(daily, equity)
+    day_map = _split_batch(days, equity)
     if len(equity) == 1:
         t = equity[0]
         if t not in bar_map:
             n = _norm_ohlcv(bars)
             if n is not None:
                 bar_map[t] = n
-        if t not in day_map:
-            n = _norm_ohlcv(daily)
+        if t not in day_map and with_daily:
+            n = _norm_ohlcv(days)
             if n is not None:
                 day_map[t] = n
     return bar_map, day_map
@@ -179,6 +182,7 @@ def batch_fetch(
     force: bool = False,
     mode: str = "rotate",
     crypto_days: Optional[int] = None,
+    with_daily: bool = True,
 ) -> Tuple[
     Dict[str, pd.DataFrame],
     Dict[str, pd.DataFrame],
@@ -197,6 +201,8 @@ def batch_fetch(
     bars_period defaults via bars_range_for_interval (1m→8d, 5m→1mo).
     crypto_days: whole prior ET days of crypto bars, paged from the venue and cached
     (default providers.CRYPTO_HISTORY_DAYS, enough for the engine's 7-prior RVOL baseline).
+    with_daily=False skips the daily bars: the engine does not read them (only VWAP One's cross-check
+    does), and they were half of every scan's Yahoo requests.
     """
     from providers import bars_range_for_interval
 
@@ -209,7 +215,7 @@ def batch_fetch(
         return {}, {}, {}, {}, {}
 
     # v3: longer free history (was 5d) — bust thin-history cache
-    key = f"v3hist|{mode}|{','.join(tickers)}|{bars_interval}|{bars_period}|{crypto_days}"
+    key = f"v3hist|{mode}|{','.join(tickers)}|{bars_interval}|{bars_period}|{crypto_days}|{with_daily}"
     now = time.time()
     hit = _cache.get(key)
     if not force and hit and now - hit[0] < _TTL:
@@ -223,7 +229,7 @@ def batch_fetch(
     quote_meta: Dict[str, Any] = {}
 
     if mode in ("yfinance", "hybrid"):
-        yb, yd = _yfinance_bulk(tickers, bars_period, bars_interval, daily_period)
+        yb, yd = _yfinance_bulk(tickers, bars_period, bars_interval, daily_period, with_daily=with_daily)
         bar_map.update(yb)
         day_map.update(yd)
         for t in yb:
@@ -242,7 +248,8 @@ def batch_fetch(
         need = [t for t in tickers if looks_crypto(t) or t not in bar_map]
 
     if need:
-        rb, rd, rp, rl, rq = batch_rotate_fetch(need, bars_interval=bars_interval, history_days=crypto_days)
+        rb, rd, rp, rl, rq = batch_rotate_fetch(need, bars_interval=bars_interval, history_days=crypto_days,
+                                                with_daily=with_daily)
         # prefer rotate bars for crypto; fill missing equities
         for t, df in rb.items():
             if looks_crypto(t) or t not in bar_map or mode == "rotate":
