@@ -60,6 +60,9 @@ _live_cfg: Dict[str, Any] = {
     "min_dvol": _DEFAULT_MIN_DVOL,
 }
 _live_thread: Optional[threading.Thread] = None
+# While live is on, the loop is the only scanner: /api/live sets this to make it rescan now with the
+# new settings (or stop) instead of scanning alongside it.
+_live_wake = threading.Event()
 
 GRADE_RANK = {"A": 5, "LA": 4, "B": 3, "LB": 2, "C": 1, "✕": 0, "–": -1}
 
@@ -397,6 +400,7 @@ def _maybe_auto_resolve_ledger(now_dt: Optional[datetime] = None) -> Optional[Di
 def _live_loop() -> None:
     log.info("live loop started")
     while True:
+        _live_wake.clear()
         with _live_lock:
             if not _live_cfg["enabled"]:
                 break
@@ -418,11 +422,7 @@ def _live_loop() -> None:
             _maybe_auto_resolve_ledger()
         except Exception as e:
             log.warning("auto-resolve step failed: %s", e)
-        for _ in range(interval):
-            with _live_lock:
-                if not _live_cfg["enabled"]:
-                    break
-            time.sleep(1)
+        _live_wake.wait(interval)
     log.info("live loop stopped")
 
 
@@ -452,18 +452,8 @@ def _boot_live_party() -> None:
         "party live ON interval=%ss mode=%s grade_min=%s pool_mult=%s min_dvol=%s",
         _live_cfg["interval_sec"], _live_cfg["mode"], grade_min, POOL_MULT, _DEFAULT_MIN_DVOL,
     )
+    # the loop's first pass is the boot scan (and auto-resolve); a second one here ran alongside it
     _ensure_live_thread()
-    try:
-        run_scan(
-            None, _live_cfg["max"], False, force=True,
-            mode=_live_cfg["mode"], grade_min=_live_cfg["grade_min"],
-        )
-    except Exception as e:
-        log.warning("boot scan: %s", e)
-    try:
-        _maybe_auto_resolve_ledger()
-    except Exception as e:
-        log.warning("boot auto-resolve failed: %s", e)
 
 
 @app.on_event("startup")
@@ -544,18 +534,11 @@ def live_set(body: LiveBody):
         if body.min_dvol is not None:
             _live_cfg["min_dvol"] = body.min_dvol
         enabled = _live_cfg["enabled"]
-        mode = _live_cfg["mode"]
-        grade_min = _live_cfg["grade_min"]
-        min_dvol = _live_cfg.get("min_dvol", _DEFAULT_MIN_DVOL)
+    # the loop rescans now with these settings (a new loop's first pass does), or stops; results
+    # land in /api/last
+    _live_wake.set()
     if enabled:
         _ensure_live_thread()
-        try:
-            run_scan(
-                body.tickers, body.max, body.actionable_only, force=True,
-                mode=mode, grade_min=grade_min, min_dvol=min_dvol,
-            )
-        except Exception as e:
-            log.warning("immediate live scan: %s", e)
     return {"ok": True, "live": enabled, "cfg": dict(_live_cfg)}
 
 
