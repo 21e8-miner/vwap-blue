@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from providers import (
@@ -302,6 +303,30 @@ def load_universe(max_n: Optional[int] = None) -> List[str]:
     return tickers[:max_n] if max_n else tickers
 
 
+# The session's day is read in this tz by name, as it always was (pytz on pandas 2, zoneinfo on 3).
+_ET_NAME = "America/New_York"
+# Stamps _et_days takes: [1900, 2100), far inside the range of every DatetimeIndex unit.
+_ET_DAYS_SPAN = ("1900-01-01", "2100-01-01")
+
+
+def _et_days(idx: pd.Index) -> Optional[np.ndarray]:
+    """
+    The ET calendar day of every stamp as datetime64[D] (naive stamps are UTC), for the whole index
+    at once. DatetimeIndex.date ran the same per-stamp conversion and then built a date object per
+    bar; pd.to_datetime before it boxed every stamp to decide whether to cache. Returns None for an
+    index it does not cover (not a DatetimeIndex, NaT, a stamp outside 1900-2100), which takes the
+    per-stamp path in session_dollar_volume.
+    """
+    if not isinstance(idx, pd.DatetimeIndex) or idx.hasnans:
+        return None
+    i8 = idx.asi8   # UTC instants in the index's unit
+    lo, hi = (np.datetime64(x, idx.unit).astype(np.int64) for x in _ET_DAYS_SPAN)
+    if i8.min() < lo or i8.max() >= hi:
+        return None
+    utc = idx.tz_localize("UTC") if idx.tz is None else idx
+    return utc.tz_convert(_ET_NAME).tz_localize(None).values.astype("datetime64[D]")
+
+
 def session_dollar_volume(df: Optional[pd.DataFrame]) -> float:
     """
     Approx session $ volume from the latest calendar day of free bars.
@@ -316,20 +341,24 @@ def session_dollar_volume(df: Optional[pd.DataFrame]) -> float:
             n = df
         if n is None or n.empty:
             return 0.0
-        ts = pd.to_datetime(n.index, utc=True, errors="coerce")
-        if ts.isna().all():
-            day = n.tail(min(100, len(n)))
+        days = _et_days(n.index)
+        if days is not None:
+            day = n.loc[days == days[-1]]   # no NaT, so the last row is always in it
         else:
-            # group by US/Eastern calendar day
-            try:
-                days = ts.tz_convert("America/New_York").date
-            except Exception:
-                days = pd.DatetimeIndex(ts).tz_localize(None).date
-            last = days[-1]
-            mask = [d == last for d in days]
-            day = n.loc[mask]
-            if day is None or len(day) == 0:
+            ts = pd.to_datetime(n.index, utc=True, errors="coerce")
+            if ts.isna().all():
                 day = n.tail(min(100, len(n)))
+            else:
+                # group by US/Eastern calendar day
+                try:
+                    days = ts.tz_convert(_ET_NAME).date
+                except Exception:
+                    days = pd.DatetimeIndex(ts).tz_localize(None).date
+                last = days[-1]
+                mask = [d == last for d in days]
+                day = n.loc[mask]
+                if day is None or len(day) == 0:
+                    day = n.tail(min(100, len(n)))
         c = pd.to_numeric(day["Close"], errors="coerce").fillna(0.0)
         v = pd.to_numeric(day["Volume"], errors="coerce").fillna(0.0)
         return float((c * v).sum())
