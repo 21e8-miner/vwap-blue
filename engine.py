@@ -280,6 +280,7 @@ def _prior_rth_close(bars: List[Dict[str, Any]], i0: int,
 
 
 def _atr(bars: List[Dict[str, Any]], end: int, period: int = 14) -> Optional[float]:
+    """Wilder ATR of the hlReal bars among bars[end-40..end] (engine.js atr()); _atr_trail for a run of ends."""
     trs = []
     prev_c = None
     start = max(0, end - 40)
@@ -298,6 +299,41 @@ def _atr(bars: List[Dict[str, Any]], end: int, period: int = 14) -> Optional[flo
     for i in range(period, len(trs)):
         atr = (atr * (period - 1) + trs[i]) / period
     return atr
+
+
+def _atr_trail(bars: List[Dict[str, Any]], i0: int, iN: int, period: int = 14) -> List[Optional[float]]:
+    """
+    [_atr(bars, i) for i in i0..iN], the same floats, ~5x faster: each bar's true range is computed once
+    instead of once for every 41-bar window it falls in (_resolve_day wants the ATR at every bar of the
+    focus day). Each window still seeds with sum() of its first `period` ranges, as _atr does (sum() is
+    compensated on Python 3.12+ and plain on 3.11: a loop, fsum or numpy sum would not match both), and
+    runs the same recursion.
+    """
+    real = [k for k in range(max(0, i0 - 40), iN + 1) if bars[k]["hlReal"]]
+    h = [bars[k]["h"] for k in real]
+    l = [bars[k]["l"] for k in real]
+    c = [bars[k]["c"] for k in real]
+    hl = [x - y for x, y in zip(h, l)]
+    # tr[j]: real[j]'s true range after real[j - 1], as _atr has it when both are in the window
+    tr = hl[:1] + [max(hl[j], abs(h[j] - c[j - 1]), abs(l[j] - c[j - 1])) for j in range(1, len(real))]
+    out: List[Optional[float]] = []
+    a = b = 0   # the window's hlReal bars are real[a:b]
+    m = period - 1
+    for end in range(i0, iN + 1):
+        while a < len(real) and real[a] < end - 40:
+            a += 1
+        while b < len(real) and real[b] <= end:
+            b += 1
+        if b - a < period:
+            out.append(None)
+            continue
+        seed = tr[a:a + period]
+        seed[0] = hl[a]   # the window's first bar has no prior close in it: its range is h - l
+        atr = sum(seed) / period
+        for x in tr[a + period:b]:
+            atr = (atr * m + x) / period
+        out.append(atr)
+    return out
 
 
 def _ker(bars: List[Dict[str, Any]], end: int, lookback: int = DEFAULT_KER_LOOKBACK) -> Optional[float]:
@@ -419,8 +455,8 @@ def _resolve_day(
         "setup_mode": None,     # "gap" | "mdrev" | "both"
     }
 
-    for i in range(i0, iN + 1):
-        _step_bar(bars, i, acc, st, direction, dev_ok, opts)
+    for i, atr in zip(range(i0, iN + 1), _atr_trail(bars, i0, iN)):
+        _step_bar(bars, i, acc, st, direction, dev_ok, opts, atr)
 
     # if gap path never armed but multi-day reverse did, promote MD plan
     if st["trig"] is None and st["md_trig"] is not None:
@@ -474,7 +510,9 @@ def _step_bar(
     direction: int,
     dev_ok: bool,
     opts: Dict[str, Any],
+    atr: Optional[float],
 ) -> None:
+    """One bar of _resolve_day; atr is _atr(bars, i), from its _atr_trail (engine.js stepBar calls atr())."""
     b = bars[i]
     anchor = opts["anchor_mins"]
     close_m = opts.get("close_mins", RTH_CLOSE_M)
@@ -499,7 +537,7 @@ def _step_bar(
     st["blueTrail"].append(st["blue"])
     st["orangeTrail"].append(st["orange"])
     st["sigTrail"].append(st["sigma"])
-    st["atr"] = _atr(bars, i)
+    st["atr"] = atr
 
     # ── multi-day reverse: always track when orange exists (no gap required) ──
     if st["orange"] is not None and b["mins"] < close_m and st["md_trig"] is None:

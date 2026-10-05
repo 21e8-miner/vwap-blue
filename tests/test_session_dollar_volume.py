@@ -1,18 +1,19 @@
 """
-data.session_dollar_volume finds the last row's ET calendar day with numpy day numbers for the whole
-index (_et_days) instead of pd.to_datetime, a date object per bar and a list mask. That is a pure
-speedup: it must return exactly the float the old code returned, compared here bit for bit with a
-frozen copy of it (data.py at 82c8da5). The float feeds the liquidity floor, the desk's dollar_vol
-column and rotation_score, and the Python side of tests/test_engine_parity.py.
+data.session_dollar_volume takes a plain DatetimeIndex's own UTC stamps (_utc_stamps) and its ET days
+as numpy day numbers for the whole index (_et_days), instead of pd.to_datetime, a date object per bar
+and a list mask. That is a pure speedup: it must return exactly the float the old code returned, for
+an equity (the latest ET day) and for crypto (the 24 hours to the newest bar, PR #9), compared here
+bit for bit with a frozen copy of it (data.py at cb60410). The float feeds the liquidity floor, the
+desk's dollar_vol column and rotation_score, and the Python side of tests/test_engine_parity.py.
 
-  * real-shaped frames take the day-number path: tz ET by name (providers._bars_from_rows), tz UTC
+  * real-shaped frames take the fast path: tz ET by name (providers._bars_from_rows), tz UTC
     (yfinance's bulk download through _split_batch), naive UTC, zoneinfo and dateutil ET, a fixed
-    offset; a month of equity bars, 24/7 crypto, DST weeks and nights, a last bar at ET midnight,
-    NaN rows, zero / NaN / negative volume, inf, int / float32 / nullable / object columns,
-    s/ms/us/ns stamps, unsorted and repeated stamps, and 150 random feeds mixing them
-  * frames outside its shape (a non-datetime index, NaT, stamps outside 1900-2100) take the per-stamp
-    path, frames without Close/Volume columns go through _norm_ohlcv, frames that raise take the
-    fallbacks, and all of them return what they always did
+    offset; a month of equity bars, 24/7 crypto, DST weeks and nights, a last bar at ET midnight, the
+    24h window's edges, NaN rows, zero / NaN / negative volume, inf, int / float32 / nullable / object
+    columns, s/ms/us/ns stamps, unsorted and repeated stamps, and 150 random feeds mixing them
+  * frames outside its shape (a non-datetime index, NaT, stamps outside 1900-2100) take the
+    pd.to_datetime path, frames without Close/Volume columns go through _norm_ohlcv, frames that
+    raise take the fallbacks, and all of them return what they always did
 """
 
 import math
@@ -33,16 +34,17 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import data  # noqa: E402
-from providers import _bars_from_rows  # noqa: E402
+from providers import _bars_from_rows, looks_crypto  # noqa: E402
 
 ET = ZoneInfo("America/New_York")
 NAN = float("nan")
 FLAVORS = ("et", "et_zoneinfo", "et_dateutil", "utc", "naive")
+COIN = "BTC-USD"          # any crypto ticker: the 24 hours to the newest bar
 
 
-# ── the reference: session_dollar_volume as it was in data.py at 82c8da5 ────────────────────────────
+# ── the reference: session_dollar_volume as it was in data.py at cb60410 ────────────────────────────
 
-def session_dollar_volume_ref(df):
+def session_dollar_volume_ref(df, ticker=None):
     if df is None or getattr(df, "empty", True):
         return 0.0
     try:
@@ -55,6 +57,8 @@ def session_dollar_volume_ref(df):
         ts = pd.to_datetime(n.index, utc=True, errors="coerce")
         if ts.isna().all():
             day = n.tail(min(100, len(n)))
+        elif ticker and looks_crypto(ticker):
+            day = n.loc[ts > ts[-1] - pd.Timedelta(hours=24)]
         else:
             # group by US/Eastern calendar day
             try:
@@ -149,45 +153,57 @@ def with_gaps(df, seed, frac=0.04):
     return df
 
 
-def last_et_day_sum(df):
-    """An independent answer for a frame with a datetime index: math.fsum of close × volume over the
-    rows on the last row's ET day, one zoneinfo conversion per stamp (naive stamps are UTC)."""
+def independent_sum(df, crypto):
+    """The answer worked out without pandas' datetime machinery, for a frame with a datetime index:
+    math.fsum of close × volume over the rows on the last row's ET day (one zoneinfo conversion per
+    stamp), or for crypto less than 24 hours before the last row; and how many rows that is."""
     idx = df.index if df.index.tz is not None else df.index.tz_localize("UTC")
-    days = [t.astimezone(ET).date() for t in idx.to_pydatetime()]
+    stamps = idx.to_pydatetime()
+    if crypto:   # in UTC: Python compares and subtracts datetimes that share a tzinfo on the wall clock
+        utc = [t.astimezone(timezone.utc) for t in stamps]
+        on = [t > utc[-1] - timedelta(hours=24) for t in utc]
+    else:
+        days = [t.astimezone(ET).date() for t in stamps]
+        on = [d == days[-1] for d in days]
     c = pd.to_numeric(df["Close"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
     v = pd.to_numeric(df["Volume"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
-    on = [d == days[-1] for d in days]
     return math.fsum(c[i] * v[i] for i in range(len(df)) if on[i]), sum(on)
 
 
 class DollarVolumeCase(unittest.TestCase):
 
-    def assertSameDvol(self, df, fast=True):
-        """session_dollar_volume(df) is the reference's float, bit for bit; fast says whether the
-        frame's index must have taken the day-number path (_et_days) or the per-stamp one."""
+    def assertSameDvol(self, df, fast=True, ticker=None):
+        """session_dollar_volume(df, ticker) is the reference's float, bit for bit; fast says whether the
+        frame's index must have taken the fast path (_utc_stamps) or the pd.to_datetime one."""
         with warnings.catch_warnings():
-            # the per-stamp path's pd.to_datetime warns on some indexes (strings it parses one by one)
+            # the pd.to_datetime path warns on some indexes (strings it parses one by one)
             warnings.simplefilter("ignore", UserWarning)
-            got, want = data.session_dollar_volume(df), session_dollar_volume_ref(df)
-        self.assertEqual(bits(got), bits(want), f"{got!r} != {want!r}")
+            got, want = data.session_dollar_volume(df, ticker), session_dollar_volume_ref(df, ticker)
+        self.assertEqual(bits(got), bits(want), f"{ticker}: {got!r} != {want!r}")
         if fast is not None:
             n = df if {"Close", "Volume"}.issubset(set(map(str, df.columns))) else data._norm_ohlcv(df)
-            self.assertEqual(data._et_days(n.index) is not None, fast)
+            self.assertEqual(data._utc_stamps(n.index) is not None, fast)
         return got
+
+    def assertSameBothWays(self, df, fast=True):
+        """The same float as an equity's ET day and as crypto's 24 hours."""
+        return self.assertSameDvol(df, fast), self.assertSameDvol(df, fast, COIN)
 
     def assertSameDays(self, idx):
         """Every stamp's ET day from _et_days is the date the old pd.to_datetime(...).date gave it."""
-        got = data._et_days(idx).tolist()
+        got = data._et_days(data._utc_stamps(idx)).tolist()
         want = list(pd.to_datetime(idx, utc=True, errors="coerce").tz_convert("America/New_York").date)
         if got != want:   # name the first stamp that differs (a diff of thousands of days takes minutes)
             i = next((i for i, (a, b) in enumerate(zip(got, want)) if a != b), min(len(got), len(want)))
             self.fail(f"stamp {i} of {len(want)} ({idx[i]}): {got[i:i + 1]} != {want[i:i + 1]}")
 
-    def assertLastDay(self, df, rows):
-        """The float is close × volume over the last ET day, which has this many rows."""
-        want, n = last_et_day_sum(df)
-        self.assertEqual(n, rows)
-        self.assertTrue(math.isclose(self.assertSameDvol(df), want, rel_tol=1e-12, abs_tol=1e-9))
+    def assertSums(self, df, day_rows, h24_rows):
+        """Both floats match the reference and the independent sums, over this many rows each."""
+        for crypto, rows in ((False, day_rows), (True, h24_rows)):
+            want, n = independent_sum(df, crypto)
+            self.assertEqual(n, rows, "24h" if crypto else "ET day")
+            got = self.assertSameDvol(df, ticker=COIN if crypto else None)
+            self.assertTrue(math.isclose(got, want, rel_tol=1e-12, abs_tol=1e-9), (crypto, got, want))
 
 
 class TestRealShapedFrames(DollarVolumeCase):
@@ -197,7 +213,7 @@ class TestRealShapedFrames(DollarVolumeCase):
         for k, flavor in enumerate(FLAVORS):
             with self.subTest(flavor=flavor):
                 df = frame(stamps, flavor, k)
-                self.assertLastDay(df, 192)                          # Oct 2, 04:00-19:55 ET
+                self.assertSums(df, 192, 192)                        # Oct 2, 04:00-19:55 ET
                 self.assertSameDays(df.index)
 
     def test_provider_frames(self):
@@ -212,7 +228,7 @@ class TestRealShapedFrames(DollarVolumeCase):
             df = _bars_from_rows(rows)
             with self.subTest(case=("equity", "crypto")[k]):
                 self.assertEqual(str(df.index.tz), "America/New_York")
-                self.assertLastDay(df, (192, 207)[k])               # crypto: 2,511 bars end at 17:10 ET
+                self.assertSums(df, *((192, 192), (207, 288))[k])  # crypto: 2,511 bars end at 17:10 ET
                 self.assertSameDays(df.index)
 
     def test_yfinance_bulk_frames(self):
@@ -231,7 +247,7 @@ class TestRealShapedFrames(DollarVolumeCase):
         for t, df in split.items():
             with self.subTest(ticker=t):
                 self.assertEqual(str(df.index.tz), "UTC")
-                self.assertSameDvol(df)
+                self.assertSameBothWays(df)
                 self.assertSameDays(df.index)
 
     def test_crypto_around_the_clock_in_every_index_flavor(self):
@@ -239,7 +255,7 @@ class TestRealShapedFrames(DollarVolumeCase):
         for k, flavor in enumerate(FLAVORS):
             with self.subTest(flavor=flavor):
                 df = frame(stamps, flavor, 10 + k, price=60_000.0, f32=False)
-                self.assertLastDay(df, 8)                            # 00:00-00:35 ET
+                self.assertSums(df, 8, 288)                          # ET day: 00:00-00:35 ET
                 self.assertSameDays(df.index)
 
     def test_the_last_bar_at_and_around_et_midnight(self):
@@ -253,33 +269,54 @@ class TestRealShapedFrames(DollarVolumeCase):
             stamps = pd.date_range(end=end, periods=900, freq="5min", tz="UTC")
             for flavor in FLAVORS:
                 with self.subTest(end=name, flavor=flavor):
-                    self.assertLastDay(frame(stamps, flavor, 90 + k), rows)
+                    self.assertSums(frame(stamps, flavor, 90 + k), rows, 288)
+
+    def test_the_24_hour_windows_edges(self):
+        """A bar exactly 24 hours before the newest is out, one a second (or a millisecond) later is in;
+        after a gap of more than a day the window holds the newest bar alone."""
+        last = pd.Timestamp("2026-10-03 13:00", tz="UTC")
+        day = pd.Timedelta(hours=24)
+        cases = {
+            "exactly 24h back, and 1 s inside": ([last - day, last - day + pd.Timedelta(seconds=1), last], "s", 2),
+            "exactly 24h back, and 1 ms inside": ([last - day, last - day + pd.Timedelta(milliseconds=1), last],
+                                                  "ms", 2),
+            "a gap of 25 hours": (list(pd.date_range(end=last - pd.Timedelta(hours=25), periods=400, freq="5min"))
+                                  + [last], "us", 1),
+        }
+        for k, (name, (stamps, unit, rows)) in enumerate(cases.items()):
+            utc = pd.DatetimeIndex(stamps).as_unit(unit)
+            for flavor in FLAVORS:
+                with self.subTest(case=name, flavor=flavor):
+                    df = frame(utc, flavor, 100 + k)
+                    self.assertSums(df, independent_sum(df, False)[1], rows)
 
     def test_dst_weeks_and_nights(self):
         cases = {
-            "equity week, DST starts": (equity_stamps("2026-03-02", "2026-03-13"), 192),
-            "equity week, DST ends": (equity_stamps("2026-10-26", "2026-11-06"), 192),
+            "equity week, DST starts": (equity_stamps("2026-03-02", "2026-03-13"), 192, 192),
+            "equity week, DST ends": (equity_stamps("2026-10-26", "2026-11-06"), 192, 192),
             "crypto through Mar 8 (23 hours)": (pd.date_range(end="2026-03-09 03:55", periods=600,
-                                                              freq="5min", tz="UTC"), 276),
+                                                              freq="5min", tz="UTC"), 276, 288),
             "crypto through Nov 1 (25 hours)": (pd.date_range(end="2026-11-02 04:55", periods=800,
-                                                              freq="5min", tz="UTC"), 300),
+                                                              freq="5min", tz="UTC"), 300, 288),
             "crypto ending in the skipped hour's place": (pd.date_range(end="2026-03-08 07:00", periods=500,
-                                                                        freq="5min", tz="UTC"), 25),
+                                                                        freq="5min", tz="UTC"), 25, 288),
             "crypto ending in the repeated hour": (pd.date_range(end="2026-11-01 06:30", periods=500,
-                                                                 freq="5min", tz="UTC"), 31),
+                                                                 freq="5min", tz="UTC"), 31, 288),
         }
-        for k, (name, (stamps, rows)) in enumerate(cases.items()):
+        for k, (name, (stamps, day_rows, h24_rows)) in enumerate(cases.items()):
             for flavor in FLAVORS:
                 with self.subTest(case=name, flavor=flavor):
                     df = frame(stamps, flavor, 20 + k)
-                    self.assertLastDay(df, rows)
+                    self.assertSums(df, day_rows, h24_rows)
                     self.assertSameDays(df.index)
 
     def test_nan_rows_and_zero_nan_negative_volume(self):
-        stamps = equity_stamps("2026-09-14", "2026-09-25")
         for k, flavor in enumerate(FLAVORS):
             with self.subTest(flavor=flavor):
-                self.assertLastDay(with_gaps(frame(stamps, flavor, 30 + k), 40 + k), 192)
+                self.assertSums(with_gaps(frame(equity_stamps("2026-09-14", "2026-09-25"), flavor, 30 + k),
+                                          40 + k), 192, 192)
+                self.assertSums(with_gaps(frame(crypto_stamps("2026-09-25 04:00", 2600), flavor, 35 + k),
+                                          45 + k), 8, 288)
 
     def test_values_that_are_not_plain(self):
         """inf, NaN, -0.0 and a day with no volume: each bit of the float comes from the same sum."""
@@ -302,7 +339,7 @@ class TestRealShapedFrames(DollarVolumeCase):
         with np.errstate(invalid="ignore"):                                      # inf - inf in the sum
             for name, df in frames.items():
                 with self.subTest(frame=name):
-                    self.assertSameDvol(df)
+                    self.assertSameBothWays(df)
             dvol = {name: data.session_dollar_volume(df) for name, df in frames.items()}
         self.assertEqual(dvol["inf close on a bar with volume"], float("inf"))
         self.assertTrue(math.isfinite(dvol["inf close on a bar without volume"]))   # inf × 0 is a NaN sum() skips
@@ -339,7 +376,7 @@ class TestRealShapedFrames(DollarVolumeCase):
                 frames[f"{unit} stamps, {flavor}"] = base.set_axis(index_as(base.index, flavor).as_unit(unit))
         for name, df in frames.items():
             with self.subTest(frame=name):
-                self.assertSameDvol(df)
+                self.assertSameBothWays(df)
                 self.assertSameDays(df.index)
 
 
@@ -363,7 +400,8 @@ class TestRandomFrames(DollarVolumeCase):
             if rng.random() < 0.3:
                 df = df.set_axis(df.index.as_unit(rng.choice(("s", "ms", "us", "ns"))))
             with self.subTest(case=k):
-                self.assertSameDvol(df)
+                self.assertSameDvol(df, ticker=rng.choice((None, "AAPL", "SPY")))
+                self.assertSameDvol(df, ticker=rng.choice(("BTC-USD", "ETH-USDT", "SOLUSDC")))
                 self.assertSameDays(df.index)
 
 
@@ -394,18 +432,18 @@ class TestFramesOutsideTheFastPath(DollarVolumeCase):
         }
         for name, df in frames.items():
             with self.subTest(frame=name):
-                self.assertSameDvol(df, fast=False)
+                self.assertSameBothWays(df, fast=False)
 
     def test_nat_in_the_index(self):
         stamps = list(pd.date_range("2026-10-01 22:00", periods=10, freq="h", tz="UTC"))
         frames = {
             "NaT in the middle": stamps[:4] + [pd.NaT] + stamps[5:],
-            "NaT last": stamps[:9] + [pd.NaT],
+            "NaT last": stamps[:9] + [pd.NaT],                     # crypto: nothing is within 24h of NaT
             "all NaT": [pd.NaT] * 10,
         }
         for name, idx in frames.items():
             with self.subTest(frame=name):
-                self.assertSameDvol(self.bars(pd.DatetimeIndex(idx)), fast=False)
+                self.assertSameBothWays(self.bars(pd.DatetimeIndex(idx)), fast=False)
 
     def test_stamps_outside_1900_2100(self):
         def stamps(*s, unit="ns"):
@@ -429,7 +467,7 @@ class TestFramesOutsideTheFastPath(DollarVolumeCase):
         }
         for name, idx in frames.items():
             with self.subTest(frame=name):
-                self.assertSameDvol(self.bars(idx), fast=False)
+                self.assertSameBothWays(self.bars(idx), fast=False)
 
     def test_columns_through_norm_ohlcv(self):
         b = frame(equity_stamps("2026-09-28", "2026-10-02"), "et", 61)
@@ -441,7 +479,7 @@ class TestFramesOutsideTheFastPath(DollarVolumeCase):
         }
         for name, df in frames.items():
             with self.subTest(frame=name):
-                self.assertSameDvol(df, fast=None if name == "(ticker, field) columns" else True)
+                self.assertSameBothWays(df, fast=None if name == "(ticker, field) columns" else True)
         self.assertEqual(data.session_dollar_volume(frames["(ticker, field) columns"]), 0.0)   # no OHLCV
 
     def test_frames_that_raise_or_have_nothing(self):
@@ -456,9 +494,10 @@ class TestFramesOutsideTheFastPath(DollarVolumeCase):
         }
         for name, df in frames.items():
             with self.subTest(frame=name):
-                self.assertEqual(self.assertSameDvol(df, fast=None), 0.0)
+                self.assertEqual(self.assertSameBothWays(df, fast=None), (0.0, 0.0))
         for df in (None, b["Close"]):                                                  # not a frame at all
-            self.assertEqual(data.session_dollar_volume(df), session_dollar_volume_ref(df))
+            for ticker in (None, COIN):
+                self.assertEqual(data.session_dollar_volume(df, ticker), session_dollar_volume_ref(df, ticker))
 
 
 if __name__ == "__main__":

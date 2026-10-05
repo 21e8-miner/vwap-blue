@@ -303,34 +303,47 @@ def load_universe(max_n: Optional[int] = None) -> List[str]:
     return tickers[:max_n] if max_n else tickers
 
 
+# The desk's liquidity floor (VWAP_BLUE_MIN_DVOL, the $M box) is an equity session floor. Crypto's is a
+# quarter of it, on 24h volume: $2M / $0.5M at the default, as the README and /api/scan always said.
+EQUITY_MIN_DVOL = 2_000_000.0
+CRYPTO_DVOL_SHARE = 0.25
+
 # The session's day is read in this tz by name, as it always was (pytz on pandas 2, zoneinfo on 3).
 _ET_NAME = "America/New_York"
-# Stamps _et_days takes: [1900, 2100), far inside the range of every DatetimeIndex unit.
-_ET_DAYS_SPAN = ("1900-01-01", "2100-01-01")
+# Stamps _utc_stamps takes: [1900, 2100), far inside the range of every DatetimeIndex unit.
+_UTC_STAMPS_SPAN = ("1900-01-01", "2100-01-01")
 
 
-def _et_days(idx: pd.Index) -> Optional[np.ndarray]:
+def _utc_stamps(idx: pd.Index) -> Optional[pd.DatetimeIndex]:
     """
-    The ET calendar day of every stamp as datetime64[D] (naive stamps are UTC), for the whole index
-    at once. DatetimeIndex.date ran the same per-stamp conversion and then built a date object per
-    bar; pd.to_datetime before it boxed every stamp to decide whether to cache. Returns None for an
-    index it does not cover (not a DatetimeIndex, NaT, a stamp outside 1900-2100), which takes the
-    per-stamp path in session_dollar_volume.
+    The index as tz-aware UTC stamps (naive stamps are UTC): the instants pd.to_datetime(idx, utc=True)
+    returns, without its cache check, which boxed every stamp as a Timestamp. None for an index it does
+    not cover (not a DatetimeIndex, NaT, a stamp outside 1900-2100), which session_dollar_volume then
+    reads through pd.to_datetime and per-stamp dates, as before.
     """
     if not isinstance(idx, pd.DatetimeIndex) or idx.hasnans:
         return None
     i8 = idx.asi8   # UTC instants in the index's unit
-    lo, hi = (np.datetime64(x, idx.unit).astype(np.int64) for x in _ET_DAYS_SPAN)
+    lo, hi = (np.datetime64(x, idx.unit).astype(np.int64) for x in _UTC_STAMPS_SPAN)
     if i8.min() < lo or i8.max() >= hi:
         return None
-    utc = idx.tz_localize("UTC") if idx.tz is None else idx
+    return idx.tz_localize("UTC") if idx.tz is None else idx.tz_convert("UTC")
+
+
+def _et_days(utc: pd.DatetimeIndex) -> np.ndarray:
+    """
+    The ET calendar day of every stamp as datetime64[D], for the whole index at once: the same
+    per-stamp conversion DatetimeIndex.date ran, without a date object per bar.
+    """
     return utc.tz_convert(_ET_NAME).tz_localize(None).values.astype("datetime64[D]")
 
 
-def session_dollar_volume(df: Optional[pd.DataFrame]) -> float:
+def session_dollar_volume(df: Optional[pd.DataFrame], ticker: Optional[str] = None) -> float:
     """
-    Approx session $ volume from the latest calendar day of free bars.
-    Uses sum(Volume × Close) on that day — good enough for liquidity rank/filter.
+    Approx $ volume for the liquidity rank/filter: sum(Volume × Close) over the latest ET calendar day
+    of free bars, or, for crypto (pass `ticker`), over the 24 hours to the newest bar. A 24/7 market's
+    ET day is only minutes old after midnight: on day-so-far volume 9% of the desk's crypto names cleared
+    $2M at 00:55 ET and 79% at 23:55; on 24h volume the share is the same all day.
     """
     if df is None or getattr(df, "empty", True):
         return 0.0
@@ -341,24 +354,26 @@ def session_dollar_volume(df: Optional[pd.DataFrame]) -> float:
             n = df
         if n is None or n.empty:
             return 0.0
-        days = _et_days(n.index)
-        if days is not None:
+        utc = _utc_stamps(n.index)
+        ts = utc if utc is not None else pd.to_datetime(n.index, utc=True, errors="coerce")
+        if ts.isna().all():
+            day = n.tail(min(100, len(n)))
+        elif ticker and looks_crypto(ticker):
+            day = n.loc[ts > ts[-1] - pd.Timedelta(hours=24)]
+        elif utc is not None:
+            days = _et_days(utc)
             day = n.loc[days == days[-1]]   # no NaT, so the last row is always in it
         else:
-            ts = pd.to_datetime(n.index, utc=True, errors="coerce")
-            if ts.isna().all():
+            # group by US/Eastern calendar day
+            try:
+                days = ts.tz_convert(_ET_NAME).date
+            except Exception:
+                days = pd.DatetimeIndex(ts).tz_localize(None).date
+            last = days[-1]
+            mask = [d == last for d in days]
+            day = n.loc[mask]
+            if day is None or len(day) == 0:
                 day = n.tail(min(100, len(n)))
-            else:
-                # group by US/Eastern calendar day
-                try:
-                    days = ts.tz_convert(_ET_NAME).date
-                except Exception:
-                    days = pd.DatetimeIndex(ts).tz_localize(None).date
-                last = days[-1]
-                mask = [d == last for d in days]
-                day = n.loc[mask]
-                if day is None or len(day) == 0:
-                    day = n.tail(min(100, len(n)))
         c = pd.to_numeric(day["Close"], errors="coerce").fillna(0.0)
         v = pd.to_numeric(day["Volume"], errors="coerce").fillna(0.0)
         return float((c * v).sum())
@@ -372,13 +387,13 @@ def session_dollar_volume(df: Optional[pd.DataFrame]) -> float:
 
 
 def min_dollar_volume_for(ticker: str, override: Optional[float] = None) -> float:
-    """Default liquidity floor. Crypto lower; equities need real session tape."""
-    if override is not None and override >= 0:
-        return float(override)
-    t = (ticker or "").upper()
-    if looks_crypto(t):
-        return 500_000.0  # $0.5M
-    return 2_000_000.0  # $2M session $vol
+    """
+    The liquidity floor for `ticker`. `override` is the desk's floor (default EQUITY_MIN_DVOL):
+    equities use it as is, crypto a quarter of it. The desk always passed its floor, and this used to
+    return it unchanged for crypto too, so crypto was held to the equity $2M.
+    """
+    floor = EQUITY_MIN_DVOL if override is None else max(0.0, float(override))
+    return floor * CRYPTO_DVOL_SHARE if looks_crypto(ticker or "") else floor
 
 
 def passes_volume_filter(
@@ -386,12 +401,11 @@ def passes_volume_filter(
     bars_df: Optional[pd.DataFrame],
     min_dvol: Optional[float] = None,
 ) -> Tuple[bool, float]:
-    """Return (pass, dollar_vol). min_dvol=0 disables floor (still reports dvol)."""
-    dvol = session_dollar_volume(bars_df)
-    floor = min_dollar_volume_for(ticker, min_dvol if min_dvol and min_dvol > 0 else None)
+    """Return (pass, dollar_vol). min_dvol is the desk's floor (see min_dollar_volume_for); 0 disables it."""
+    dvol = session_dollar_volume(bars_df, ticker)
     if min_dvol is not None and min_dvol <= 0:
         return True, dvol
-    return dvol >= floor, dvol
+    return dvol >= min_dollar_volume_for(ticker, min_dvol), dvol
 
 
 def rotation_score(row: Dict[str, Any]) -> float:

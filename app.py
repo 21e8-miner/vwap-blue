@@ -17,9 +17,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from data import (
+    CRYPTO_DVOL_SHARE,
     batch_fetch,
     get_provider_status,
     load_universe,
+    min_dollar_volume_for,
     passes_volume_filter,
     rotation_score,
 )
@@ -39,7 +41,7 @@ app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
 # Scan ~10× more names than the old 48-symbol pool, then volume-filter + rank to max_n.
 POOL_MULT = max(1, int(os.environ.get("VWAP_BLUE_POOL_MULT", "10")))
-# Default $vol floor (equity); crypto uses a lower floor inside passes_volume_filter.
+# Default $vol floor (equity session); crypto gets a quarter of it on 24h volume (data.min_dollar_volume_for).
 # Set VWAP_BLUE_MIN_DVOL=0 to disable.
 _DEFAULT_MIN_DVOL = float(os.environ.get("VWAP_BLUE_MIN_DVOL", "2000000"))
 # Live triggers on bars older than this (minutes, market open) are demoted to WATCH.
@@ -104,7 +106,8 @@ class ScanBody(BaseModel):
     grade_min: str = Field(default="A")
     min_dvol: Optional[float] = Field(
         default=None,
-        description="Session $ volume floor (0=off). Default equity $2M / crypto $0.5M.",
+        description="Equity session $ volume floor (0=off); crypto gets a quarter of it on 24h volume. "
+                    "Default $2M / $0.5M.",
     )
 
 
@@ -266,7 +269,7 @@ def run_scan(
         )
         dvol = float(dvol_map.get(t, 0.0) or 0.0)
         row["dollar_vol"] = round(dvol, 0) if dvol else 0
-        floor = float(min_dvol) if min_dvol and min_dvol > 0 else 0.0
+        floor = min_dollar_volume_for(t, min_dvol) if min_dvol and min_dvol > 0 else 0.0
         row["illiquid"] = bool(floor > 0 and dvol > 0 and dvol < floor)
         apply_stale_guard(row, bar_age_min(bars.get(t)), MAX_BAR_AGE_MIN)
         _apply_one_conflict(row, bars, daily, live, bar_prov, quote_meta)
@@ -330,6 +333,7 @@ def run_scan(
         "pool_liquid": len(liquid),
         "volume_dropped": vol_dropped,
         "min_dvol": min_dvol,
+        "min_dvol_crypto": min_dvol * CRYPTO_DVOL_SHARE if min_dvol and min_dvol > 0 else 0,
         "pool_mult": POOL_MULT,
         "version": APP_VERSION,
         "mode": mode,
@@ -591,7 +595,8 @@ def critique():
             "Adaptive band width (chop widens / trend tightens) inspired by Modern VWAP [GBB].",
             "Desk default grade ≥ A; thin RVOL samples demoted; One opposite-side → conflict demotion.",
             "Pure multi-day reverse in chop is demoted off the A desk (replay: −0.10R n=107). Gap / both kept.",
-            "10× universe pool (~480 names) with session $ volume filter ($2M equity / $0.5M crypto default).",
+            "10× universe pool (~480 names) with a $ volume filter ($2M equity session / $0.5M crypto 24h "
+            "by default).",
             "Rank by |gap|×RVOL×edge×$vol, show top N; thin tape demoted before the desk list.",
             "Equity signals only in premarket + RTH (Blueline hygiene); crypto trades its whole ET day, and with no "
             "opening gap to fade only multi-day orange reclaims trigger (v1.5.0).",

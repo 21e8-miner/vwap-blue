@@ -27,21 +27,25 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app import _grade_ok                                                        # noqa: E402
-from data import rotation_score, session_dollar_volume                           # noqa: E402
+from data import min_dollar_volume_for, rotation_score, session_dollar_volume    # noqa: E402
 from engine import ENGINE_VERSION, _geom_ok, analyze, apply_stale_guard, bar_age_min  # noqa: E402
+from providers import looks_crypto                                               # noqa: E402
 from test_crypto_session import fixed_cases as crypto_session_cases                # noqa: E402
 
 ET = ZoneInfo("America/New_York")
 NODE = shutil.which("node")
 RUNNER = Path(__file__).resolve().parent / "engine_parity_runner.js"
 MAX_AGE_MIN = 15.0
-MIN_DVOL = 2_000_000.0           # the desk's default session $ volume floor
+MIN_DVOL = 2_000_000.0           # the desk's default session $ volume floor (crypto: a quarter, 24h)
 GRADES = ("A", "LA", "B", "LB", "C", "✕", "–", "", None)
 FLOORS = ("A", "B", "C", "a", "–", "")
 # plan geometry incl. exact ties, which real VWAP levels almost never produce
 GEOMETRY = [(side, e, s, t) for side in ("long", "short", "flat") for e in (99.0, 100.0, 101.0)
             for s in (99.0, 100.0, 101.0) for t in (99.0, 100.0, 101.0)] + [
             ("long", None, 99.0, 101.0), ("short", 100.0, None, 99.0), ("long", 0.0, -1.0, 1.0)]
+# tickers whose class (crypto or not) picks their $ volume measure and floor
+ROUTING = ("BTC-USD", "SOL-USDT", "ARB-USDC", "BTC", "eth", "SOLUSD", "btcusdt", "ETH/USDT", "PEPEBUSD",
+           "AAPL", "BRK-B", "X", "USDT", "SYN3", "SYN3-USD")
 N_SERIES = 200
 SEED = 20261004
 
@@ -225,9 +229,9 @@ def _py_row(ticker, rows, now):
     )
     row = analyze(ticker, df, now=now)
     apply_stale_guard(row, bar_age_min(df, now.timestamp()), MAX_AGE_MIN)
-    dvol = session_dollar_volume(df)                              # as app.run_scan, after the guard
+    dvol = session_dollar_volume(df, ticker)                      # as app.run_scan, after the guard
     row["dollar_vol"] = round(dvol, 0) if dvol else 0
-    row["illiquid"] = bool(dvol > 0 and dvol < MIN_DVOL)
+    row["illiquid"] = bool(dvol > 0 and dvol < min_dollar_volume_for(ticker, MIN_DVOL))
     row["rot"] = rotation_score(row)
     chart = row.pop("_chart", None) or {}
     row["markers"] = chart.get("markers")
@@ -256,13 +260,14 @@ class TestEngineParity(unittest.TestCase):
         cases = make_cases(random.Random(SEED), N_SERIES)
         cls.py = [_py_row(*c) for c in cases]
         payload = {"cases": [_js_case(*c) for c in cases], "grades": GRADES, "floors": FLOORS,
-                   "geometry": GEOMETRY, "min_dvol": MIN_DVOL}
+                   "geometry": GEOMETRY, "min_dvol": MIN_DVOL, "tickers": ROUTING}
         proc = subprocess.run([NODE, str(RUNNER)], input=json.dumps(payload),
                               capture_output=True, text=True, timeout=300, cwd=str(ROOT))
         if proc.returncode != 0:
             raise RuntimeError(f"engine.js runner failed: {proc.stderr[-2000:]}")
         out = json.loads(proc.stdout)
         cls.js, cls.js_version, cls.js_grade_ok, cls.js_geom_ok = out["rows"], out["version"], out["grade_ok"], out["geom_ok"]
+        cls.js_looks_crypto = out["looks_crypto"]
 
     def test_same_engine_version(self):
         self.assertEqual(self.js_version, ENGINE_VERSION)
@@ -292,6 +297,7 @@ class TestEngineParity(unittest.TestCase):
         for gi, g in enumerate(GRADES):
             for fi, f in enumerate(FLOORS):
                 self.assertEqual(_grade_ok(g, f), self.js_grade_ok[gi][fi], (g, f))
+        self.assertEqual([looks_crypto(t) for t in ROUTING], self.js_looks_crypto)     # which floor a name gets
 
     def test_plan_geometry_matches_at_the_ties(self):
         self.assertEqual([_geom_ok(*g) for g in GEOMETRY], self.js_geom_ok)
