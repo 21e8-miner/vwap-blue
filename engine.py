@@ -381,16 +381,20 @@ def _regime_from_ker(
     return "mixed"
 
 
-def _resolve_day(
-    bars: List[Dict[str, Any]],
-    i0: int,
-    iN: int,
-    p0: int,
-    opts: Dict[str, Any],
-) -> Dict[str, Any]:
-    anchor = opts["anchor_mins"]
-    open_m = opts.get("open_mins", RTH_OPEN_M)
-    close_m = opts.get("close_mins", RTH_CLOSE_M)
+_TRAILS = ("blueTrail", "orangeTrail", "sigTrail")
+
+
+def _copy_day_state(acc: Dict[str, float], st: Dict[str, Any]) -> Tuple[Dict[str, float], Dict[str, Any]]:
+    """Copies of _resolve_day's running state; the trails are its only mutable values."""
+    st = dict(st)
+    for k in _TRAILS:
+        st[k] = list(st[k])
+    return dict(acc), st
+
+
+def _day_start(bars: List[Dict[str, Any]], i0: int, p0: int, anchor: int,
+               close_m: int) -> Tuple[Dict[str, float], Dict[str, Any]]:
+    """_resolve_day's state before the focus day's first bar: orange seeded from the prior day."""
     acc = {"bp": 0.0, "bv": 0.0, "bp2": 0.0, "op": 0.0, "ov": 0.0, "vol": 0.0, "trapV": 0.0}
     # seed orange from prior day (from anchor through the session close)
     for i in range(p0, i0):
@@ -399,24 +403,6 @@ def _resolve_day(
             tp = _tp(b["o"], b["h"], b["l"], b["c"])
             acc["op"] += tp * b["v"]
             acc["ov"] += b["v"]
-
-    prior_close = _prior_rth_close(bars, i0, open_m, close_m)
-    open_idx = None
-    for i in range(i0, iN + 1):
-        if bars[i]["mins"] >= open_m:
-            open_idx = i
-            break
-    if open_idx is not None:
-        ob = bars[open_idx]
-        gap_pct = ((ob["o"] if ob["o"] is not None else ob["c"]) - prior_close) / prior_close * 100.0
-        gap_provisional = False
-    else:
-        gap_pct = (bars[iN]["c"] - prior_close) / prior_close * 100.0
-        gap_provisional = True
-
-    direction = 1 if gap_pct >= 0 else -1
-    dev_ok = bool(opts.get("gap_fade", True)) and abs(gap_pct) >= opts["gap_min"]
-
     st: Dict[str, Any] = {
         "phase": "SIDE",
         "run": 0,
@@ -454,9 +440,57 @@ def _resolve_day(
         "md_R": None,
         "setup_mode": None,     # "gap" | "mdrev" | "both"
     }
+    return acc, st
 
-    for i, atr in zip(range(i0, iN + 1), _atr_trail(bars, i0, iN)):
+
+def _resolve_day(
+    bars: List[Dict[str, Any]],
+    i0: int,
+    iN: int,
+    p0: int,
+    opts: Dict[str, Any],
+    memo: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    The focus day bar by bar. memo (analyze_bars): the per-bar loop's state after bar u depends only on
+    bars[:u + 1], i0, p0, the gap side and arming (direction, dev_ok) and opts, so it is kept there and
+    the next call resumes at u + 1 when all of those are the same; anything else starts over.
+    """
+    anchor = opts["anchor_mins"]
+    open_m = opts.get("open_mins", RTH_OPEN_M)
+    close_m = opts.get("close_mins", RTH_CLOSE_M)
+    prior_close = _prior_rth_close(bars, i0, open_m, close_m)
+    open_idx = None
+    for i in range(i0, iN + 1):
+        if bars[i]["mins"] >= open_m:
+            open_idx = i
+            break
+    if open_idx is not None:
+        ob = bars[open_idx]
+        gap_pct = ((ob["o"] if ob["o"] is not None else ob["c"]) - prior_close) / prior_close * 100.0
+        gap_provisional = False
+    else:
+        gap_pct = (bars[iN]["c"] - prior_close) / prior_close * 100.0
+        gap_provisional = True
+
+    direction = 1 if gap_pct >= 0 else -1
+    dev_ok = bool(opts.get("gap_fade", True)) and abs(gap_pct) >= opts["gap_min"]
+
+    key = (i0, p0, direction, dev_ok)
+    snap = memo.get("day") if memo is not None else None
+    if (snap is not None and snap["key"] == key and snap["opts"] == opts and snap["upto"] <= iN
+            and bars[: snap["upto"] + 1] == snap["bars"]):
+        acc, st = _copy_day_state(snap["acc"], snap["st"])
+        start = snap["upto"] + 1
+    else:
+        acc, st = _day_start(bars, i0, p0, anchor, close_m)
+        start = i0
+
+    for i, atr in zip(range(start, iN + 1), _atr_trail(bars, start, iN)):
         _step_bar(bars, i, acc, st, direction, dev_ok, opts, atr)
+    if memo is not None:
+        acc_c, st_c = _copy_day_state(acc, st)
+        memo["day"] = {"key": key, "opts": dict(opts), "upto": iN, "bars": bars[: iN + 1], "acc": acc_c, "st": st_c}
 
     # if gap path never armed but multi-day reverse did, promote MD plan
     if st["trig"] is None and st["md_trig"] is not None:
@@ -1019,11 +1053,16 @@ def analyze_bars(
     quote_latency_ms: Optional[float] = None,
     opts: Optional[Dict[str, Any]] = None,
     now: Optional[datetime] = None,
+    memo: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     analyze() on bars already through _prep_bars. The replay parses a ticker's frame once and grades
     each prefix as the desk saw it, analyze_bars(t, bars[:n]), instead of re-parsing it for every bar.
     The bar dicts are not modified (they come back, shared, in _chart.bars).
+
+    memo: a dict the caller keeps across calls on growing prefixes of one bar list (the replay passes
+    one per session). _resolve_day keeps the focus day's per-bar state in it and resumes from it instead
+    of re-running the day from its first bar; the row is the same with or without it.
     """
     t = ticker.upper().strip()
     is_crypto = _is_crypto(t)
@@ -1090,7 +1129,7 @@ def analyze_bars(
     if i0 < 1 or p0 < 0:
         return {**base, "error": "anchor bars missing", "edge": 0, "signal": "FLAT", "grade": "–"}
 
-    resolved = _resolve_day(bars, i0, iN, p0, o)
+    resolved = _resolve_day(bars, i0, iN, p0, o, memo)
     st = resolved["st"]
     last = bars[iN]
     price = float(live_price) if live_price and live_price > 0 else float(last["c"])

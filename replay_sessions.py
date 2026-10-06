@@ -35,6 +35,7 @@ Research only. Free delayed data. Not trade advice.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import pickle
@@ -517,6 +518,8 @@ def replay(
     per name and session: a trigger whose entry cannot be filled ends that session's search.
     """
     prep, grade = engine_api()
+    # analyze_bars' memo resumes each prefix's day from the one before (an older engine file has none)
+    resumable = "memo" in inspect.signature(grade).parameters
     trades: List[Trade] = []
     n_days = n_graded = n_trig = n_take = n_err = 0
     skips = skips if skips is not None else {}
@@ -541,12 +544,13 @@ def replay(
             i0 = first[days[j]]
             day = parsed[i0: first[days[j + 1]] if j + 1 < len(days) else len(parsed)]
             session = session_bars(t, day)
+            kw_day = {**kw, "memo": {}} if resumable else kw
             for k in range(len(session)):
                 if i0 + k + 1 < 30:
                     continue
                 n_graded += 1
                 try:
-                    row = grade(t, parsed[: i0 + k + 1], **kw)
+                    row = grade(t, parsed[: i0 + k + 1], **kw_day)
                 except Exception:
                     n_err += 1
                     continue
@@ -556,7 +560,7 @@ def replay(
                 if not _tradeable(row, grade_min):
                     continue
                 try:
-                    grade_eod = grade(t, parsed[: i0 + len(session)], **kw).get("grade")
+                    grade_eod = grade(t, parsed[: i0 + len(session)], **kw_day).get("grade")
                 except Exception:
                     grade_eod = ""
                 new, fill = trades_at(t, row, day, k, models, entry_mode, slip_bps, dvol, grade_eod)

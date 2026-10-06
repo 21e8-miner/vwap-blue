@@ -106,9 +106,9 @@ class TestDayList(unittest.TestCase):
         seen = []
         resolve, rvol = engine._resolve_day, engine._rvol
 
-        def spy_resolve(bars, i0, iN, p0, opts):
+        def spy_resolve(bars, i0, iN, p0, opts, memo=None):
             seen.append({"bars": bars, "i0": i0, "iN": iN, "p0": p0})
-            return resolve(bars, i0, iN, p0, opts)
+            return resolve(bars, i0, iN, p0, opts, memo)
 
         def spy_rvol(bars, days, i0, iN, acc_vol, close_m):
             seen[-1]["days"] = days
