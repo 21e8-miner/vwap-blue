@@ -1,15 +1,18 @@
 """
-The replay grades every prefix of a session, and each analyze_bars call used to run the focus day from
-its first bar again. With analyze_bars(..., memo=m), _resolve_day keeps the day's per-bar state in m
-and the next prefix resumes from it. That is a pure speedup: every row must be the row analyze_bars
-gives without the memo.
+The replay grades every prefix of a session, and each analyze_bars call used to read the ticker's
+whole history and run the focus day from its first bar again. With analyze_bars(..., memo=m) the next
+prefix carries the day list, the day's per-bar state and the prior days' RVOL sums from m and reads
+only its new bars. That is a pure speedup: every row must be the row analyze_bars gives without it.
 
   * every session of parsed parity tapes graded prefix by prefix with one memo per session, as the
     replay does (premarket gap sides that flip restart the day): the rows equal the rows from scratch,
     compared after the session is over, so no later call changed an earlier row
   * any call order and any bars under one memo give the row from scratch: shorter prefixes, the same
     prefix twice, another ticker's bars, a changed earlier bar, shuffled bars, other opts, a single
-    crypto session split into D0/D1 on copies
+    crypto session split into D0/D1 on copies (its split moving)
+  * _rvol's exact value from the memo (rows round it): prefixes into a new day, a prior day out of
+    minute order, a prior day's bar after the focus day's, volumes that add up differently one by one
+    than with sum() or fsum; the same bars as an equity and as crypto (another close)
   * with the memo each bar of a session is stepped once (without it, once per prefix that contains it)
   * replay_sessions.replay takes the same trades with the memo as with an engine that has none
 """
@@ -111,13 +114,61 @@ class TestReplayResume(unittest.TestCase):
                  (t1, b1[: i0 + 20], None), (t1, b1[: i0 + 61], None), (t2, b2, None), (t1, b1[: i0 + 62], None),
                  (t1, changed[: i0 + 63], None), (t1, b1[: i0 + 64], {"K": 3}), (t1, b1[: i0 + 65], None),
                  (t1, shuffled, None), (t1, b1[: i0 + 66], None),
-                 ("BTC-USD", one_day[:200], None), ("BTC-USD", one_day[:201], None)]
+                 ("BTC-USD", one_day[:200], None), ("BTC-USD", one_day[:201], None),
+                 ("BTC-USD", one_day[:203], None)]                   # the D0/D1 split moves a bar
         memo, rows = {}, []
         for ticker, bars, opts in calls:
             rows.append((engine.analyze_bars(ticker, bars, opts=opts, memo=memo),
                          dump(engine.analyze_bars(ticker, bars, opts=opts))))
         for k, (row, want) in enumerate(rows):
             self.assertSameRow(dump(row), want, f"call {k}")
+
+    def assertSameFromMemo(self, ticker, lists):
+        """Each list graded with one memo: the row, and _rvol's exact value (rows round it), as without."""
+        rvol, memo = engine._rvol, {}
+        for k, bars in enumerate(lists):
+            seen = []
+
+            def spy(*args):
+                seen.append((args, rvol(*args)))
+                return seen[-1][1]
+
+            with mock.patch.object(engine, "_rvol", spy):
+                row = engine.analyze_bars(ticker, bars, memo=memo)
+            self.assertSameRow(dump(row), dump(engine.analyze_bars(ticker, bars)), f"{ticker} call {k}")
+            for args, got in seen:
+                self.assertEqual(repr(got), repr(rvol(*args[:6])), f"{ticker} call {k}: _rvol")
+
+    def test_rvol_and_the_day_list_carried_in_the_memo(self):
+        tapes = [(t, b, f) for t, b, f in series(71, 16) if len(f) >= 5]
+        (t1, b1, f1), (t2, b2, f2) = tapes[:2]
+        d1 = list(f1)
+        i0 = f1[d1[-1]]
+        # a prior day whose minutes do not rise: its sum is added up from its list
+        block = [k for k, b in enumerate(b1) if b["d"] == d1[-3]]
+        unsorted = b1[:]
+        shuffled = [b1[k] for k in block]
+        random.Random(2).shuffle(shuffled)
+        for k, b in zip(block, shuffled):
+            unsorted[k] = b
+        # a prior day's bar that arrives after the focus day's: the sums are listed again
+        late = b1[:i0 + 50] + [b1[f1[d1[-2]] + 3]] + b1[i0 + 50:]
+        # one by one 1e16 + 1.0 stays 1e16; sum() (3.12+) and fsum keep the ones
+        lopsided = [dict(b, v=1e16 if k == f1[d1[-4]] else 1.0) if b["d"] == d1[-4] else b for k, b in enumerate(b1)]
+        cases = {
+            "prefixes through a day and into the next": [b1[:n] for n in range(f1[d1[-2]] + 20, i0 + 30, 7)],
+            "a prior day out of minute order": [unsorted[:n] for n in range(i0 + 1, i0 + 60, 9)],
+            "a prior day's bar after the focus day's": [late[:n] for n in range(i0 + 45, i0 + 60, 2)],
+            "lopsided prior-day volumes": [lopsided[:n] for n in range(i0 + 1, i0 + 60, 9)],
+        }
+        for name, lists in cases.items():
+            with self.subTest(case=name):
+                self.assertSameFromMemo(t1, lists)
+        with self.subTest(case="the same bars as an equity, then as crypto (another close)"):
+            memo = {}
+            for ticker in (t2.replace("-USD", ""), t2.replace("-USD", "") + "-USD", t2.replace("-USD", "")):
+                self.assertSameRow(dump(engine.analyze_bars(ticker, b2, memo=memo)), dump(engine.analyze_bars(ticker, b2)),
+                                   ticker)
 
     def test_an_error_mid_day_leaves_the_memo_as_it_was(self):
         """The replay grades on after an engine error; the next prefix must not resume from half a day."""

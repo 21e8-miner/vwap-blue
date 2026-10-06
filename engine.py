@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 import time
+from bisect import bisect_right
 from datetime import date, datetime, time as dtime, timedelta
 from operator import itemgetter
 from typing import Any, Dict, List, Optional, Tuple
@@ -234,6 +235,31 @@ _DAY = itemgetter("d")
 def _sessions(bars: List[Dict[str, Any]]) -> List[str]:
     """The bars' ET days in order of first appearance (analyze_bars takes them from its day list)."""
     return list(dict.fromkeys(map(_DAY, bars)))
+
+
+def _memo_days(memo: Dict[str, Any], bars: List[Dict[str, Any]]) -> Tuple[List[str], Dict[str, int]]:
+    """
+    analyze_bars' day list with a memo: every bar's ET day, and each day's first bar in order of first
+    appearance. When the bars of the call before are where these start (the replay's next prefix) only
+    the new bars are read; otherwise the memo is cleared, as everything in it was built on those bars.
+    """
+    prev = memo.get("bars")
+    if prev is None or len(prev) > len(bars) or bars[: len(prev)] != prev:
+        memo.clear()
+        prev, ds, first = [], [], {}
+    else:
+        ds, first = memo["ds"], memo["first"]
+    new = bars[len(prev):]
+    new_ds = list(map(_DAY, new))
+    add: Dict[str, int] = {}
+    for k, d in enumerate(new_ds, len(prev)):
+        if d not in first and d not in add:
+            add[d] = k
+    prev.extend(new)
+    ds.extend(new_ds)
+    first.update(add)
+    memo["bars"], memo["ds"], memo["first"] = prev, ds, first
+    return ds, first
 
 
 def _first_idx(bars: List[Dict[str, Any]], day: str) -> int:
@@ -452,9 +478,10 @@ def _resolve_day(
     memo: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    The focus day bar by bar. memo (analyze_bars): the per-bar loop's state after bar u depends only on
+    The focus day bar by bar. memo (analyze_bars'): the per-bar loop's state after bar u depends only on
     bars[:u + 1], i0, p0, the gap side and arming (direction, dev_ok) and opts, so it is kept there and
-    the next call resumes at u + 1 when all of those are the same; anything else starts over.
+    the next call resumes at u + 1 when all of those are the same; anything else starts over. The bars
+    are not compared here: analyze_bars clears the memo when the bars it was built on change.
     """
     anchor = opts["anchor_mins"]
     open_m = opts.get("open_mins", RTH_OPEN_M)
@@ -478,8 +505,7 @@ def _resolve_day(
 
     key = (i0, p0, direction, dev_ok)
     snap = memo.get("day") if memo is not None else None
-    if (snap is not None and snap["key"] == key and snap["opts"] == opts and snap["upto"] <= iN
-            and bars[: snap["upto"] + 1] == snap["bars"]):
+    if snap is not None and snap["key"] == key and snap["opts"] == opts and snap["upto"] <= iN:
         acc, st = _copy_day_state(snap["acc"], snap["st"])
         start = snap["upto"] + 1
     else:
@@ -490,7 +516,7 @@ def _resolve_day(
         _step_bar(bars, i, acc, st, direction, dev_ok, opts, atr)
     if memo is not None:
         acc_c, st_c = _copy_day_state(acc, st)
-        memo["day"] = {"key": key, "opts": dict(opts), "upto": iN, "bars": bars[: iN + 1], "acc": acc_c, "st": st_c}
+        memo["day"] = {"key": key, "opts": dict(opts), "upto": iN, "acc": acc_c, "st": st_c}
 
     # if gap path never armed but multi-day reverse did, promote MD plan
     if st["trig"] is None and st["md_trig"] is not None:
@@ -945,31 +971,77 @@ RVOL_MIN_PRIORS = 2
 
 def _rvol(
     bars: List[Dict[str, Any]], days: List[str], i0: int, iN: int, acc_vol: float,
-    close_m: int = RTH_CLOSE_M,
+    close_m: int = RTH_CLOSE_M, memo: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Optional[float], int]:
     """
     Relative cumulative volume vs prior days at same minute-of-day.
     Returns (rvol, n_baselines). n is always the count of usable prior sessions
     even when rvol is None (thin sample) so the UI can show sample size.
+    memo: analyze_bars' (its day list is memo["ds"]); see _rvol_sums.
     """
     if len(days) < 3 or acc_vol <= 0:
         return None, 0
     last_mins = bars[iN]["mins"]
     priors = days[:-1][-RVOL_MAX_PRIORS:]
-    # One pass over the bars, ~4x faster than one per prior day: each day's volume still adds up in
-    # bar order, so its sum is the same float, whether or not the bars are sorted.
-    cum = dict.fromkeys(priors, 0.0)
-    for b in bars:
-        d = b["d"]
-        if d in cum:
-            m = b["mins"]
-            if m <= last_mins and m < close_m:
-                cum[d] += b["v"]
+    if memo is not None:
+        cum = _rvol_sums(memo, bars, priors, last_mins, close_m)
+    else:
+        # One pass over the bars, ~4x faster than one per prior day: each day's volume still adds up in
+        # bar order, so its sum is the same float, whether or not the bars are sorted.
+        cum = dict.fromkeys(priors, 0.0)
+        for b in bars:
+            d = b["d"]
+            if d in cum:
+                m = b["mins"]
+                if m <= last_mins and m < close_m:
+                    cum[d] += b["v"]
     bases = [cum[d] for d in priors if cum[d] > 0]
     n = len(bases)
     if n < RVOL_MIN_PRIORS:
         return None, n
     return acc_vol / (sum(bases) / n), n
+
+
+def _rvol_sums(memo: Dict[str, Any], bars: List[Dict[str, Any]], priors: List[str], last_mins: int,
+               close_m: int) -> Dict[str, float]:
+    """
+    _rvol's per-day sums with analyze_bars' memo. Each prior day's bars before close_m, in bar order, are
+    listed once with their running volume sums; prefixes of a session only move last_mins. On a day whose
+    minutes rise the bars to last_mins are a prefix of its list, so the sum is the running sum there: the
+    same additions in the same order as the one-pass loop. Any other day is added up from its list. The
+    lists are rebuilt for other priors or close, or when a new bar belongs to a prior day.
+    """
+    ds = memo["ds"]
+    key = (tuple(priors), close_m)
+    tab = memo.get("rvol")
+    if tab is None or tab["key"] != key or not set(priors).isdisjoint(ds[tab["n"]:len(bars)]):
+        per: Dict[str, Tuple[List[int], List[float]]] = {d: ([], []) for d in priors}
+        for b, d in zip(bars, ds):
+            e = per.get(d)
+            if e is not None and b["mins"] < close_m:
+                e[0].append(b["mins"])
+                e[1].append(b["v"])
+        lists = {}
+        for d, (ms, vs) in per.items():
+            run, s = [], 0.0
+            for v in vs:
+                s += v
+                run.append(s)
+            lists[d] = (ms, vs, run, all(a <= b for a, b in zip(ms, ms[1:])))
+        tab = memo["rvol"] = {"key": key, "n": len(bars), "days": lists}
+    cum: Dict[str, float] = {}
+    for d in priors:
+        ms, vs, run, rising = tab["days"][d]
+        if rising:
+            j = bisect_right(ms, last_mins)
+            cum[d] = run[j - 1] if j else 0.0
+        else:
+            c = 0.0
+            for m, v in zip(ms, vs):
+                if m <= last_mins:
+                    c += v
+            cum[d] = c
+    return cum
 
 
 def _edge(grade: str, S: Dict[str, Any], state_cls: str) -> int:
@@ -1061,8 +1133,9 @@ def analyze_bars(
     The bar dicts are not modified (they come back, shared, in _chart.bars).
 
     memo: a dict the caller keeps across calls on growing prefixes of one bar list (the replay passes
-    one per session). _resolve_day keeps the focus day's per-bar state in it and resumes from it instead
-    of re-running the day from its first bar; the row is the same with or without it.
+    one per session). It carries the day list (_memo_days), the focus day's per-bar state (_resolve_day)
+    and the prior days' RVOL sums (_rvol_sums), so a call reads only the bars added since the call before
+    instead of the whole history; the row is the same with or without it.
     """
     t = ticker.upper().strip()
     is_crypto = _is_crypto(t)
@@ -1105,9 +1178,14 @@ def analyze_bars(
         return {**base, "error": "insufficient bars", "edge": 0, "signal": "FLAT", "grade": "–"}
 
     # Every bar's ET day, read once: the days (_sessions) and the first bars of the last two (_first_idx)
-    # come from this list, where they were three passes over the bars.
-    ds = list(map(_DAY, bars))
-    days = list(dict.fromkeys(ds))
+    # come from this list, where they were three passes over the bars. With a memo only new bars are read.
+    first: Optional[Dict[str, int]] = None
+    if memo is None:
+        ds = list(map(_DAY, bars))
+        days = list(dict.fromkeys(ds))
+    else:
+        ds, first = _memo_days(memo, bars)
+        days = list(first)
     if len(days) < 2:
         # crypto single continuous session — synthesize prior window
         if is_crypto and len(bars) >= 40:
@@ -1119,12 +1197,13 @@ def analyze_bars(
                 b["mins"] = (i % 390) + RTH_OPEN_M  # synthetic RTH mins
             ds = list(map(_DAY, bars))
             days = list(dict.fromkeys(ds))
+            first = memo = None   # the split moves with every prefix: its copies are not resumed
         else:
             return {**base, "error": "need ≥2 sessions for orange anchor", "edge": 0, "signal": "FLAT", "grade": "–"}
 
     d0, d1 = days[-1], days[-2]
-    i0 = ds.index(d0)
-    p0 = ds.index(d1)
+    i0 = ds.index(d0) if first is None else first[d0]
+    p0 = ds.index(d1) if first is None else first[d1]
     iN = len(bars) - 1
     if i0 < 1 or p0 < 0:
         return {**base, "error": "anchor bars missing", "edge": 0, "signal": "FLAT", "grade": "–"}
@@ -1134,7 +1213,7 @@ def analyze_bars(
     last = bars[iN]
     price = float(live_price) if live_price and live_price > 0 else float(last["c"])
 
-    rvol_val, rvol_n = _rvol(bars, days, i0, iN, resolved["acc"]["vol"], o["close_mins"])
+    rvol_val, rvol_n = _rvol(bars, days, i0, iN, resolved["acc"]["vol"], o["close_mins"], memo)
     ker_val = _ker(bars, iN, int(o.get("ker_lookback", DEFAULT_KER_LOOKBACK)))
     regime = _regime_from_ker(
         ker_val,

@@ -110,9 +110,9 @@ class TestDayList(unittest.TestCase):
             seen.append({"bars": bars, "i0": i0, "iN": iN, "p0": p0})
             return resolve(bars, i0, iN, p0, opts, memo)
 
-        def spy_rvol(bars, days, i0, iN, acc_vol, close_m):
+        def spy_rvol(bars, days, i0, iN, acc_vol, close_m, memo=None):
             seen[-1]["days"] = days
-            return rvol(bars, days, i0, iN, acc_vol, close_m)
+            return rvol(bars, days, i0, iN, acc_vol, close_m, memo)
 
         cases = [(t, parse(rows), now) for t, rows, now in make_cases(random.Random(19), 30)]
         now = cases[0][2]
