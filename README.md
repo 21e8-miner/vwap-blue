@@ -59,6 +59,9 @@ Env:
   hours of volume. A day so far is minutes old early on, after midnight ET for crypto and in premarket
   for a stock once it first trades: on the day so far alone, 9.5% of the desk's stocks cleared $2M at
   09:00 ET and 9% of its crypto names at 00:55. The desk's $M box and `min_dvol` work the same way
+- `VWAP_BLUE_YF_RPS=20` — pace of the yfinance bulk download, in requests a second (`0` = unpaced; yfinance
+  alone sends ~45 a second). A chunk Yahoo rate-limits (HTTP 429) pauses it 15 s and its names are asked
+  for again at half the pace
 - `VWAP_BLUE_MAX_BAR_AGE_MIN=15` — while the market is open, a TRIGGER on bars older than this is demoted to WATCH (STALE)
 - `VWAP_BLUE_LEDGER=0` — stop recording live grade-A triggers to `data/signals/`
 
