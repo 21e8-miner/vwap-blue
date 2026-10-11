@@ -69,7 +69,7 @@ const BLADE_W = 1.6, BLADE_Y = 14.3, BLADE_D = 2, BLADE_Z0 = 82, BLADE_Z1 = BAR_
 const POST_W = 1.6;
 const SPRING_Y = BLADE_Y + BLADE_D / 2, SPRING_Z = 84.5, SPRING_R = 1.15;
 // the pointer rod in front of the day beam
-const ROD = { x: -102, y: 17.2, w: 204, d: 2.2, r: 1.1 };
+const ROD = { x: -103, y: 17.2, w: 206, d: 2.2, r: 1.1 };   // bracket face to bracket face
 const ROD_Z = 73;
 const BRK_L = { x: -107, y: 11.5, w: 4, d: 9, r: 0.6 };
 const BRK_R = { x: 103, y: 11.5, w: 4, d: 9, r: 0.6 };
