@@ -11,7 +11,7 @@ process.stdin.on("end", () => {
   const { cases, grades, floors, geometry, min_dvol: minDvol, tickers } = JSON.parse(input);
   const rows = cases.map(c => {
     const bars = E.prepBars(c.raw);
-    const row = E.analyze(c.ticker, bars, { nowMs: c.now_ms });
+    const row = E.analyze(c.ticker, bars, { nowMs: c.now_ms, opts: c.opts || undefined });
     E.applyStaleGuard(row, E.barAgeMin(bars, c.now_ms), c.max_age_min);
     const dvol = E.sessionDollarVolume(bars, c.ticker);
     row.dollar_vol = dvol ? Math.round(dvol) : 0;
