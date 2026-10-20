@@ -323,6 +323,7 @@ class TestEngineParity(unittest.TestCase):
                 if r.get("late"):
                     seen["crypto late (after 22:30 ET)"] += 1
         need = ["signal:TRIGGER", "signal:TAGGED", "signal:STOPPED", "signal:WATCH", "signal:SETUP",
+                "signal:FAKE",                  # v1.5.0 never showed it: MD EXT text masked the gap state
                 "mode:gap", "mode:mdrev", "mode:both", "regime:trend", "regime:chop", "regime:mixed",
                 "grade:A", "grade:B", "grade:C", "grade:✕", "error", "trend_block", "regime_block",
                 "no_runway", "stale_bars", "live_actionable", "late", "session:rth", "session:24/7 crypto",

@@ -784,8 +784,10 @@ def _state_text(S: Dict[str, Any], opts: Dict[str, Any]) -> Dict[str, str]:
             return {"txt": f"MD REV {arrow} · reclaim orange{late}", "cls": "conf"}
         return {"txt": "MD REV SETUP", "cls": "break"}
 
-    # building multi-day extension (useful even without gap)
-    if st.get("md_trig") is None and (st.get("md_ext_run") or 0) >= opts.get("md_min_ext", DEFAULT_MD_MIN_EXT) // 2:
+    # building multi-day extension, while the gap path has no break to report (before v1.5.1 it masked
+    # FIRST BREAK, FAKEOUT and CONFIRMED/TAGGED/STOPPED text, so the FAKE badge never showed)
+    if (st.get("md_trig") is None and st["firstBreak"] is None
+            and (st.get("md_ext_run") or 0) >= opts.get("md_min_ext", DEFAULT_MD_MIN_EXT) // 2):
         if (st.get("md_ext_side") or 0) < 0:
             return {"txt": f"MD EXT ▼ orange {st['md_ext_run']}b", "cls": "break"}
         if (st.get("md_ext_side") or 0) > 0:
