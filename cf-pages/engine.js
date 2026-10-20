@@ -459,7 +459,8 @@
       }
       return { txt: "MD REV SETUP", cls: "break" };
     }
-    if (st.md_trig == null && (st.md_ext_run || 0) >= Math.floor(o.md_min_ext / 2)) {
+    // MD extension only while the gap path has no break to report (it used to mask FAKEOUT and CONFIRMED)
+    if (st.md_trig == null && st.firstBreak == null && (st.md_ext_run || 0) >= Math.floor(o.md_min_ext / 2)) {
       if ((st.md_ext_side || 0) < 0) return { txt: `MD EXT ▼ orange ${st.md_ext_run}b`, cls: "break" };
       if ((st.md_ext_side || 0) > 0) return { txt: `MD EXT ▲ orange ${st.md_ext_run}b`, cls: "break" };
     }

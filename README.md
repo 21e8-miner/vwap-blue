@@ -100,6 +100,10 @@ python3 replay_crypto.py --source coinbase                                  # Co
 # The replay's old end-of-day trigger search on the same bars: what it missed, how it scored
 python3 causal_check.py --bars data/backtests/equity_bars.pkl
 
+# Breakout vs fade at the engine's own gap states (first band break, fakeout): same events, both
+# directions, same exits, net of costs, session-clustered (60 days of 5m bars, first 96 equities)
+python3 direction_check.py
+
 # Forward record of live grade-A triggers (recorded automatically by the desk)
 python3 ledger.py resolve    # after the close: resolve the session's signals
 python3 ledger.py report     # net R, session-clustered CI, by setup mode x regime
@@ -252,6 +256,18 @@ and [`research/replay_crypto_2026-10-04_v1.5.0.json`](research/replay_crypto_202
 (`method.paired_v1_4_1_same_bars`, `method.causal_check`, `method.sensitivity`: UTC day, no gap
 fade, Coinbase bars). A replay never overwrites an existing snapshot for the same day.
 
+#### Breakout or fade? (`direction_check.py`, Jul 28 – Oct 19, 59 sessions)
+
+At the engine's first band break (2,782 events) and its first fakeout (903), the same event was
+traded both ways: with the gap's extension (breakout) and against it (fade), next-bar fill, exits
+at 30 / 60 min, the close, or a 1 ATR stop / 1.5 ATR target. **Neither direction wins.** The paired
+breakout-minus-fade difference is inside the noise in 31 of 32 comparisons (|t| ≤ 1.8), and both
+sides lose after costs: a round trip at a one-ATR 5m stop costs about 0.16R. The one exception,
+holding a breakout to the close after a fakeout in a trend or mixed regime (+1.38R vs the fade,
+t 2.1, 232 events), is what one test in 32 shows by chance. It is recorded here as a hypothesis
+for the forward ledger, not a rule. Raw numbers:
+[`research/direction_check_2026-10-19.json`](research/direction_check_2026-10-19.json).
+
 Same-day leftover-bar scans (`backtest_today_scans.py`) print results on a handful of trades
 from one session; they are not expectancy.
 
@@ -287,6 +303,7 @@ providers.py / data.py   # free feed rotation; crypto history pager + per-coin c
 backtest_today_scans.py · walkforward.py · replay_sessions.py
 replay_crypto.py    # the same replay on the crypto names (Yahoo or Coinbase bars, paired engines)
 causal_check.py     # the replay's old end-of-day trigger search, against its bar-by-bar one
+direction_check.py  # breakout vs fade at the gap states (first break, fakeout), paired, net of costs
 honest.py           # cost-in-R and session-clustered standard errors (replay + ledger)
 ledger.py           # forward signal ledger: record → resolve → report (data/signals/, gitignored)
 tests/              # python3 -m unittest discover -s tests (engine parity needs node)
