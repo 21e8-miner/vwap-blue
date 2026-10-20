@@ -35,7 +35,7 @@ ET = ZoneInfo("America/New_York")
 
 # Bump with any change to what a bar sequence grades as; engine.js exports the same VERSION
 # (tests/test_engine_parity.py), the desk reports it and the forward ledger records it per signal.
-ENGINE_VERSION = "1.5.0"
+ENGINE_VERSION = "1.6.0"
 
 RTH_OPEN_M = 9 * 60 + 30   # 09:30
 RTH_CLOSE_M = 16 * 60      # 16:00
@@ -62,6 +62,8 @@ DEFAULT_KER_LOOKBACK = 20  # bars for Kaufman Efficiency Ratio
 DEFAULT_KER_TREND = 0.55   # ER ≥ this → trend regime (suppress gap-fades)
 DEFAULT_KER_CHOP = 0.30    # ER ≤ this → chop regime (widen bands, favor fades)
 DEFAULT_RVOL_MIN_N = 2     # thin RVOL sample demotes A → B
+DEFAULT_MD_TARGET = "nearest"   # mdrev target rule (_md_target); v1.5.x used "stretch"
+DEFAULT_RVOL_MISSING = "pass"   # "thin": a row with no RVOL cannot grade A
 
 
 def _is_crypto(ticker: str) -> bool:
@@ -638,6 +640,62 @@ def _step_bar(
         _resolve_open(bars, i, st, direction)
 
 
+def _md_levels(bars: List[Dict[str, Any]], i: int, st: Dict[str, Any], opts: Dict[str, Any],
+               long: bool) -> Dict[str, Optional[float]]:
+    """Reference levels known at bar i: today's VWAP, today's extreme before bar i, the prior session's extreme and close."""
+    i0 = st["_i0"]
+    day = bars[i0:i]
+    lv: Dict[str, Optional[float]] = {"blue": st.get("blue"), "day": None, "prior": None, "prior_close": None}
+    if day:
+        lv["day"] = max(b["h"] for b in day) if long else min(b["l"] for b in day)
+    open_m, close_m = opts.get("open_mins", RTH_OPEN_M), opts.get("close_mins", RTH_CLOSE_M)
+    if i0 > 0:
+        pd_ = bars[i0 - 1]["d"]
+        prior = []
+        k = i0 - 1
+        while k >= 0 and bars[k]["d"] == pd_:
+            if open_m <= bars[k]["mins"] < close_m:
+                prior.append(bars[k])
+            k -= 1
+        if prior:
+            lv["prior"] = max(b["h"] for b in prior) if long else min(b["l"] for b in prior)
+            lv["prior_close"] = prior[0]["c"]          # prior is newest-first
+    return lv
+
+
+def _md_target(bars: List[Dict[str, Any]], i: int, st: Dict[str, Any], opts: Dict[str, Any],
+               md_side: str, entry: float, stop: float, extreme: Optional[float]) -> Optional[float]:
+    """
+    mdrev target. "stretch" (v1.5.x): blue if beyond entry, else max(1.5 x risk, 0.4%) from entry, which made
+    every such plan's R:R exactly 1.5. The other rules only use a real level beyond entry; with none, the plan
+    has no target (no runway: it cannot grade A or trade).
+    """
+    long = md_side == "long"
+    sgn = 1.0 if long else -1.0
+    rule = opts.get("md_target", DEFAULT_MD_TARGET)
+    beyond = lambda px: px is not None and (px - entry) * sgn > 0
+    blue = st.get("blue")
+    if rule == "stretch":
+        if beyond(blue):
+            return blue
+        return entry + sgn * max(abs(entry - stop) * 1.5, entry * 0.004)
+    if rule == "mirror":                                   # measured move: extension depth past orange
+        orange = st.get("orange")
+        if extreme is None or orange is None:
+            return None
+        px = orange + (orange - extreme)
+        return px if beyond(px) else None
+    lv = _md_levels(bars, i, st, opts, long)
+    picks = {"blue_only": ["blue"], "day": ["day"], "prior": ["prior"],
+             "nearest": ["blue", "day", "prior", "prior_close"]}.get(rule)
+    if picks is None:
+        raise ValueError(f"unknown md_target {rule!r}")
+    cands = [lv[k] for k in picks if beyond(lv[k])]
+    if not cands:
+        return None
+    return min(cands) if long else max(cands)
+
+
 def _track_md_reverse(
     bars: List[Dict[str, Any]],
     i: int,
@@ -674,21 +732,13 @@ def _track_md_reverse(
         extreme = st.get("md_ext_extreme")
         if md_side == "long":
             stop = (extreme if extreme is not None else entry) - buf
-            # target day VWAP if above entry, else stretch from orange
-            if st.get("blue") is not None and st["blue"] > entry:
-                target = st["blue"]
-            else:
-                target = entry + max(abs(entry - stop) * 1.5, entry * 0.004)
         else:
             stop = (extreme if extreme is not None else entry) + buf
-            if st.get("blue") is not None and st["blue"] < entry:
-                target = st["blue"]
-            else:
-                target = entry - max(abs(stop - entry) * 1.5, entry * 0.004)
+        target = _md_target(bars, i, st, opts, md_side, entry, stop, extreme)
 
         risk = abs(entry - stop)
         runway = abs(target - entry) if target is not None else 0.0
-        R = (runway / risk) if risk > 0 else None
+        R = (runway / risk) if risk > 0 and target is not None else None
 
         st["md_trig"] = i
         st["md_side"] = md_side
@@ -849,7 +899,8 @@ def _grade(S: Dict[str, Any], opts: Dict[str, Any]) -> str:
         # Thin RVOL baseline: never award raw A (need n ≥ rvol_min_n when rvol used)
         rvol_n = int(S.get("rvol_n") or 0)
         rvol_min_n = int(opts.get("rvol_min_n", DEFAULT_RVOL_MIN_N))
-        thin = rvol is not None and rvol_n < rvol_min_n
+        thin = (rvol is not None and rvol_n < rvol_min_n) or (
+            rvol is None and opts.get("rvol_missing", DEFAULT_RVOL_MISSING) == "thin")
         g = "A" if (gR and gV and not thin) else "B"
         # agreement of gap + multi-day reverse boosts quality (keep A/B, flag via mode)
         if mode == "both" and g == "B" and gR and not thin:
@@ -1088,6 +1139,8 @@ def analyze_bars(
         "ker_trend": DEFAULT_KER_TREND,
         "ker_chop": DEFAULT_KER_CHOP,
         "rvol_min_n": DEFAULT_RVOL_MIN_N,
+        "md_target": DEFAULT_MD_TARGET,
+        "rvol_missing": DEFAULT_RVOL_MISSING,
         "regime_gate": True,  # suppress pure gap-fades in trend regime
     }
     if opts:

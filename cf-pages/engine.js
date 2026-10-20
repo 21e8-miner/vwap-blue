@@ -16,7 +16,7 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
-  const VERSION = "1.5.0";   // engine.ENGINE_VERSION
+  const VERSION = "1.6.0";   // engine.ENGINE_VERSION
   const RTH_OPEN_M = 9 * 60 + 30;
   const RTH_CLOSE_M = 16 * 60;
   const DEFAULT_ANCHOR_M = 4 * 60;
@@ -36,6 +36,8 @@
   const DEFAULT_KER_TREND = 0.55;
   const DEFAULT_KER_CHOP = 0.30;
   const DEFAULT_RVOL_MIN_N = 2;
+  const DEFAULT_MD_TARGET = "nearest";      // engine.DEFAULT_MD_TARGET (v1.5.x: "stretch")
+  const DEFAULT_RVOL_MISSING = "pass";      // engine.DEFAULT_RVOL_MISSING
   const RVOL_MAX_PRIORS = 7;
   const RVOL_MIN_PRIORS = 2;
   const DEFAULT_MAX_BAR_AGE_MIN = 15.0;
@@ -342,6 +344,54 @@
     }
   }
 
+  /** engine._md_levels: reference levels known at bar i. */
+  function mdLevels(bars, i, st, o, long) {
+    const i0 = st._i0;
+    const lv = { blue: st.blue, day: null, prior: null, prior_close: null };
+    if (i > i0) {
+      let x = long ? -Infinity : Infinity;
+      for (let k = i0; k < i; k++) x = long ? Math.max(x, bars[k].h) : Math.min(x, bars[k].l);
+      lv.day = x;
+    }
+    if (i0 > 0) {
+      const pd = bars[i0 - 1].d;
+      let x = null, close = null;
+      for (let k = i0 - 1; k >= 0 && bars[k].d === pd; k--) {
+        const m = bars[k].mins;
+        if (m < o.open_mins || m >= o.close_mins) continue;
+        if (close == null) close = bars[k].c;
+        x = x == null ? (long ? bars[k].h : bars[k].l) : (long ? Math.max(x, bars[k].h) : Math.min(x, bars[k].l));
+      }
+      lv.prior = x;
+      lv.prior_close = close;
+    }
+    return lv;
+  }
+
+  /** engine._md_target: the mdrev target rule; null = no level beyond entry (no runway). */
+  function mdTarget(bars, i, st, o, mdSide, entry, stop, extreme) {
+    const long = mdSide === "long";
+    const sgn = long ? 1 : -1;
+    const rule = o.md_target || DEFAULT_MD_TARGET;
+    const beyond = px => px != null && (px - entry) * sgn > 0;
+    if (rule === "stretch") {
+      if (beyond(st.blue)) return st.blue;
+      return entry + sgn * Math.max(Math.abs(entry - stop) * 1.5, entry * 0.004);
+    }
+    if (rule === "mirror") {
+      if (extreme == null || st.orange == null) return null;
+      const px = st.orange + (st.orange - extreme);
+      return beyond(px) ? px : null;
+    }
+    const picks = { blue_only: ["blue"], day: ["day"], prior: ["prior"],
+                    nearest: ["blue", "day", "prior", "prior_close"] }[rule];
+    if (!picks) throw new Error(`unknown md_target ${rule}`);
+    const lv = mdLevels(bars, i, st, o, long);
+    const c = picks.map(k => lv[k]).filter(beyond);
+    if (!c.length) return null;
+    return long ? Math.min(...c) : Math.max(...c);
+  }
+
   /** Multi-day VWAP reverse: extend beyond orange, then reclaim it. */
   function trackMdReverse(bars, i, st, o) {
     const b = bars[i];
@@ -361,16 +411,9 @@
       if ((o.atr_mult || 0) > 0 && st.atr) buf = st.atr * +o.atr_mult;
       else if (st.sigma != null) buf = st.sigma * 0.25;
       const extreme = st.md_ext_extreme;
-      let stop, target;
-      if (mdSide === "long") {
-        stop = (extreme != null ? extreme : entry) - buf;
-        if (st.blue != null && st.blue > entry) target = st.blue;
-        else target = entry + Math.max(Math.abs(entry - stop) * 1.5, entry * 0.004);
-      } else {
-        stop = (extreme != null ? extreme : entry) + buf;
-        if (st.blue != null && st.blue < entry) target = st.blue;
-        else target = entry - Math.max(Math.abs(stop - entry) * 1.5, entry * 0.004);
-      }
+      const stop = mdSide === "long" ? (extreme != null ? extreme : entry) - buf
+                                     : (extreme != null ? extreme : entry) + buf;
+      const target = mdTarget(bars, i, st, o, mdSide, entry, stop, extreme);
       const risk = Math.abs(entry - stop);
       const runway = target != null ? Math.abs(target - entry) : 0.0;
       st.md_trig = i;
@@ -378,7 +421,7 @@
       st.md_entry = entry;
       st.md_stop = stop;
       st.md_target = target;
-      st.md_R = risk > 0 ? runway / risk : null;
+      st.md_R = risk > 0 && target != null ? runway / risk : null;
       st.late = b.mins >= o.late_cut;
       return;
     }
@@ -504,7 +547,8 @@
       const gR = st.R >= o.Rmin;
       const rvol = S.rvol;
       const gV = rvol == null ? true : rvol >= o.rvol_min;
-      const thin = rvol != null && Math.trunc(S.rvol_n || 0) < Math.trunc(o.rvol_min_n);
+      const thin = (rvol != null && Math.trunc(S.rvol_n || 0) < Math.trunc(o.rvol_min_n))
+        || (rvol == null && (o.rvol_missing || DEFAULT_RVOL_MISSING) === "thin");
       g = gR && gV && !thin ? "A" : "B";
       if (mode === "both" && g === "B" && gR && !thin) g = "A";
       if (S.regime === "trend" && mode === "gap" && g === "A") g = "B";
@@ -623,6 +667,7 @@
     late_cut: LATE_CUT_M, md_min_ext: DEFAULT_MD_MIN_EXT, md_min_dist: DEFAULT_MD_MIN_DIST,
     sigma_mult: DEFAULT_SIGMA_MULT, ker_lookback: DEFAULT_KER_LOOKBACK, ker_trend: DEFAULT_KER_TREND,
     ker_chop: DEFAULT_KER_CHOP, rvol_min_n: DEFAULT_RVOL_MIN_N, regime_gate: true,
+    md_target: DEFAULT_MD_TARGET, rvol_missing: DEFAULT_RVOL_MISSING,
   };
 
   /**

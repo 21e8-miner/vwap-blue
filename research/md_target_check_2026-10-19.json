@@ -1,0 +1,767 @@
+{
+ "method": "\nmdrev target rules (engine._md_target) and the missing-RVOL gate, replayed on the same bars.\n\nEach variant runs the decision-time session replay (replay_sessions.replay, next-bar fills + 2 bps,\nequities flat by 16:00, net of costs, session-clustered) with the engine's defaults switched in each\nworker process. Two bar sets:\n  --bars     a replay_sessions --save-bars pickle (the September file the README's results use)\n  --holdout  a pickle written by --fetch-holdout: 60 days of Yahoo 5m bars (the desk's own fetch only\n             reaches 32), scored on sessions outside the --bars window, so a rule picked on one set is\n             checked on bars it never saw.\nUsage:\n  python3 md_target_check.py --fetch-holdout data/backtests/holdout_60d.pkl\n  python3 md_target_check.py --bars data/backtests/equity_bars_2026-10-04_1507.pkl                              --holdout data/backtests/holdout_60d.pkl --out research/md_target_check.json\n",
+ "window": [
+  "2026-09-03",
+  "2026-10-02"
+ ],
+ "variants": [
+  {
+   "md_target": "stretch",
+   "rvol_missing": "pass"
+  },
+  {
+   "md_target": "blue_only",
+   "rvol_missing": "pass"
+  },
+  {
+   "md_target": "day",
+   "rvol_missing": "pass"
+  },
+  {
+   "md_target": "prior",
+   "rvol_missing": "pass"
+  },
+  {
+   "md_target": "nearest",
+   "rvol_missing": "pass"
+  },
+  {
+   "md_target": "mirror",
+   "rvol_missing": "pass"
+  },
+  {
+   "md_target": "stretch",
+   "rvol_missing": "thin"
+  },
+  {
+   "md_target": "nearest",
+   "rvol_missing": "thin"
+  }
+ ],
+ "results": {
+  "stretch/pass": {
+   "in_sample": {
+    "all": {
+     "n": 428,
+     "clusters": 21,
+     "mean": -0.174,
+     "se": 0.0621,
+     "t": -2.8,
+     "ci90": [
+      -0.2761,
+      -0.0719
+     ]
+    },
+    "mdrev": {
+     "n": 232,
+     "clusters": 21,
+     "mean": -0.1328,
+     "se": 0.075,
+     "t": -1.77,
+     "ci90": [
+      -0.2562,
+      -0.0094
+     ]
+    },
+    "gap": {
+     "n": 166,
+     "clusters": 21,
+     "mean": -0.163,
+     "se": 0.1559,
+     "t": -1.05,
+     "ci90": [
+      -0.4194,
+      0.0934
+     ]
+    },
+    "both": {
+     "n": 30,
+     "clusters": 15,
+     "mean": -0.5528,
+     "se": 0.1848,
+     "t": -2.99,
+     "ci90": [
+      -0.8568,
+      -0.2488
+     ]
+    },
+    "mdrev_rr_plan_median": 1.5
+   },
+   "holdout": {
+    "all": {
+     "n": 686,
+     "clusters": 38,
+     "mean": -0.103,
+     "se": 0.0735,
+     "t": -1.4,
+     "ci90": [
+      -0.2239,
+      0.0179
+     ]
+    },
+    "mdrev": {
+     "n": 410,
+     "clusters": 38,
+     "mean": 0.0203,
+     "se": 0.0922,
+     "t": 0.22,
+     "ci90": [
+      -0.1314,
+      0.172
+     ]
+    },
+    "gap": {
+     "n": 227,
+     "clusters": 38,
+     "mean": -0.2809,
+     "se": 0.1338,
+     "t": -2.1,
+     "ci90": [
+      -0.501,
+      -0.0609
+     ]
+    },
+    "both": {
+     "n": 49,
+     "clusters": 25,
+     "mean": -0.3101,
+     "se": 0.132,
+     "t": -2.35,
+     "ci90": [
+      -0.5272,
+      -0.093
+     ]
+    },
+    "mdrev_rr_plan_median": 1.5
+   }
+  },
+  "blue_only/pass": {
+   "in_sample": {
+    "all": {
+     "n": 204,
+     "clusters": 21,
+     "mean": -0.1827,
+     "se": 0.1489,
+     "t": -1.23,
+     "ci90": [
+      -0.4277,
+      0.0622
+     ]
+    },
+    "gap": {
+     "n": 171,
+     "clusters": 21,
+     "mean": -0.138,
+     "se": 0.1692,
+     "t": -0.82,
+     "ci90": [
+      -0.4163,
+      0.1403
+     ]
+    },
+    "both": {
+     "n": 33,
+     "clusters": 17,
+     "mean": -0.4145,
+     "se": 0.197,
+     "t": -2.1,
+     "ci90": [
+      -0.7386,
+      -0.0905
+     ]
+    },
+    "mdrev_rr_plan_median": null
+   },
+   "holdout": {
+    "all": {
+     "n": 298,
+     "clusters": 38,
+     "mean": -0.2606,
+     "se": 0.1158,
+     "t": -2.25,
+     "ci90": [
+      -0.451,
+      -0.0702
+     ]
+    },
+    "gap": {
+     "n": 239,
+     "clusters": 38,
+     "mean": -0.2672,
+     "se": 0.1275,
+     "t": -2.1,
+     "ci90": [
+      -0.4769,
+      -0.0575
+     ]
+    },
+    "both": {
+     "n": 59,
+     "clusters": 26,
+     "mean": -0.2338,
+     "se": 0.1834,
+     "t": -1.27,
+     "ci90": [
+      -0.5355,
+      0.0679
+     ]
+    },
+    "mdrev_rr_plan_median": null
+   }
+  },
+  "day/pass": {
+   "in_sample": {
+    "all": {
+     "n": 213,
+     "clusters": 21,
+     "mean": -0.1745,
+     "se": 0.1408,
+     "t": -1.24,
+     "ci90": [
+      -0.4062,
+      0.0572
+     ]
+    },
+    "mdrev": {
+     "n": 9,
+     "clusters": 5,
+     "mean": 0.013,
+     "se": 0.2532,
+     "t": 0.05,
+     "ci90": [
+      -0.4036,
+      0.4296
+     ]
+    },
+    "gap": {
+     "n": 171,
+     "clusters": 21,
+     "mean": -0.138,
+     "se": 0.1692,
+     "t": -0.82,
+     "ci90": [
+      -0.4163,
+      0.1403
+     ]
+    },
+    "both": {
+     "n": 33,
+     "clusters": 17,
+     "mean": -0.4145,
+     "se": 0.197,
+     "t": -2.1,
+     "ci90": [
+      -0.7386,
+      -0.0905
+     ]
+    },
+    "mdrev_rr_plan_median": 1.78
+   },
+   "holdout": {
+    "all": {
+     "n": 314,
+     "clusters": 38,
+     "mean": -0.2411,
+     "se": 0.1143,
+     "t": -2.11,
+     "ci90": [
+      -0.4291,
+      -0.0531
+     ]
+    },
+    "mdrev": {
+     "n": 17,
+     "clusters": 16,
+     "mean": 0.1646,
+     "se": 0.3227,
+     "t": 0.51,
+     "ci90": [
+      -0.3663,
+      0.6954
+     ]
+    },
+    "gap": {
+     "n": 238,
+     "clusters": 38,
+     "mean": -0.2719,
+     "se": 0.1275,
+     "t": -2.13,
+     "ci90": [
+      -0.4815,
+      -0.0622
+     ]
+    },
+    "both": {
+     "n": 59,
+     "clusters": 26,
+     "mean": -0.2338,
+     "se": 0.1834,
+     "t": -1.27,
+     "ci90": [
+      -0.5355,
+      0.0679
+     ]
+    },
+    "mdrev_rr_plan_median": 1.55
+   }
+  },
+  "prior/pass": {
+   "in_sample": {
+    "all": {
+     "n": 307,
+     "clusters": 21,
+     "mean": -0.2104,
+     "se": 0.0971,
+     "t": -2.17,
+     "ci90": [
+      -0.3702,
+      -0.0507
+     ]
+    },
+    "mdrev": {
+     "n": 106,
+     "clusters": 19,
+     "mean": -0.2273,
+     "se": 0.0952,
+     "t": -2.39,
+     "ci90": [
+      -0.3839,
+      -0.0708
+     ]
+    },
+    "gap": {
+     "n": 170,
+     "clusters": 21,
+     "mean": -0.1478,
+     "se": 0.1654,
+     "t": -0.89,
+     "ci90": [
+      -0.4199,
+      0.1243
+     ]
+    },
+    "both": {
+     "n": 31,
+     "clusters": 16,
+     "mean": -0.4961,
+     "se": 0.1905,
+     "t": -2.6,
+     "ci90": [
+      -0.8095,
+      -0.1826
+     ]
+    },
+    "mdrev_rr_plan_median": 1.53
+   },
+   "holdout": {
+    "all": {
+     "n": 479,
+     "clusters": 38,
+     "mean": -0.161,
+     "se": 0.0847,
+     "t": -1.9,
+     "ci90": [
+      -0.3004,
+      -0.0217
+     ]
+    },
+    "mdrev": {
+     "n": 188,
+     "clusters": 37,
+     "mean": 0.0112,
+     "se": 0.1268,
+     "t": 0.09,
+     "ci90": [
+      -0.1973,
+      0.2197
+     ]
+    },
+    "gap": {
+     "n": 237,
+     "clusters": 38,
+     "mean": -0.2591,
+     "se": 0.1295,
+     "t": -2.0,
+     "ci90": [
+      -0.4721,
+      -0.0461
+     ]
+    },
+    "both": {
+     "n": 54,
+     "clusters": 26,
+     "mean": -0.3302,
+     "se": 0.125,
+     "t": -2.64,
+     "ci90": [
+      -0.5357,
+      -0.1246
+     ]
+    },
+    "mdrev_rr_plan_median": 1.56
+   }
+  },
+  "nearest/pass": {
+   "in_sample": {
+    "all": {
+     "n": 266,
+     "clusters": 21,
+     "mean": -0.1925,
+     "se": 0.1124,
+     "t": -1.71,
+     "ci90": [
+      -0.3774,
+      -0.0076
+     ]
+    },
+    "mdrev": {
+     "n": 63,
+     "clusters": 18,
+     "mean": -0.2088,
+     "se": 0.1001,
+     "t": -2.09,
+     "ci90": [
+      -0.3735,
+      -0.0442
+     ]
+    },
+    "gap": {
+     "n": 171,
+     "clusters": 21,
+     "mean": -0.138,
+     "se": 0.1692,
+     "t": -0.82,
+     "ci90": [
+      -0.4163,
+      0.1403
+     ]
+    },
+    "both": {
+     "n": 32,
+     "clusters": 17,
+     "mean": -0.4515,
+     "se": 0.1925,
+     "t": -2.35,
+     "ci90": [
+      -0.7682,
+      -0.1349
+     ]
+    },
+    "mdrev_rr_plan_median": 1.41
+   },
+   "holdout": {
+    "all": {
+     "n": 405,
+     "clusters": 38,
+     "mean": -0.1345,
+     "se": 0.0978,
+     "t": -1.37,
+     "ci90": [
+      -0.2954,
+      0.0265
+     ]
+    },
+    "mdrev": {
+     "n": 110,
+     "clusters": 36,
+     "mean": 0.1959,
+     "se": 0.1779,
+     "t": 1.1,
+     "ci90": [
+      -0.0967,
+      0.4885
+     ]
+    },
+    "gap": {
+     "n": 237,
+     "clusters": 38,
+     "mean": -0.2591,
+     "se": 0.1295,
+     "t": -2.0,
+     "ci90": [
+      -0.4721,
+      -0.0461
+     ]
+    },
+    "both": {
+     "n": 58,
+     "clusters": 26,
+     "mean": -0.2516,
+     "se": 0.1871,
+     "t": -1.35,
+     "ci90": [
+      -0.5593,
+      0.0561
+     ]
+    },
+    "mdrev_rr_plan_median": 1.54
+   }
+  },
+  "mirror/pass": {
+   "in_sample": {
+    "all": {
+     "n": 204,
+     "clusters": 21,
+     "mean": -0.1827,
+     "se": 0.1489,
+     "t": -1.23,
+     "ci90": [
+      -0.4277,
+      0.0622
+     ]
+    },
+    "gap": {
+     "n": 171,
+     "clusters": 21,
+     "mean": -0.138,
+     "se": 0.1692,
+     "t": -0.82,
+     "ci90": [
+      -0.4163,
+      0.1403
+     ]
+    },
+    "both": {
+     "n": 33,
+     "clusters": 17,
+     "mean": -0.4145,
+     "se": 0.197,
+     "t": -2.1,
+     "ci90": [
+      -0.7386,
+      -0.0905
+     ]
+    },
+    "mdrev_rr_plan_median": null
+   },
+   "holdout": {
+    "all": {
+     "n": 298,
+     "clusters": 38,
+     "mean": -0.2606,
+     "se": 0.1158,
+     "t": -2.25,
+     "ci90": [
+      -0.451,
+      -0.0702
+     ]
+    },
+    "gap": {
+     "n": 239,
+     "clusters": 38,
+     "mean": -0.2672,
+     "se": 0.1275,
+     "t": -2.1,
+     "ci90": [
+      -0.4769,
+      -0.0575
+     ]
+    },
+    "both": {
+     "n": 59,
+     "clusters": 26,
+     "mean": -0.2338,
+     "se": 0.1834,
+     "t": -1.27,
+     "ci90": [
+      -0.5355,
+      0.0679
+     ]
+    },
+    "mdrev_rr_plan_median": null
+   }
+  },
+  "stretch/thin": {
+   "in_sample": {
+    "all": {
+     "n": 192,
+     "clusters": 20,
+     "mean": -0.1747,
+     "se": 0.1496,
+     "t": -1.17,
+     "ci90": [
+      -0.4208,
+      0.0714
+     ]
+    },
+    "mdrev": {
+     "n": 29,
+     "clusters": 16,
+     "mean": -0.001,
+     "se": 0.1177,
+     "t": -0.01,
+     "ci90": [
+      -0.1946,
+      0.1926
+     ]
+    },
+    "gap": {
+     "n": 131,
+     "clusters": 19,
+     "mean": -0.1443,
+     "se": 0.2113,
+     "t": -0.68,
+     "ci90": [
+      -0.492,
+      0.2033
+     ]
+    },
+    "both": {
+     "n": 32,
+     "clusters": 16,
+     "mean": -0.4565,
+     "se": 0.1964,
+     "t": -2.32,
+     "ci90": [
+      -0.7796,
+      -0.1334
+     ]
+    },
+    "mdrev_rr_plan_median": 1.5
+   },
+   "holdout": {
+    "all": {
+     "n": 325,
+     "clusters": 37,
+     "mean": -0.1972,
+     "se": 0.1126,
+     "t": -1.75,
+     "ci90": [
+      -0.3825,
+      -0.0119
+     ]
+    },
+    "mdrev": {
+     "n": 47,
+     "clusters": 23,
+     "mean": 0.2262,
+     "se": 0.1077,
+     "t": 2.1,
+     "ci90": [
+      0.049,
+      0.4034
+     ]
+    },
+    "gap": {
+     "n": 220,
+     "clusters": 37,
+     "mean": -0.2825,
+     "se": 0.1365,
+     "t": -2.07,
+     "ci90": [
+      -0.5071,
+      -0.0579
+     ]
+    },
+    "both": {
+     "n": 58,
+     "clusters": 26,
+     "mean": -0.2168,
+     "se": 0.1876,
+     "t": -1.16,
+     "ci90": [
+      -0.5254,
+      0.0918
+     ]
+    },
+    "mdrev_rr_plan_median": 1.5
+   }
+  },
+  "nearest/thin": {
+   "in_sample": {
+    "all": {
+     "n": 170,
+     "clusters": 19,
+     "mean": -0.2027,
+     "se": 0.1714,
+     "t": -1.18,
+     "ci90": [
+      -0.4847,
+      0.0793
+     ]
+    },
+    "mdrev": {
+     "n": 7,
+     "clusters": 6,
+     "mean": -0.1346,
+     "se": 0.3332,
+     "t": -0.4,
+     "ci90": [
+      -0.6827,
+      0.4136
+     ]
+    },
+    "gap": {
+     "n": 131,
+     "clusters": 19,
+     "mean": -0.1443,
+     "se": 0.2113,
+     "t": -0.68,
+     "ci90": [
+      -0.492,
+      0.2033
+     ]
+    },
+    "both": {
+     "n": 32,
+     "clusters": 16,
+     "mean": -0.4565,
+     "se": 0.1964,
+     "t": -2.32,
+     "ci90": [
+      -0.7796,
+      -0.1334
+     ]
+    },
+    "mdrev_rr_plan_median": 1.21
+   },
+   "holdout": {
+    "all": {
+     "n": 285,
+     "clusters": 37,
+     "mean": -0.2698,
+     "se": 0.1197,
+     "t": -2.25,
+     "ci90": [
+      -0.4666,
+      -0.0729
+     ]
+    },
+    "mdrev": {
+     "n": 6,
+     "clusters": 5,
+     "mean": -0.157,
+     "se": 0.2405,
+     "t": -0.65,
+     "ci90": [
+      -0.5527,
+      0.2387
+     ]
+    },
+    "gap": {
+     "n": 220,
+     "clusters": 37,
+     "mean": -0.2825,
+     "se": 0.1365,
+     "t": -2.07,
+     "ci90": [
+      -0.5071,
+      -0.0579
+     ]
+    },
+    "both": {
+     "n": 59,
+     "clusters": 26,
+     "mean": -0.2338,
+     "se": 0.1834,
+     "t": -1.27,
+     "ci90": [
+      -0.5355,
+      0.0679
+     ]
+    },
+    "mdrev_rr_plan_median": 1.25
+   }
+  }
+ }
+}

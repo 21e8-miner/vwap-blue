@@ -1,7 +1,7 @@
 # VWAP Blue
 
 **Best-of Blueline + VWAP One** in the VWAP desk layout, with Modern-VWAP-style
-adaptive bands and Kaufman Efficiency Ratio regime gates (**v1.5.0**).
+adaptive bands and Kaufman Efficiency Ratio regime gates (**v1.6.0**).
 
 **Research scanner, no demonstrated edge**: replayed on sessions no rule was tuned on, its grade-A
 triggers lost money after costs on US equities and showed no edge on crypto
@@ -37,6 +37,7 @@ The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs
 | **v1.4** | **Honest replay**: next-bar-open fills, R **net of costs**, session-clustered CIs · **stale-bar guard** · **forward signal ledger** |
 | **v1.4.1** | **Prior-close fix**: gaps were measured from the prior session's 09:30 close instead of its last RTH bar · Pages demo runs the desk engine (`engine.js`, parity-tested) · round-trip cost in R on every plan · blocked fades badge WATCH, not TRIGGER |
 | **v1.5.0** | **Crypto gets a 24h session**: blue, orange, RVOL and signals use the whole ET day, the prior close is the prior day's last bar, and there is no gap fade (a 24/7 market has no opening gap) · first crypto replay (`replay_crypto.py`) · the session replay grades every bar as the desk saw it and closes equity trades by 16:00 (`causal_check.py` re-runs its old end-of-day trigger search) |
+| **v1.6.0** | **mdrev gets a real target**: the first level beyond entry among today's VWAP, today's extreme before the reclaim, the prior session's regular-hours extreme and close (`engine._md_target`); with none, the plan has no target and cannot grade A. v1.5.x stretched a fixed max(1.5 × risk, 0.4%), so every such R:R read 1.50 and the R:R gate never applied · the rule and a missing-RVOL gate are engine options (`md_target`, `rvol_missing`), compared in `md_target_check.py` · parity now covers every option |
 
 ## Run (local full desk)
 
@@ -100,6 +101,10 @@ python3 replay_crypto.py --source coinbase                                  # Co
 # The replay's old end-of-day trigger search on the same bars: what it missed, how it scored
 python3 causal_check.py --bars data/backtests/equity_bars.pkl
 
+# mdrev target rules and the missing-RVOL gate on the same bars, plus a 60-day holdout
+python3 md_target_check.py --fetch-holdout data/backtests/holdout_60d.pkl
+python3 md_target_check.py --bars data/backtests/equity_bars.pkl --holdout data/backtests/holdout_60d.pkl
+
 # Breakout vs fade at the engine's own gap states (first band break, fakeout): same events, both
 # directions, same exits, net of costs, session-clustered (60 days of 5m bars, first 96 equities)
 python3 direction_check.py
@@ -143,6 +148,8 @@ after-hours bar, ~19:55 ET (*after hours*). Crypto holds to its ET day's last ba
 | **Sep 3 – Oct 2** | **out of sample, refetched, all 96 names** ³ | **v1.5.0** | **bar by bar · 16:00** | next bar open +2 bps | 428 | −0.08 | **−0.17 ± 0.06** | negative (t −2.8) |
 | Sep 3 – Oct 2 | the same bars | v1.5.0 | bar by bar · after hours | next bar open +2 bps | 428 | −0.11 | −0.20 ± 0.07 | negative (t −3.0) |
 | Sep 3 – Oct 2 | the same bars | v1.5.0 | end of day · 16:00 | next bar open +2 bps | 289 | −0.04 | −0.16 ± 0.10 | inconclusive (t −1.5) |
+| **Jul 28 – Oct 19** | **60 days of 5m bars, all 96 names** ⁴ | **v1.6.0** | **bar by bar · 16:00** | next bar open +2 bps | 654 | −0.05 | **−0.16 ± 0.08** | negative (t −2.1) |
+| Jul 28 – Oct 19 | the same bars | v1.5.0 | bar by bar · 16:00 | next bar open +2 bps | 1,094 | −0.04 | −0.13 ± 0.05 | negative (t −2.5) |
 
 ¹ Measured every gap from the prior session's 09:30 close (fixed in v1.4.1). August's 5m bars
 are past the free data window, so its rows cannot be re-run. The v1.4.1 and v1.4.0 rows share one
@@ -161,8 +168,26 @@ Sep 3 and an RVOL baseline on Sep 4: on the 92 names, bar by bar and after hours
 at −0.21R against 431 at −0.23R, the same trades from Sep 5 on. The old replay (end of day · after
 hours) on these bars: 289 trades, −0.18R ± 0.12 (t −1.5).
 
+⁴ Yahoo's chart API serves 60 days of 5m bars (`range=60d`); the desk's own fetch asks for 32.
+Fetched Oct 19 in the evening (`md_target_check.py --fetch-holdout`), so it overlaps the September
+rows above and adds Jul 28 – Aug 29 and Oct 5 – 19. Paired on these bars, v1.6.0 keeps 627 of
+v1.5.0's trades, drops 467 (multi-day reclaims with no real level beyond entry) and adds 27; the
+per-session difference is −0.03R ± 0.05 (t −0.6).
+
 What this says:
 
+- **The mdrev target was a placeholder; a real one changes nothing measurable.** Every mdrev
+  plan in v1.5.x had R:R 1.50 by construction (232 of 232 in September). `md_target_check.py`
+  replays five real-level rules on the September bars and on 38 other sessions: none is better
+  than the stretch in both, and the stretch itself is flat (−0.13R in September, +0.02R
+  elsewhere). v1.6.0 takes the nearest level on principle, so that R:R and its gate mean
+  something, not because it scored best. Making a missing RVOL count as thin halved the trades
+  without helping, so it stays an option, off.
+- **The losses are the gap fades.** On 59 sessions, v1.6.0's gap fades lost −0.21R ± 0.11
+  (t −1.9, 388 trades) and gap + reclaim setups −0.34R ± 0.14 (t −2.4, 92), while multi-day
+  reclaims made +0.05R ± 0.13 (174); v1.5.0 on the same bars splits the same way. With the
+  breakout-vs-fade check below finding no edge in the other direction either, the opening gap
+  is where this engine loses, and what a forward test should watch.
 - **No demonstrated edge.** August's edge was never distinguishable from zero once costs and
   same-day clustering are counted, and the rule set tuned on August lost about 0.5R per trade
   relative to that in September.
@@ -206,6 +231,8 @@ version of these results included them (4 v1.5.0 trades: 149 instead of 145, ± 
 | Sep 5 – Oct 3 | v1.4.1 with only its gap fade switched off | Yahoo | 137 | +0.09 | +0.01 ± 0.11 | inconclusive (t 0.1) |
 | Sep 5 – Oct 3 | v1.4.1 · end-of-day trigger search | Coinbase, 43 names | 257 | −0.53 | −0.98 ± 0.12 | negative (t −8.3) |
 | Sep 5 – Oct 3 | v1.5.0 | Coinbase, 43 names | 128 | +0.18 | +0.13 ± 0.17 | inconclusive (t 0.7) |
+| **Sep 20 – Oct 18** | **v1.6.0 · mdrev to the nearest real level** | Yahoo, refetched Oct 19 | 76 | +0.38 | **+0.31 ± 0.22** | inconclusive (t 1.4) |
+| Sep 20 – Oct 18 | v1.5.0 on the same bars | Yahoo | 180 | +0.30 | +0.24 ± 0.16 | inconclusive (t 1.6) |
 
 All Yahoo rows replay one fetch of 36 names; the two Coinbase rows share another (on Coinbase,
 ARB-USD and TON-USD are Arbitrum and Toncoin). Without a gap fade no crypto trigger depends on later
@@ -254,7 +281,11 @@ search on the same bars) · crypto:
 [`research/replay_crypto_2026-10-04_v1.4.1.json`](research/replay_crypto_2026-10-04_v1.4.1.json)
 and [`research/replay_crypto_2026-10-04_v1.5.0.json`](research/replay_crypto_2026-10-04_v1.5.0.json)
 (`method.paired_v1_4_1_same_bars`, `method.causal_check`, `method.sensitivity`: UTC day, no gap
-fade, Coinbase bars). A replay never overwrites an existing snapshot for the same day.
+fade, Coinbase bars) · v1.6.0: [`research/replay_2026-10-19_v1.6.0.json`](research/replay_2026-10-19_v1.6.0.json)
+and [`research/replay_crypto_2026-10-19_v1.6.0.json`](research/replay_crypto_2026-10-19_v1.6.0.json)
+(`method.paired_v1_5_0_same_bars`) · the target rules:
+[`research/md_target_check_2026-10-19.json`](research/md_target_check_2026-10-19.json). A replay
+never overwrites an existing snapshot for the same day.
 
 #### Breakout or fade? (`direction_check.py`, Jul 28 – Oct 19, 59 sessions)
 
@@ -303,6 +334,7 @@ providers.py / data.py   # free feed rotation; crypto history pager + per-coin c
 backtest_today_scans.py · walkforward.py · replay_sessions.py
 replay_crypto.py    # the same replay on the crypto names (Yahoo or Coinbase bars, paired engines)
 causal_check.py     # the replay's old end-of-day trigger search, against its bar-by-bar one
+md_target_check.py  # mdrev target rules + missing-RVOL gate, same bars and a 60-day holdout
 direction_check.py  # breakout vs fade at the gap states (first break, fakeout), paired, net of costs
 honest.py           # cost-in-R and session-clustered standard errors (replay + ledger)
 ledger.py           # forward signal ledger: record → resolve → report (data/signals/, gitignored)

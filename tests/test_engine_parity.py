@@ -217,7 +217,7 @@ def make_cases(rng: random.Random, n_series: int):
     return cases + [trend_day_case()] + crypto_session_cases()
 
 
-def _py_row(ticker, rows, now):
+def _py_row(ticker, rows, now, opts=None):
     nan = float("nan")
     df = pd.DataFrame(
         {"Open": [nan if r[1] is None else r[1] for r in rows],
@@ -227,7 +227,7 @@ def _py_row(ticker, rows, now):
          "Volume": [float(r[5]) for r in rows]},
         index=pd.DatetimeIndex([r[0] for r in rows]),
     )
-    row = analyze(ticker, df, now=now)
+    row = analyze(ticker, df, now=now, opts=opts)
     apply_stale_guard(row, bar_age_min(df, now.timestamp()), MAX_AGE_MIN)
     dvol = session_dollar_volume(df, ticker)                      # as app.run_scan, after the guard
     row["dollar_vol"] = round(dvol, 0) if dvol else 0
@@ -253,6 +253,23 @@ def _close(a, b, nd):
 
 
 @unittest.skipUnless(NODE, "node is not installed")
+def _mismatches(py_rows, js_rows):
+    """Field-by-field differences between engine.py rows and engine.js rows, at display precision."""
+    mismatches = []
+    for p, j in zip(py_rows, js_rows):
+        for f in EXACT:
+            if p.get(f) != j.get(f):
+                mismatches.append((p["ticker"], f, p.get(f), j.get(f)))
+        for f in PRICES:
+            nd = 4 if p.get(f) is not None and abs(p[f]) < 10 else 2
+            if not _close(p.get(f), j.get(f), nd):
+                mismatches.append((p["ticker"], f, p.get(f), j.get(f)))
+        for f, nd in DECIMALS.items():
+            if not _close(p.get(f), j.get(f), nd):
+                mismatches.append((p["ticker"], f, p.get(f), j.get(f)))
+    return mismatches
+
+
 class TestEngineParity(unittest.TestCase):
 
     @classmethod
@@ -274,19 +291,26 @@ class TestEngineParity(unittest.TestCase):
 
     def test_every_field_matches(self):
         self.assertEqual(len(self.py), len(self.js))
-        mismatches = []
-        for p, j in zip(self.py, self.js):
-            for f in EXACT:
-                if p.get(f) != j.get(f):
-                    mismatches.append((p["ticker"], f, p.get(f), j.get(f)))
-            for f in PRICES:
-                nd = 4 if p.get(f) is not None and abs(p[f]) < 10 else 2
-                if not _close(p.get(f), j.get(f), nd):
-                    mismatches.append((p["ticker"], f, p.get(f), j.get(f)))
-            for f, nd in DECIMALS.items():
-                if not _close(p.get(f), j.get(f), nd):
-                    mismatches.append((p["ticker"], f, p.get(f), j.get(f)))
+        mismatches = _mismatches(self.py, self.js)
         self.assertFalse(mismatches, f"{len(mismatches)} mismatches, first: {mismatches[:12]}")
+
+    def test_every_option_matches(self):
+        """The mdrev target rules and the missing-RVOL gate that are not the default, on every 4th case."""
+        cases = make_cases(random.Random(SEED), N_SERIES)[::4]
+        variants = [{"md_target": m} for m in ("stretch", "blue_only", "day", "prior", "nearest", "mirror")]
+        variants += [{"rvol_missing": "thin"}, {"rvol_missing": "pass"}]
+        jcases, py = [], []
+        for v in variants:
+            for c in cases:
+                py.append(_py_row(*c, opts=v))
+                jcases.append({**_js_case(*c), "opts": v})
+        payload = {"cases": jcases, "grades": [], "floors": [], "geometry": [], "min_dvol": MIN_DVOL, "tickers": []}
+        proc = subprocess.run([NODE, str(RUNNER)], input=json.dumps(payload),
+                              capture_output=True, text=True, timeout=600, cwd=str(ROOT))
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        mismatches = _mismatches(py, json.loads(proc.stdout)["rows"])
+        self.assertFalse(mismatches, f"{len(mismatches)} mismatches, first: {mismatches[:12]}")
+
 
     def test_scan_helpers_match_the_desk(self):
         """Session $ volume, the illiquid flag and the rotation rank (data.py), and the grade floor (app.py)."""
