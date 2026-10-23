@@ -12,6 +12,7 @@ triggers lost money after costs on US equities and showed no edge on crypto
 | | |
 |--|--|
 | **Web demo (GitHub Pages)** | **https://21e8-miner.github.io/vwap-blue/** |
+| **How the engine works, as a machine** | **https://21e8-miner.github.io/vwap-blue/figure/** ([light](https://21e8-miner.github.io/vwap-blue/figure/light.html)) |
 | **Source** | https://github.com/21e8-miner/vwap-blue |
 | **Related desk** | https://21e8-miner.github.io/blueline-orangeline/ |
 
@@ -76,6 +77,23 @@ bars **beyond blue by adaptive volume-weighted σ** → **confirm**. Target
 - **Trend regime** (high KER): suppress pure gap-fades; keep multi-day reclaim  
 - **Grade A** requires R:R + RVOL with adequate `rvol_n`  
 - **Live actionable** = Grade A/LA only (no thin sample, no One conflict)
+
+## The VWAP balance (figure)
+
+[`figure/`](figure/) is an interactive isometric figure of the gap-fade mechanism, drawn as a bench
+balance: every 5m bar hangs a slotted weight, as thick as its volume, under a beam at the bar's typical
+price, so the day beam's balance point is **blue** and the two-day beam, carrying the prior session's
+weights too, balances on its column at **orange**. Spring jaws either side of the day beam's hanger open
+to the adaptive band (0.15 σ × the KER multiplier, read on the dial), and a pointer on the rod in front
+follows the close; after K = 2 closes beyond a jaw the counter trips a flag. Hover scrubs the session,
+arrow keys step bars, `T` jumps to the trigger.
+
+Every number and position comes from [`figure/model.mjs`](figure/model.mjs), a pure per-bar port of
+`_step_bar` / `_resolve_open`, on a seeded synthetic two-session tape ([`figure/bars.mjs`](figure/bars.mjs)).
+`node figure/parity.mjs` runs `engine.js` on the same bars and must report `0 mismatches` at every bar.
+`node figure/build.mjs` (and `--light`) rebuilds the pages with the vendored
+[Anatomy](https://github.com/wheresryan22/anatomy) kit in `figure/kit/` (MIT). The figure shows the
+mechanism, not an edge: see [Honest results](#honest-results).
 
 ## Research tools
 
