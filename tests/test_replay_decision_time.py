@@ -99,7 +99,11 @@ class TestAnalyzeBars(unittest.TestCase):
 
 
 class TestDecisionTimeSearch(unittest.TestCase):
-    """Synthetic equity tapes on which the replay and the old end-of-day search take different trades."""
+    """
+    Synthetic equity tapes on which the replay and the old end-of-day search take different trades. At grade
+    floor B: since v1.7.0 grade A is reclaims only, and a reclaim never depends on later bars, so the two
+    searches can only disagree on the gap fades, which grade B.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -109,8 +113,8 @@ class TestDecisionTimeSearch(unittest.TestCase):
             if not series or looks_crypto(series[0]):
                 continue
             ticker, df = series[0], frame(series[1])
-            replayed = rs.replay([ticker], {ticker: df}, {}, {}, {}, {}, "A", rs.MODELS)
-            eod, _ = causal_check._eod_ticker((None, ticker, df, "A"))
+            replayed = rs.replay([ticker], {ticker: df}, {}, {}, {}, {}, "B", rs.MODELS)
+            eod, _ = causal_check._eod_ticker((None, ticker, df, "B"))
             if classic(replayed) != classic(eod):
                 cls.cases.append((ticker, df, replayed))
             if len(cls.cases) == 3:
@@ -132,7 +136,7 @@ class TestDecisionTimeSearch(unittest.TestCase):
                     if i0 + k + 1 < 30:
                         continue
                     row = engine.analyze_bars(ticker, parsed[: i0 + k + 1])
-                    if row["_chart"]["markers"]["trig"] != k or not rs._tradeable(row, "A"):
+                    if row["_chart"]["markers"]["trig"] != k or not rs._tradeable(row, "B"):
                         continue
                     eod = engine.analyze_bars(ticker, parsed[: i0 + len(rs.session_bars(ticker, day))])
                     new, fill = rs.trades_at(ticker, row, day, k, rs.MODELS, grade_eod=eod["grade"],
@@ -148,7 +152,7 @@ class TestDecisionTimeSearch(unittest.TestCase):
             for t in (t for t in replayed if t.model == "classic"):
                 prefix = df[[int(x.timestamp() * 1000) <= ts[t.trigger_time] for x in df.index]]
                 row = engine.analyze(ticker, prefix)
-                self.assertTrue(rs._tradeable(row, "A"))
+                self.assertTrue(rs._tradeable(row, "B"))
                 bars = row["_chart"]["bars"]
                 self.assertEqual(bars[row["_chart"]["markers"]["trig"]]["time"], t.trigger_time)
                 self.assertEqual((row["side"], row["stop"], row["target"], row["entry"]),

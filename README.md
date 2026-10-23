@@ -1,7 +1,7 @@
 # VWAP Blue
 
 **Best-of Blueline + VWAP One** in the VWAP desk layout, with Modern-VWAP-style
-adaptive bands and Kaufman Efficiency Ratio regime gates (**v1.6.0**).
+adaptive bands and Kaufman Efficiency Ratio regime gates (**v1.7.0**).
 
 **Research scanner, no demonstrated edge**: replayed on sessions no rule was tuned on, its grade-A
 triggers lost money after costs on US equities and showed no edge on crypto
@@ -38,6 +38,7 @@ The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs
 | **v1.4.1** | **Prior-close fix**: gaps were measured from the prior session's 09:30 close instead of its last RTH bar · Pages demo runs the desk engine (`engine.js`, parity-tested) · round-trip cost in R on every plan · blocked fades badge WATCH, not TRIGGER |
 | **v1.5.0** | **Crypto gets a 24h session**: blue, orange, RVOL and signals use the whole ET day, the prior close is the prior day's last bar, and there is no gap fade (a 24/7 market has no opening gap) · first crypto replay (`replay_crypto.py`) · the session replay grades every bar as the desk saw it and closes equity trades by 16:00 (`causal_check.py` re-runs its old end-of-day trigger search) |
 | **v1.6.0** | **mdrev gets a real target**: the first level beyond entry among today's VWAP, today's extreme before the reclaim, the prior session's regular-hours extreme and close (`engine._md_target`); with none, the plan has no target and cannot grade A. v1.5.x stretched a fixed max(1.5 × risk, 0.4%), so every such R:R read 1.50 and the R:R gate never applied · the rule and a missing-RVOL gate are engine options (`md_target`, `rvol_missing`), compared in `md_target_check.py` · parity now covers every option |
+| **v1.7.0** | **Grade A means a multi-day reclaim.** On 59 replayed sessions the gap fade's direction call did worse than its mirror (−0.21R vs −0.09R) while the reclaim's was the only one with a hint (+0.33R ± 0.19), so a fade, alone or with a reclaim, is capped at grade B (`fade_max_grade`); the desk's default floor moves to B, so the board still shows the fades · the **Record** column shows every row's class as it replayed (`evidence.py`; the capped fades' record is the paired v1.6.0 replay's on the same bars, marked A→B, since no grade-A replay takes them any more) · the forward ledger records the capped fades too, reported beside grade A |
 
 ## Run (local full desk)
 
@@ -53,7 +54,7 @@ Env:
 - `VWAP_BLUE_LIVE=0` — disable auto live
 - `VWAP_BLUE_LIVE_SEC=45` — scan interval
 - `VWAP_BLUE_PORT=8791`
-- `VWAP_BLUE_GRADE_MIN=A` — desk grade floor (default A)
+- `VWAP_BLUE_GRADE_MIN=B` — desk grade floor (default B since v1.7.0: gap fades show at B, reclaims at A)
 - `VWAP_BLUE_POOL_MULT=10` — universe pool multiplier (was effectively ~3× / 48 names)
 - `VWAP_BLUE_MIN_DVOL=2000000` — equity $ volume floor (`0` = off), on the larger of a stock's ET day
   so far and its prior session. Crypto gets a quarter of it ($0.5M at the default) on its last 24
@@ -103,6 +104,10 @@ python3 replay_crypto.py --source binance-vision --days 365 --jobs 8 --save-bars
 
 # The replay's old end-of-day trigger search on the same bars: what it missed, how it scored
 python3 causal_check.py --bars data/backtests/equity_bars.pkl
+
+# What each setup class did on the replays the page cites → research/evidence_v<engine>.json, pasted
+# into the page as its Record column (the page test recomputes it from the linked files)
+python3 evidence.py --embed index.html cf-pages/index.html
 
 # mdrev target rules and the missing-RVOL gate on the same bars, plus a 60-day holdout
 python3 md_target_check.py --fetch-holdout data/backtests/holdout_60d.pkl
@@ -157,6 +162,8 @@ after-hours bar, ~19:55 ET (*after hours*). Crypto holds to its ET day's last ba
 | Sep 3 – Oct 2 | the same bars | v1.5.0 | end of day · 16:00 | next bar open +2 bps | 289 | −0.04 | −0.16 ± 0.10 | inconclusive (t −1.5) |
 | **Jul 28 – Oct 19** | **60 days of 5m bars, all 96 names** ⁴ | **v1.6.0** | **bar by bar · 16:00** | next bar open +2 bps | 654 | −0.05 | **−0.16 ± 0.08** | negative (t −2.1) |
 | Jul 28 – Oct 19 | the same bars | v1.5.0 | bar by bar · 16:00 | next bar open +2 bps | 1,094 | −0.04 | −0.13 ± 0.05 | negative (t −2.5) |
+| **Jul 28 – Oct 19** | **the same bars; grade A = reclaims only** | **v1.7.0** | **bar by bar · 16:00** | next bar open +2 bps | 174 | +0.12 | **+0.05 ± 0.13** | inconclusive (t 0.4) |
+| Jul 28 – Oct 19 | the same bars; the fades v1.7.0 grades B | v1.6.0 ⁵ | bar by bar · 16:00 | next bar open +2 bps | 480 | −0.11 | −0.23 ± 0.09 | negative (t −2.5) |
 
 ¹ Measured every gap from the prior session's 09:30 close (fixed in v1.4.1). August's 5m bars
 are past the free data window, so its rows cannot be re-run. The v1.4.1 and v1.4.0 rows share one
@@ -181,8 +188,18 @@ rows above and adds Jul 28 – Aug 29 and Oct 5 – 19. Paired on these bars, v1
 v1.5.0's trades, drops 467 (multi-day reclaims with no real level beyond entry) and adds 27; the
 per-session difference is −0.03R ± 0.05 (t −0.6).
 
+⁵ The 480 v1.6.0 grade-A trades that v1.7.0 grades B: the gap fades alone and with a reclaim. Their
+direction call did worse than their mirror, −0.11R ± 0.17; the 174 reclaims' did better, +0.33R ± 0.19
+(`method.paired_v1_6_0_same_bars` in the v1.7.0 file).
+
 What this says:
 
+- **v1.7.0 changes what grade A means, not what the engine finds.** Every row v1.6.0 showed still
+  shows at the desk's new default floor of B; the grade now says which class has any evidence behind
+  it. Grade A, the reclaims: +0.05R ± 0.13 on 54 sessions, inconclusive, with the only positive
+  direction call. Grade B, the fades: −0.23R ± 0.09, negative, and worse than their mirror. A
+  premarket or cost gate was tried and withdrawn: the premarket triggers *are* the reclaims, and the
+  trades with the highest cost in R had the best direction.
 - **The mdrev target was a placeholder; a real one changes nothing measurable.** Every mdrev
   plan in v1.5.x had R:R 1.50 by construction (232 of 232 in September). `md_target_check.py`
   replays five real-level rules on the September bars and on 38 other sessions: none is better
@@ -309,7 +326,10 @@ and [`research/replay_crypto_2026-10-04_v1.5.0.json`](research/replay_crypto_202
 (`method.paired_v1_4_1_same_bars`, `method.causal_check`, `method.sensitivity`: UTC day, no gap
 fade, Coinbase bars) · v1.6.0: [`research/replay_2026-10-19_v1.6.0.json`](research/replay_2026-10-19_v1.6.0.json)
 and [`research/replay_crypto_2026-10-19_v1.6.0.json`](research/replay_crypto_2026-10-19_v1.6.0.json)
-(`method.paired_v1_5_0_same_bars`) · the target rules:
+(`method.paired_v1_5_0_same_bars`) · v1.7.0: [`research/replay_2026-10-19_v1.7.0.json`](research/replay_2026-10-19_v1.7.0.json)
+(reclaims only on the 60-day bars, `method.paired_v1_6_0_same_bars` with the capped fades) and
+[`research/replay_crypto_2026-10-22_365d_binance_v1.7.0.json`](research/replay_crypto_2026-10-22_365d_binance_v1.7.0.json)
+(the same crypto trades as v1.6.0: crypto has no gap fade) · the target rules:
 [`research/md_target_check_2026-10-19.json`](research/md_target_check_2026-10-19.json). A replay
 never overwrites an existing snapshot for the same day.
 
@@ -361,6 +381,7 @@ backtest_today_scans.py · walkforward.py · replay_sessions.py
 replay_crypto.py    # the same replay on the crypto names (Yahoo, Coinbase or Binance archive bars, paired engines)
 binance_vision.py   # Binance's public bulk kline archive: monthly/daily zips, checksums, cache
 causal_check.py     # the replay's old end-of-day trigger search, against its bar-by-bar one
+evidence.py         # per-class record (n, net R, direction over mirror) from the banner's replays → page + /api/evidence
 md_target_check.py  # mdrev target rules + missing-RVOL gate, same bars and a 60-day holdout
 direction_check.py  # breakout vs fade at the gap states (first break, fakeout), paired, net of costs
 honest.py           # cost-in-R and session-clustered standard errors (replay + ledger)

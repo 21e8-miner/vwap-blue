@@ -169,7 +169,7 @@
 </head>
 <body>
   <header>
-    <h1><span class="live-dot" id="dot"></span>VWAP Blue <em>blue · orange · KER regime · grade A desk</em></h1>
+    <h1><span class="live-dot" id="dot"></span>VWAP Blue <em>blue · orange · KER regime · A = reclaim, fades at B</em></h1>
     <input id="tickers" type="text" placeholder="blank = rotated universe" />
     <input id="max" type="number" value="16" min="1" max="200" title="show top N after rank" />
     <select id="mode" title="data mode">
@@ -178,8 +178,8 @@
       <option value="yfinance">yfinance</option>
     </select>
     <select id="gradeMin" title="min grade">
-      <option value="A" selected>grade ≥ A</option>
-      <option value="B">grade ≥ B</option>
+      <option value="A">grade ≥ A</option>
+      <option value="B" selected>grade ≥ B</option>
       <option value="C">grade ≥ C</option>
     </select>
     <input id="minDvol" type="number" value="2" min="0" max="500" step="0.5" title="min session $vol (millions). 0 = off" style="width:64px" />
@@ -213,6 +213,7 @@
             <th data-k="signal">Signal</th>
             <th data-k="regime">Reg</th>
             <th data-k="state">State</th>
+            <th title="This setup class on the replays the public page cites: trades · net R per trade after costs · what the direction call added over its mirror">Record</th>
             <th data-k="price">Price</th>
             <th data-k="blue">Blue</th>
             <th data-k="orange">Orange</th>
@@ -226,7 +227,7 @@
             <th data-k="provider">Feed</th>
           </tr>
         </thead>
-        <tbody id="tb"><tr><td colspan="16" class="m" style="padding:28px;text-align:center">Loading…</td></tr></tbody>
+        <tbody id="tb"><tr><td colspan="17" class="m" style="padding:28px;text-align:center">Loading…</td></tr></tbody>
       </table>
     </div>
 
@@ -255,6 +256,26 @@
   <script>
     const $ = id => document.getElementById(id);
     let rows = [], sortKey = 'edge', sortAsc = false, liveOn = false, pollTimer = null;
+    let EVIDENCE = {};      // /api/evidence: what each setup class did on the replays the public page cites
+    const fmtR = x => x == null ? '—' : (x >= 0 ? '+' : '') + Number(x).toFixed(2) + 'R';
+    function evidenceFor(r) {
+      const seg = EVIDENCE.segments || {};
+      const asset = r.is_crypto ? 'crypto' : 'equity', mode = r.setup_mode || 'any';
+      return seg[`${asset}|${mode}|${r.side || 'all'}`] || seg[`${asset}|${mode}|all`] || null;
+    }
+    function recordCell(r) {
+      const e = evidenceFor(r);
+      if (!e) return '<span class="m">—</span>';
+      const net = e.net, dir = e.direction, capped = !!e.as_graded && e.as_graded !== 'A', tone = v => v == null ? 'm' : v > 0 ? 'pos' : 'neg';
+      const union = capped ? (EVIDENCE.capped || {})[r.is_crypto ? 'crypto' : 'equity'] : null;
+      const title = `${e.n} replayed trades of this class over ${e.sessions} sessions` + (capped ? `, graded ${e.as_graded}` : '') +
+        ` · net ${fmtR(net && net.mean)} ± ${net ? net.se.toFixed(2) : '—'} per trade after costs (${net ? net.verdict : '—'})` +
+        (dir ? ` · direction over mirror ${fmtR(dir.mean)} ± ${dir.se.toFixed(2)} (t ${dir.t})` : '') +
+        (union && union.direction ? ` · all ${union.n} capped fades together: direction over mirror ${fmtR(union.direction.mean)} ± ${union.direction.se.toFixed(2)} (t ${union.direction.t})` : '') +
+        ` · ${e.stopped} stopped, ${e.target} hit target`;
+      return `<span title="${esc(title)}"><span class="m">${e.n}</span> <span class="${tone(net && net.mean)}">${fmtR(net && net.mean)}</span>` +
+        (dir ? ` <span class="m">dir</span> <span class="${tone(dir.mean)}">${fmtR(dir.mean)}</span>` : '') + (capped ? ' <span class="m">A→B</span>' : '') + '</span>';
+    }
     const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     let selected = null, chartData = null, hoverIdx = null;
     const PAPER = new Map(); // session paper book
@@ -335,7 +356,7 @@
       const all = data.results || [];
       // A live scan started before a change still comes back with the old settings: apply the filters here too.
       // Feed errors are kept so a desk whose feeds are down says so.
-      const floor = $('gradeMin').value || 'A';
+      const floor = $('gradeMin').value || 'B';
       const max = +$('max').value || 16;
       rows = all.filter(r => r.error || (
         (!$('actOnly').checked || r.actionable || r.live_actionable) &&
@@ -362,7 +383,7 @@
         ` · ` +
         `<b>${m.actionable||0}</b> actionable · <b>${m.live_actionable||0}</b> live · ` +
         `<b>${m.grade_a||0}</b> grade A · conflicts <b>${m.conflicts||0}</b> · ` +
-        `floor <b>${m.grade_min||'A'}</b> · v${m.version||''} · <b>${m.mode||'—'}</b> · feeds <b>${prov}</b> · ` +
+        `floor <b>${m.grade_min||'B'}</b> · v${m.version||''} · <b>${m.mode||'—'}</b> · feeds <b>${prov}</b> · ` +
         `<b>${m.elapsed_sec ?? '—'}s</b>${rtt!=null ? ' · '+rtt.toFixed(2)+'s rtt' : ''} · ${m.asof||''}` + ageTxt +
         (m.live ? ' · <span class="pos">LIVE</span>' : '') +
         (reg ? ` · regime {${reg}}` : '') +
@@ -401,7 +422,7 @@
         actionable_only: $('actOnly').checked,
         force: !!force,
         mode: $('mode').value || 'hybrid',
-        grade_min: $('gradeMin').value || 'A',
+        grade_min: $('gradeMin').value || 'B',
         min_dvol: minDvolPayload(),
       };
       if (raw) body.tickers = raw.split(/[,\s]+/).filter(Boolean);
@@ -431,7 +452,7 @@
         max: clampInput('max', 1, 200, 16),
         actionable_only: $('actOnly').checked,
         mode: $('mode').value || 'hybrid',
-        grade_min: $('gradeMin').value || 'A',
+        grade_min: $('gradeMin').value || 'B',
         min_dvol: minDvolPayload(),
       };
       body.tickers = raw ? raw.split(/[,\s]+/).filter(Boolean) : null;
@@ -507,13 +528,13 @@
         const graded = lastMeta.pool_liquid ?? lastMeta.pool_scanned;
         const hint = $('actOnly').checked
           ? 'Nothing actionable right now · untick “actionable” to see every setup'
-          : (graded ? `No row at grade ≥ ${esc($('gradeMin').value || 'A')} among the ${graded} names graded · lower the grade floor to see more`
+          : (graded ? `No row at grade ≥ ${esc($('gradeMin').value || 'B')} among the ${graded} names graded · lower the grade floor to see more`
                     : 'No rows');
-        $('tb').innerHTML = `<tr><td colspan="16" class="m" style="padding:24px;text-align:center">${hint}</td></tr>`;
+        $('tb').innerHTML = `<tr><td colspan="17" class="m" style="padding:24px;text-align:center">${hint}</td></tr>`;
         return;
       }
       $('tb').innerHTML = list.map(r => {
-        if (r.error) return `<tr data-tk="${esc(r.ticker)}"><td></td><td class="tk">${esc(r.ticker)}</td><td colspan="15" class="note">${esc(r.error)}</td></tr>`;
+        if (r.error) return `<tr data-tk="${esc(r.ticker)}"><td></td><td class="tk">${esc(r.ticker)}</td><td colspan="16" class="note">${esc(r.error)}</td></tr>`;
         const d = r.dist_std;
         const cls = [
           r.live_actionable ? 'liveact' : '',
@@ -537,6 +558,7 @@
           <td><span class="badge ${r.signal||'FLAT'}">${r.signal||'FLAT'}</span></td>
           <td class="${regCls}" title="KER ${r.ker??'—'} · adapt ${r.adapt_mult??'—'}">${reg}${r.setup_mode?`/${r.setup_mode}`:''}</td>
           <td class="note">${r.state||''}</td>
+          <td class="record">${recordCell(r)}</td>
           <td>${n(r.price)}</td>
           <td class="bluec">${n(r.blue)}</td>
           <td class="orangec">${n(r.orange)}</td>
@@ -841,6 +863,7 @@
 
     // boot: poll health; live → show the live loop's results (no second scan), else scan once
     (async function boot() {
+      try { EVIDENCE = await (await fetch('/api/evidence')).json(); } catch (_) {}
       try {
         const h = await (await fetch('/api/health')).json();
         if (h.live) {

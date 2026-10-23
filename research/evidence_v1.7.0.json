@@ -1,0 +1,446 @@
+{
+ "engine_version": "1.7.0",
+ "sources": {
+  "equity": {
+   "file": "research/replay_2026-10-19_v1.7.0.json",
+   "window": [
+    "2026-07-28",
+    "2026-10-19"
+   ],
+   "sessions": 59,
+   "grade": "decision-time ≥ A",
+   "paired": "research/replay_2026-10-19_v1.6.0.json"
+  },
+  "crypto": {
+   "file": "research/replay_crypto_2026-10-22_365d_binance_v1.7.0.json",
+   "window": [
+    "2025-10-23",
+    "2026-10-22"
+   ],
+   "sessions": 365,
+   "grade": "decision-time ≥ A",
+   "paired": "research/replay_crypto_2026-10-22_365d_binance_v1.6.0.json"
+  }
+ },
+ "segments": {
+  "equity|mdrev|all": {
+   "n": 174,
+   "sessions": 54,
+   "as_graded": "A",
+   "net": {
+    "mean": 0.0509,
+    "se": 0.1275,
+    "t": 0.4,
+    "verdict": "inconclusive"
+   },
+   "mirror": {
+    "mean": -0.2797,
+    "se": 0.0798,
+    "t": -3.51,
+    "verdict": "negative"
+   },
+   "direction": {
+    "mean": 0.3306,
+    "se": 0.1901,
+    "t": 1.74,
+    "verdict": "inconclusive"
+   },
+   "stopped": 74,
+   "target": 49
+  },
+  "equity|mdrev|long": {
+   "n": 89,
+   "sessions": 37,
+   "as_graded": "A",
+   "net": {
+    "mean": -0.0053,
+    "se": 0.167,
+    "t": -0.03,
+    "verdict": "inconclusive"
+   },
+   "mirror": {
+    "mean": -0.1656,
+    "se": 0.1345,
+    "t": -1.23,
+    "verdict": "inconclusive"
+   },
+   "direction": {
+    "mean": 0.1603,
+    "se": 0.2721,
+    "t": 0.59,
+    "verdict": "inconclusive"
+   },
+   "stopped": 39,
+   "target": 27
+  },
+  "equity|mdrev|short": {
+   "n": 85,
+   "sessions": 40,
+   "as_graded": "A",
+   "net": {
+    "mean": 0.1097,
+    "se": 0.1605,
+    "t": 0.68,
+    "verdict": "inconclusive"
+   },
+   "mirror": {
+    "mean": -0.3992,
+    "se": 0.1209,
+    "t": -3.3,
+    "verdict": "negative"
+   },
+   "direction": {
+    "mean": 0.5088,
+    "se": 0.243,
+    "t": 2.09,
+    "verdict": "positive"
+   },
+   "stopped": 35,
+   "target": 22
+  },
+  "equity|any|all": {
+   "n": 174,
+   "sessions": 54,
+   "as_graded": "A",
+   "net": {
+    "mean": 0.0509,
+    "se": 0.1275,
+    "t": 0.4,
+    "verdict": "inconclusive"
+   },
+   "mirror": {
+    "mean": -0.2797,
+    "se": 0.0798,
+    "t": -3.51,
+    "verdict": "negative"
+   },
+   "direction": {
+    "mean": 0.3306,
+    "se": 0.1901,
+    "t": 1.74,
+    "verdict": "inconclusive"
+   },
+   "stopped": 74,
+   "target": 49
+  },
+  "equity|any|long": {
+   "n": 89,
+   "sessions": 37,
+   "as_graded": "A",
+   "net": {
+    "mean": -0.0053,
+    "se": 0.167,
+    "t": -0.03,
+    "verdict": "inconclusive"
+   },
+   "mirror": {
+    "mean": -0.1656,
+    "se": 0.1345,
+    "t": -1.23,
+    "verdict": "inconclusive"
+   },
+   "direction": {
+    "mean": 0.1603,
+    "se": 0.2721,
+    "t": 0.59,
+    "verdict": "inconclusive"
+   },
+   "stopped": 39,
+   "target": 27
+  },
+  "equity|any|short": {
+   "n": 85,
+   "sessions": 40,
+   "as_graded": "A",
+   "net": {
+    "mean": 0.1097,
+    "se": 0.1605,
+    "t": 0.68,
+    "verdict": "inconclusive"
+   },
+   "mirror": {
+    "mean": -0.3992,
+    "se": 0.1209,
+    "t": -3.3,
+    "verdict": "negative"
+   },
+   "direction": {
+    "mean": 0.5088,
+    "se": 0.243,
+    "t": 2.09,
+    "verdict": "positive"
+   },
+   "stopped": 35,
+   "target": 22
+  },
+  "equity|both|all": {
+   "n": 92,
+   "sessions": 43,
+   "as_graded": "A before v1.7.0, B since",
+   "net": {
+    "mean": -0.3364,
+    "se": 0.1386,
+    "t": -2.43,
+    "verdict": "negative"
+   },
+   "mirror": null,
+   "direction": null,
+   "stopped": 60,
+   "target": 24
+  },
+  "equity|both|long": {
+   "n": 54,
+   "sessions": 30,
+   "as_graded": "A before v1.7.0, B since",
+   "net": {
+    "mean": -0.3354,
+    "se": 0.2081,
+    "t": -1.61,
+    "verdict": "inconclusive"
+   },
+   "mirror": null,
+   "direction": null,
+   "stopped": 37,
+   "target": 13
+  },
+  "equity|both|short": {
+   "n": 38,
+   "sessions": 22,
+   "as_graded": "A before v1.7.0, B since",
+   "net": {
+    "mean": -0.338,
+    "se": 0.1673,
+    "t": -2.02,
+    "verdict": "inconclusive"
+   },
+   "mirror": null,
+   "direction": null,
+   "stopped": 23,
+   "target": 11
+  },
+  "equity|gap|all": {
+   "n": 388,
+   "sessions": 59,
+   "as_graded": "A before v1.7.0, B since",
+   "net": {
+    "mean": -0.2066,
+    "se": 0.11,
+    "t": -1.88,
+    "verdict": "inconclusive"
+   },
+   "mirror": null,
+   "direction": null,
+   "stopped": 253,
+   "target": 87
+  },
+  "equity|gap|long": {
+   "n": 200,
+   "sessions": 44,
+   "as_graded": "A before v1.7.0, B since",
+   "net": {
+    "mean": -0.2259,
+    "se": 0.1611,
+    "t": -1.4,
+    "verdict": "inconclusive"
+   },
+   "mirror": null,
+   "direction": null,
+   "stopped": 130,
+   "target": 45
+  },
+  "equity|gap|short": {
+   "n": 188,
+   "sessions": 50,
+   "as_graded": "A before v1.7.0, B since",
+   "net": {
+    "mean": -0.1861,
+    "se": 0.1439,
+    "t": -1.29,
+    "verdict": "inconclusive"
+   },
+   "mirror": null,
+   "direction": null,
+   "stopped": 123,
+   "target": 42
+  },
+  "crypto|mdrev|all": {
+   "n": 661,
+   "sessions": 244,
+   "as_graded": "A",
+   "net": {
+    "mean": -0.1378,
+    "se": 0.0611,
+    "t": -2.26,
+    "verdict": "negative"
+   },
+   "mirror": {
+    "mean": -0.0639,
+    "se": 0.0652,
+    "t": -0.98,
+    "verdict": "inconclusive"
+   },
+   "direction": {
+    "mean": -0.074,
+    "se": 0.1209,
+    "t": -0.61,
+    "verdict": "inconclusive"
+   },
+   "stopped": 269,
+   "target": 113
+  },
+  "crypto|mdrev|long": {
+   "n": 299,
+   "sessions": 137,
+   "as_graded": "A",
+   "net": {
+    "mean": -0.265,
+    "se": 0.0935,
+    "t": -2.84,
+    "verdict": "negative"
+   },
+   "mirror": {
+    "mean": 0.0345,
+    "se": 0.1215,
+    "t": 0.28,
+    "verdict": "inconclusive"
+   },
+   "direction": {
+    "mean": -0.2995,
+    "se": 0.2059,
+    "t": -1.45,
+    "verdict": "inconclusive"
+   },
+   "stopped": 146,
+   "target": 46
+  },
+  "crypto|mdrev|short": {
+   "n": 362,
+   "sessions": 163,
+   "as_graded": "A",
+   "net": {
+    "mean": -0.0328,
+    "se": 0.0756,
+    "t": -0.43,
+    "verdict": "inconclusive"
+   },
+   "mirror": {
+    "mean": -0.1451,
+    "se": 0.0737,
+    "t": -1.97,
+    "verdict": "inconclusive"
+   },
+   "direction": {
+    "mean": 0.1123,
+    "se": 0.1423,
+    "t": 0.79,
+    "verdict": "inconclusive"
+   },
+   "stopped": 123,
+   "target": 67
+  },
+  "crypto|any|all": {
+   "n": 661,
+   "sessions": 244,
+   "as_graded": "A",
+   "net": {
+    "mean": -0.1378,
+    "se": 0.0611,
+    "t": -2.26,
+    "verdict": "negative"
+   },
+   "mirror": {
+    "mean": -0.0639,
+    "se": 0.0652,
+    "t": -0.98,
+    "verdict": "inconclusive"
+   },
+   "direction": {
+    "mean": -0.074,
+    "se": 0.1209,
+    "t": -0.61,
+    "verdict": "inconclusive"
+   },
+   "stopped": 269,
+   "target": 113
+  },
+  "crypto|any|long": {
+   "n": 299,
+   "sessions": 137,
+   "as_graded": "A",
+   "net": {
+    "mean": -0.265,
+    "se": 0.0935,
+    "t": -2.84,
+    "verdict": "negative"
+   },
+   "mirror": {
+    "mean": 0.0345,
+    "se": 0.1215,
+    "t": 0.28,
+    "verdict": "inconclusive"
+   },
+   "direction": {
+    "mean": -0.2995,
+    "se": 0.2059,
+    "t": -1.45,
+    "verdict": "inconclusive"
+   },
+   "stopped": 146,
+   "target": 46
+  },
+  "crypto|any|short": {
+   "n": 362,
+   "sessions": 163,
+   "as_graded": "A",
+   "net": {
+    "mean": -0.0328,
+    "se": 0.0756,
+    "t": -0.43,
+    "verdict": "inconclusive"
+   },
+   "mirror": {
+    "mean": -0.1451,
+    "se": 0.0737,
+    "t": -1.97,
+    "verdict": "inconclusive"
+   },
+   "direction": {
+    "mean": 0.1123,
+    "se": 0.1423,
+    "t": 0.79,
+    "verdict": "inconclusive"
+   },
+   "stopped": 123,
+   "target": 67
+  }
+ },
+ "capped": {
+  "equity": {
+   "n": 480,
+   "what": "the v1.6.0 grade-A trades v1.7.0 grades B (gap fades, alone or with a reclaim)",
+   "net": {
+    "n": 480,
+    "clusters": 59,
+    "mean": -0.2315,
+    "se": 0.0948,
+    "t": -2.44,
+    "ci90": [
+     -0.39,
+     -0.073
+    ]
+   },
+   "direction": {
+    "n": 480,
+    "clusters": 59,
+    "mean": -0.1129,
+    "se": 0.1501,
+    "t": -0.75,
+    "ci90": [
+     -0.3639,
+     0.1381
+    ]
+   },
+   "verdict": "negative"
+  }
+ }
+}
