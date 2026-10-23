@@ -534,6 +534,9 @@ def trades_at(
     return out, fill
 
 
+LOOKBACK_SESSIONS = 8   # prior sessions each decision-time grade sees (engine needs 7 for RVOL)
+
+
 def replay(
     tickers: List[str],
     bars: Dict[str, pd.DataFrame],
@@ -578,6 +581,10 @@ def replay(
         for j in range(1, len(days)):
             n_days += 1
             i0 = first[days[j]]
+            # the engine reads at most 7 prior sessions (RVOL), the prior one (orange, prior close) and
+            # 40 bars (ATR): grade on the focus session and the LOOKBACK_SESSIONS before it, so a long
+            # history costs per session, not per bar of everything before it (same trades)
+            lo = first[days[max(0, j - LOOKBACK_SESSIONS)]]
             day = parsed[i0: first[days[j + 1]] if j + 1 < len(days) else len(parsed)]
             session = session_bars(t, day)
             kw_day = {**kw, "memo": {}} if resumable else kw
@@ -586,7 +593,7 @@ def replay(
                     continue
                 n_graded += 1
                 try:
-                    row = grade(t, parsed[: i0 + k + 1], **kw_day)
+                    row = grade(t, parsed[lo: i0 + k + 1], **kw_day)
                 except Exception:
                     n_err += 1
                     continue
@@ -596,7 +603,7 @@ def replay(
                 if not _tradeable(row, grade_min):
                     continue
                 try:
-                    grade_eod = grade(t, parsed[: i0 + len(session)], **kw_day).get("grade")
+                    grade_eod = grade(t, parsed[lo: i0 + len(session)], **kw_day).get("grade")
                 except Exception:
                     grade_eod = ""
                 new, fill = trades_at(t, row, day, k, models, entry_mode, slip_bps, dvol, grade_eod)

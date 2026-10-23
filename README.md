@@ -96,6 +96,8 @@ python3 replay_sessions.py --rescore research/replay_2026-08-12.json
 python3 replay_crypto.py --save-bars data/backtests/crypto_bars.pkl
 python3 replay_crypto.py --bars data/backtests/crypto_bars.pkl --utc-days   # crypto's day from 00:00 UTC
 python3 replay_crypto.py --source coinbase                                  # Coinbase bars instead of Yahoo
+python3 replay_crypto.py --source binance-vision --days 365 --jobs 8 --save-bars data/backtests/crypto_bv.pkl
+#   a year of Binance spot 5m bars from data.binance.vision (no key; checksum-verified; cached in data/binance_vision/)
 # bars cached before the Yahoo symbol map hold other tokens under ARB/TON/JUP-USD: add
 #   --exclude ARB-USD,TON-USD,JUP-USD
 
@@ -343,7 +345,8 @@ app.py              # FastAPI · live loop · :8791
 engine.py           # dual VWAP + KER + grades (ENGINE_VERSION)
 providers.py / data.py   # free feed rotation; crypto history pager + per-coin cache
 backtest_today_scans.py · walkforward.py · replay_sessions.py
-replay_crypto.py    # the same replay on the crypto names (Yahoo or Coinbase bars, paired engines)
+replay_crypto.py    # the same replay on the crypto names (Yahoo, Coinbase or Binance archive bars, paired engines)
+binance_vision.py   # Binance's public bulk kline archive: monthly/daily zips, checksums, cache
 causal_check.py     # the replay's old end-of-day trigger search, against its bar-by-bar one
 md_target_check.py  # mdrev target rules + missing-RVOL gate, same bars and a 60-day holdout
 direction_check.py  # breakout vs fade at the gap states (first break, fakeout), paired, net of costs
