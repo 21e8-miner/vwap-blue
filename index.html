@@ -274,7 +274,7 @@ const HISTORY_DAYS = 14;   // ≥ 8 sessions: RVOL uses at most 7 priors, ATR/KE
 
 const $ = id => document.getElementById(id);
 let rows = [], sortKey = "edge", sortAsc = false, liveOn = false, pollTimer = null, scanning = false;
-let selected = null, chartCache = new Map();
+let selected = null, chartCache = new Map(), lastScan = null, emptyHint = "";
 
 const n = (x,d=2) => x==null||Number.isNaN(+x) ? "—" : Number(x).toFixed(d);
 const sgn = x => x==null ? "m" : (x>=0 ? "pos" : "neg");
@@ -492,7 +492,7 @@ function sorted() {
 function render() {
   const list = sorted();
   if (!list.length) {
-    $("tb").innerHTML = `<tr><td colspan="18" class="m" style="padding:24px;text-align:center">No rows</td></tr>`;
+    $("tb").innerHTML = `<tr><td colspan="18" class="m" style="padding:24px;text-align:center">${emptyHint || "No rows"}</td></tr>`;
     return;
   }
   $("tb").innerHTML = list.map(r => {
@@ -590,7 +590,16 @@ async function runScan() {
     return row;
   });
   chartCache = new Map(all.filter(r => r._chart).map(r => [r.ticker, E.chartFromRow(r)]));
+  lastScan = { all, list, liquid, volDrop, minDvol, secs: (performance.now() - t0) / 1000, nowMs };
+  present();
+  if (selected) showChart(selected);
+}
 
+// Filters, rank and the table from the last scan: the actionable box, grade floor and row count apply at once.
+function present() {
+  if (!lastScan) return;
+  const { all, list, liquid, volDrop, minDvol, secs, nowMs } = lastScan;
+  const max = +$("max").value || 16;
   const floor = $("gradeMin")?.value || "A";
   let shown = all;
   if ($("actOnly").checked) shown = shown.filter(r => r.actionable || r.live_actionable);
@@ -599,7 +608,15 @@ async function runScan() {
   shown.sort((a, b) => (rot.get(b) - rot.get(a)) || ((b.edge||0) - (a.edge||0)) ||
     ((b.dollar_vol||0) - (a.dollar_vol||0)) || ((E.GRADE_RANK[b.grade] ?? -1) - (E.GRADE_RANK[a.grade] ?? -1)));
   rows = shown.slice(0, max);
-  if (!rows.length) rows = all.filter(r => r.error).slice(0, max);
+  const actPool = all.filter(r => r.actionable || r.live_actionable).length;
+  emptyHint = "";
+  if (!rows.length && $("actOnly").checked) {
+    emptyHint = actPool
+      ? `No actionable row at grade ≥ ${esc(floor)} (${actPool} actionable at a lower grade) · lower the grade floor or untick “actionable”`
+      : `Nothing actionable in the ${all.length} names graded right now · untick “actionable” to see every setup`;
+  } else if (!rows.length) {
+    rows = all.filter(r => r.error).slice(0, max);
+  }
 
   const ok = all.filter(r => !r.error);
   const regimes = {};
@@ -611,17 +628,17 @@ async function runScan() {
   $("meta").innerHTML =
     `<b>${rows.length}</b> shown · pool <b>${list.length}</b> · liquid <b>${liquid.length}</b>` +
     (volDrop ? ` · vol-drop <b>${volDrop}</b>` : "") + (minDvol ? ` · floor <b>$${minDvol/1e6}M</b> (crypto $${E.dollarVolumeFloor("BTC-USD", minDvol)/1e6}M 24h)` : "") +
-    ` · <b>${rows.filter(r=>r.actionable).length}</b> actionable · <b>${rows.filter(r=>r.live_actionable).length}</b> live` +
+    ` · <b>${rows.filter(r=>r.actionable).length}</b> actionable (${actPool} in pool)${$("actOnly").checked ? " · <b>filter on</b>" : ""}` +
+    ` · <b>${rows.filter(r=>r.live_actionable).length}</b> live` +
     ` · <b>${rows.filter(r=>/^L?A$/.test(r.grade||"")).length}</b> grade A · grade ≥ <b>${esc(floor)}</b>` +
     (rows.some(r => r.stale_bars) ? ` · <span class="neg">stale ${rows.filter(r=>r.stale_bars).length}</span>` : "") +
     (Object.keys(regimes).length ? ` · regime {${Object.entries(regimes).map(([k,v]) => `${esc(k)}:${v}`).join(" ")}}` : "") +
     ` · equities <b>${esc(eq)}</b>` + (lastDay && eq !== "rth" ? ` (session ${esc(lastDay)})` : "") +
     (errN ? ` · <span class="neg">${errN} feed errors</span>` : "") +
-    ` · feeds <b>${esc(feeds.join(", ") || "—")}</b> · <b>${((performance.now()-t0)/1000).toFixed(1)}s</b> · ${new Date(nowMs).toLocaleTimeString()}`;
+    ` · feeds <b>${esc(feeds.join(", ") || "—")}</b> · <b>${secs.toFixed(1)}s</b> · ${new Date(nowMs).toLocaleTimeString()}`;
   $("footProv").textContent = "proxies: " + (proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public");
   if ($("provBox").style.display === "block") { $("provBox").style.display = "none"; loadProviders(); }
   render();
-  if (selected) showChart(selected);
 }
 
 function toggleLive() {
@@ -819,6 +836,7 @@ document.addEventListener("keydown", e => {
   $("myproxy").addEventListener("change", () => {
     try { localStorage.setItem("vwap_blue_proxy", $("myproxy").value||""); } catch {}
   });
+  for (const id of ["actOnly", "gradeMin", "max"]) $(id).addEventListener("change", present);   // re-filter, no refetch
   setTimeout(scan, 400);   // auto-scan on load
 })();
 </script>

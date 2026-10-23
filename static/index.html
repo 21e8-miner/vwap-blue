@@ -310,6 +310,8 @@
 
     function applyData(data, rtt) {
       rows = data.results || [];
+      // a live scan started before the box was ticked still comes back unfiltered: filter here too
+      if ($('actOnly').checked) rows = rows.filter(r => r.actionable || r.live_actionable);
       const m = data.meta || {};
       const prov = (m.providers_used||[]).join(', ') || '—';
       const reg = m.regime_counts ? Object.entries(m.regime_counts).map(([k,v])=>`${k}:${v}`).join(' ') : '';
@@ -369,13 +371,10 @@
       } catch (_) {}
     }
 
-    async function toggleLive() {
-      liveOn = !liveOn;
-      const btn = $('liveBtn');
-      const interval = +$('interval').value || 45;
+    function liveBody() {
       const raw = $('tickers').value.trim();
       const body = {
-        enabled: liveOn, interval_sec: interval,
+        enabled: liveOn, interval_sec: +$('interval').value || 45,
         max: +$('max').value || 16,
         actionable_only: $('actOnly').checked,
         mode: $('mode').value || 'hybrid',
@@ -383,7 +382,24 @@
         min_dvol: minDvolPayload(),
       };
       if (raw) body.tickers = raw.split(/[,\s]+/).filter(Boolean);
-      await fetch('/api/live', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      return body;
+    }
+
+    // A filter or setting changed. With Live on the server's loop is the only scanner and the page shows its
+    // results every few seconds, so the change has to go to the loop (it rescans at once); a local filter
+    // alone would be overwritten by the next poll.
+    async function settingsChanged() {
+      if (!liveOn) return scan(false);
+      if ($('actOnly').checked) { rows = rows.filter(r => r.actionable || r.live_actionable); render(); }
+      await fetch('/api/live', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(liveBody()) });
+      setTimeout(pollLast, 1500);
+    }
+
+    async function toggleLive() {
+      liveOn = !liveOn;
+      const btn = $('liveBtn');
+      const interval = +$('interval').value || 45;
+      await fetch('/api/live', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(liveBody()) });
       btn.textContent = liveOn ? `Live ${interval}s` : 'Live off';
       btn.classList.toggle('on', liveOn);
       $('dot').classList.toggle('on', liveOn);
@@ -416,7 +432,10 @@
     function render() {
       const list = sorted();
       if (!list.length) {
-        $('tb').innerHTML = '<tr><td colspan="16" class="m" style="padding:24px;text-align:center">No rows</td></tr>';
+        const hint = $('actOnly').checked
+          ? 'Nothing actionable right now · untick “actionable” to see every setup'
+          : 'No rows';
+        $('tb').innerHTML = `<tr><td colspan="16" class="m" style="padding:24px;text-align:center">${hint}</td></tr>`;
         return;
       }
       $('tb').innerHTML = list.map(r => {
@@ -752,12 +771,21 @@
         const h = await (await fetch('/api/health')).json();
         if (h.live) {
           liveOn = true;
+          try {   // show the settings the loop is really using (it may have started at boot, or from another tab)
+            const { cfg } = await (await fetch('/api/live')).json();
+            $('actOnly').checked = !!cfg.actionable_only;
+            if (cfg.grade_min) $('gradeMin').value = cfg.grade_min;
+            if (cfg.max) $('max').value = cfg.max;
+            if (cfg.mode) $('mode').value = cfg.mode;
+            if (cfg.interval_sec) $('interval').value = cfg.interval_sec;
+          } catch (_) {}
           $('liveBtn').textContent = `Live ${$('interval').value}s`;
           $('liveBtn').classList.add('on');
           $('dot').classList.add('on');
           pollTimer = setInterval(pollLast, 4000);
         }
       } catch (_) {}
+      for (const id of ['actOnly', 'gradeMin', 'max', 'mode', 'minDvol']) $(id).addEventListener('change', settingsChanged);
       if (liveOn) await pollLast(); else await scan(false);
     })();
   </script>
