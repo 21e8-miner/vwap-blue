@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VWAP Blue · dual VWAP desk (v1.6.0)</title>
   <meta name="description" content="Research scanner: blue day VWAP + orange prior-day anchor, KER regime gate, grade A desk. Same engine as the local desk; replayed out of sample with no demonstrated edge." />
   <meta property="og:title" content="VWAP Blue — dual VWAP desk (research scanner)" />
   <meta property="og:description" content="Blue day VWAP ± volume-weighted σ · orange prior-day anchor · KER regime · honest replay: no demonstrated edge" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500;600;700&family=Big+Shoulders+Display:wght@500;700;800;900&family=Instrument+Serif:ital@0;1&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500;600;700&family=Big+Shoulders+Display:wght@700;800;900&family=Instrument+Serif:ital@0;1&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
       --bg: #050608; --bg2: #0b0d12;
@@ -21,268 +21,168 @@
       --gold: #e0b84a; --gold-dim: rgba(224,184,74,0.12);
       --blue: #4da3ff; --blue-dim: rgba(77,163,255,0.14); --blue-glow: rgba(77,163,255,0.45);
       --orange: #ffa54a; --orange-dim: rgba(255,165,74,0.14); --orange-glow: rgba(255,165,74,0.45);
-      --long: var(--lime); --short: var(--mag);
       --display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
       --sans: "Outfit", system-ui, sans-serif;
       --serif: "Instrument Serif", Georgia, serif;
       --mono: "Azeret Mono", ui-monospace, Menlo, monospace;
-      --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);
-      --pad: clamp(14px, 2.8vw, 36px); --max: 1320px; --r: 16px;
+      /* the old palette names, mapped onto the idiom */
+      --line: var(--stroke); --t: var(--ink); --m: var(--muted); --g: var(--lime); --r: var(--mag);
+      --c: var(--lime); --a: var(--gold); --p: rgba(0,0,0,0.35);
     }
-    *, *::before, *::after { box-sizing: border-box; }
-    html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
-    html, body { margin: 0; padding: 0; }
+    * { box-sizing: border-box; }
     body {
-      font-family: var(--sans); font-weight: 400; color: var(--ink); min-height: 100dvh;
+      margin: 0; font: 13px/1.4 var(--sans); color: var(--ink);
+      height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column;
       -webkit-font-smoothing: antialiased;
       background:
         radial-gradient(ellipse 70% 45% at 12% -10%, rgba(77,163,255,0.14), transparent 55%),
         radial-gradient(ellipse 55% 40% at 100% 0%, rgba(255,165,74,0.10), transparent 50%),
         radial-gradient(ellipse 60% 50% at 50% 110%, rgba(200,242,58,0.05), transparent 55%),
         linear-gradient(180deg, #0a0c10 0%, var(--bg) 40%, #040506 100%);
-      background-attachment: fixed;
     }
     a { color: var(--lime); text-decoration: none; }
     a:hover { color: var(--lime-hot); }
     button, select, input { font: inherit; color: inherit; }
-    .pos { color: var(--lime); font-weight: 600; }
-    .neg { color: var(--mag); font-weight: 600; }
-    .m { color: var(--muted); }
-    .bluec { color: var(--blue); font-weight: 600; }
-    .orangec { color: var(--orange); font-weight: 600; }
-    .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-    .shell { width: 100%; max-width: var(--max); margin: 0 auto; padding: calc(18px + var(--safe-t)) var(--pad) calc(36px + var(--safe-b)); }
-
-    /* ── masthead ── */
-    .mast { display: grid; grid-template-columns: 1fr auto; gap: 16px 24px; align-items: end; margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--stroke); }
-    .brand-mark { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 0.68rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
-    .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--muted2); flex-shrink: 0; }
-    .pulse.on { background: var(--lime); box-shadow: 0 0 12px var(--lime-glow); animation: blink 2s ease-in-out infinite; }
+    /* ── header: brand + toolbar in one row ── */
+    header {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex-shrink: 0;
+      padding: 10px 14px; border-bottom: 1px solid var(--stroke);
+      background: rgba(0,0,0,0.25); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    }
+    h1 { margin: 0 6px 0 0; display: inline-flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 900; font-size: 1.55rem; letter-spacing: -0.03em; text-transform: uppercase; font-stretch: condensed; line-height: 1; }
+    h1 .word { background: linear-gradient(105deg, var(--ink) 0%, var(--blue) 55%, var(--orange) 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+    h1 em { font-style: italic; font-family: var(--serif); font-weight: 400; font-size: 0.86rem; letter-spacing: 0; text-transform: none; color: var(--muted); }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted2); display: inline-block; flex-shrink: 0; }
+    .live-dot.on { background: var(--lime); box-shadow: 0 0 12px var(--lime-glow); animation: blink 2s ease-in-out infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-    .mast h1 { margin: 0; font-family: var(--display); font-weight: 900; font-size: clamp(2.8rem, 8vw, 5.2rem); line-height: 0.8; letter-spacing: -0.04em; text-transform: uppercase; font-stretch: condensed; }
-    .mast h1 em { font-style: normal; display: block; background: linear-gradient(105deg, var(--ink) 0%, var(--blue) 50%, var(--orange) 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-    .mast .tag { margin: 10px 0 0; font-family: var(--serif); font-style: italic; font-size: 1.15rem; color: var(--ink2); max-width: 30rem; line-height: 1.35; }
-    .mast-meta { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-    .live-pill { display: inline-flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 800; font-size: 0.95rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(200,242,58,0.35); background: var(--lime-dim); color: var(--lime); cursor: pointer; }
-    .live-pill.offline { color: var(--mag); border-color: rgba(255,45,138,0.35); background: var(--mag-dim); }
-    .asof { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    input, select {
+      background: rgba(0,0,0,0.35); border: 1px solid var(--stroke2); color: var(--ink);
+      border-radius: 10px; padding: 7px 10px; font-size: 12px; min-height: 34px;
+    }
+    input::placeholder { color: var(--muted2); }
+    input:focus, select:focus { outline: none; border-color: rgba(200,242,58,0.5); }
+    #tickers { min-width: 160px; flex: 1; max-width: 280px; font-family: var(--mono); text-transform: uppercase; }
+    #max, #interval { width: 64px; font-family: var(--mono); }
+    #minDvol { font-family: var(--mono); }
+    #myproxy { min-width: 200px; flex: 1; max-width: 320px; font-size: 10.5px; width: auto; font-family: var(--mono); }
+    label.chk { color: var(--muted); display: inline-flex; align-items: center; gap: 7px; font-family: var(--display); font-weight: 800; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; user-select: none; cursor: pointer; padding: 0 10px; min-height: 34px; border: 1px solid var(--stroke2); border-radius: 10px; background: rgba(0,0,0,0.35); }
+    label.chk input { appearance: none; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--stroke2); margin: 0; padding: 0; min-height: 0; background: transparent; }
+    label.chk input:checked { background: var(--lime); border-color: var(--lime); box-shadow: 0 0 10px var(--lime-glow); }
+    label.chk:has(input:checked) { color: var(--lime); border-color: rgba(200,242,58,0.4); }
+    .hint { font-family: var(--serif); font-style: italic; color: var(--muted); font-size: 0.86rem; margin-left: -2px; }
+    button {
+      background: var(--lime); color: #0a0b0e; border: 1px solid var(--lime); border-radius: 10px;
+      padding: 0 14px; min-height: 34px; cursor: pointer;
+      font-family: var(--display); font-weight: 800; font-size: 0.82rem; letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    button:active { transform: scale(0.98); }
+    button.ghost { background: rgba(0,0,0,0.35); color: var(--ink2); border-color: var(--stroke2); }
+    button.ghost:hover { color: var(--ink); border-color: var(--ink2); }
+    button.live { border-radius: 999px; background: var(--mag-dim); color: var(--mag); border-color: rgba(255,45,138,0.35); }
+    button.live.on { background: var(--lime-dim); color: var(--lime); border-color: rgba(200,242,58,0.35); }
+    button:disabled { opacity: 0.55; cursor: wait; }
 
     /* ── honest banner ── */
-    .regime-banner { display: grid; grid-template-columns: auto 1fr; gap: 14px 28px; align-items: center; padding: 18px 22px; margin-bottom: 14px; border-radius: var(--r); background: linear-gradient(120deg, rgba(255,45,138,0.08), transparent 45%), linear-gradient(300deg, rgba(77,163,255,0.07), transparent 40%), var(--panel); border: 1px solid var(--stroke2); position: relative; overflow: hidden; }
-    .regime-banner::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: linear-gradient(180deg, var(--mag), var(--orange)); }
-    .regime-banner .lbl { display: block; font-family: var(--serif); font-style: italic; font-size: 1rem; color: var(--muted); }
-    .regime-banner .h2 { display: block; font-family: var(--display); font-weight: 900; font-size: clamp(2.2rem, 6vw, 3.6rem); letter-spacing: -0.03em; line-height: 0.88; text-transform: uppercase; font-stretch: condensed; color: var(--mag); }
-    .regime-banner .p { display: block; font-family: var(--serif); font-style: italic; font-size: 1.05rem; color: var(--ink2); line-height: 1.45; max-width: 60rem; }
-    .regime-banner .p b { color: var(--ink); font-style: normal; font-family: var(--mono); font-size: 0.95em; font-weight: 600; }
-    .regime-banner .p a { color: var(--lime); border-bottom: 1px dotted rgba(200,242,58,0.5); }
+    #honest {
+      flex-shrink: 0; padding: 9px 16px 9px 20px; font-family: var(--serif); font-style: italic; font-size: 0.95rem; line-height: 1.4; color: var(--ink2);
+      background: linear-gradient(120deg, rgba(255,45,138,0.08), transparent 45%), linear-gradient(300deg, rgba(77,163,255,0.07), transparent 40%), var(--panel);
+      border-bottom: 1px solid var(--stroke2); box-shadow: inset 4px 0 0 var(--mag);
+    }
+    #honest b { font-style: normal; color: var(--ink); font-family: var(--mono); font-size: 0.86em; font-weight: 600; }
+    #honest > b:first-child { font-family: var(--display); font-weight: 900; font-size: 1.05rem; letter-spacing: 0.02em; text-transform: uppercase; font-stretch: condensed; color: var(--mag); margin-right: 4px; }
+    #honest a { color: var(--lime); border-bottom: 1px dotted rgba(200,242,58,0.5); }
 
-    /* ── chip strip (scan meta) ── */
-    .ticker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-    .chip { display: flex; flex-direction: column; gap: 2px; min-width: 88px; padding: 10px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--stroke); backdrop-filter: blur(8px); }
-    .chip .k { font-family: var(--serif); font-style: italic; font-size: 0.85rem; color: var(--muted); }
-    .chip .v { font-family: var(--display); font-weight: 800; font-size: 1.05rem; letter-spacing: -0.02em; text-transform: uppercase; font-stretch: condensed; font-variant-numeric: tabular-nums; }
-    .chip .v small { font-family: var(--mono); font-size: 0.6em; font-weight: 500; color: var(--muted); text-transform: none; letter-spacing: 0; margin-left: 4px; }
-    .chip .v.lime { color: var(--lime); } .chip .v.mag { color: var(--mag); } .chip .v.gold { color: var(--gold); } .chip .v.blue { color: var(--blue); }
-    .chip.wide { min-width: 0; }
-
-    /* ── toolbar ── */
-    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
-    .toolbar select, .toolbar input, .toolbar button, .toolbar .toggle { font-family: var(--sans); font-size: 0.78rem; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--stroke2); background: rgba(0,0,0,0.35); color: var(--ink); min-height: 40px; }
-    .toolbar input::placeholder { color: var(--muted2); }
-    .toolbar input:focus, .toolbar select:focus { outline: none; border-color: rgba(200,242,58,0.5); }
-    .toolbar button { font-family: var(--display); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
-    .toolbar button.go { background: var(--lime); color: #0a0b0e; border-color: var(--lime); }
-    .toolbar button.go:disabled { opacity: 0.55; cursor: wait; }
-    .toolbar button:active { transform: scale(0.98); }
-    .toolbar .toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-family: var(--display); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-    .toolbar .toggle input { appearance: none; width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--stroke2); margin: 0; padding: 0; min-height: 0; background: transparent; }
-    .toolbar .toggle input:checked { background: var(--lime); border-color: var(--lime); box-shadow: 0 0 10px var(--lime-glow); }
-    .toolbar .toggle:has(input:checked) { color: var(--lime); border-color: rgba(200,242,58,0.4); }
-    #tickers { min-width: 180px; flex: 1 1 200px; max-width: 320px; font-family: var(--mono); text-transform: uppercase; }
-    #max, #interval, #minDvol { width: 72px; font-family: var(--mono); }
-    #myproxy { min-width: 200px; flex: 1 1 240px; max-width: 360px; font-family: var(--mono); font-size: 0.68rem; }
-    .toolbar .unit { font-family: var(--serif); font-style: italic; color: var(--muted); font-size: 0.9rem; margin-left: -4px; }
-    #provBox { display: none; padding: 10px 14px; margin: -6px 0 14px; font-family: var(--mono); font-size: 0.72rem; color: var(--muted); border: 1px solid var(--stroke); border-radius: 12px; background: rgba(0,0,0,0.25); }
+    /* ── status line, providers, method ── */
+    #meta { padding: 7px 14px; color: var(--muted); font-family: var(--mono); font-size: 0.7rem; border-bottom: 1px solid var(--stroke); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    #meta b { color: var(--ink); font-family: var(--display); font-size: 0.95rem; font-weight: 800; letter-spacing: -0.01em; vertical-align: -1px; }
+    #provBox { display: none; padding: 7px 14px; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); border-bottom: 1px solid var(--stroke); flex-shrink: 0; }
     #provBox b { color: var(--lime); font-weight: 600; }
+    details { margin: 0; border-bottom: 1px solid var(--stroke); background: rgba(0,0,0,0.25); flex-shrink: 0; }
+    details summary { cursor: pointer; padding: 9px 14px; color: var(--ink2); font-family: var(--display); font-weight: 800; font-size: 0.95rem; letter-spacing: 0.04em; text-transform: uppercase; font-stretch: condensed; }
+    .crit { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 0 14px 12px; font-family: var(--serif); font-style: italic; font-size: 0.95rem; color: var(--ink2); line-height: 1.4; }
+    .crit h3 { margin: 0 0 6px; font-family: var(--display); font-style: normal; font-weight: 800; font-size: 0.9rem; letter-spacing: 0.04em; text-transform: uppercase; }
+    .crit .s h3 { color: var(--lime); } .crit .w h3 { color: var(--mag); }
+    .crit ul { margin: 0; padding-left: 16px; }
+    .crit li { margin-bottom: 4px; }
+    #from { font-family: var(--mono) !important; font-style: normal; font-size: 0.7rem !important; line-height: 1.7; }
 
-    /* ── panels ── */
-    .panel { background: var(--panel); border: 1px solid var(--stroke); border-radius: var(--r); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 20px 50px rgba(0,0,0,0.35); }
-    .stage { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr); gap: 14px; margin-bottom: 22px; }
-
-    /* hero: the selected setup and its chart */
-    .hero { padding: 22px 24px 20px; min-height: 420px; display: flex; flex-direction: column; position: relative; overflow: hidden; }
-    .hero::after { content: ""; position: absolute; width: 280px; height: 280px; right: -80px; top: -80px; border-radius: 50%; background: radial-gradient(circle, rgba(77,163,255,0.14), transparent 65%); pointer-events: none; }
-    .hero.short::after { background: radial-gradient(circle, rgba(255,45,138,0.14), transparent 65%); }
-    .hero.long::after { background: radial-gradient(circle, rgba(200,242,58,0.12), transparent 65%); }
-    .hero-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; position: relative; z-index: 1; }
-    .hero .eyebrow { font-family: var(--serif); font-style: italic; font-size: 1rem; color: var(--muted); margin-bottom: 6px; }
-    .hero .sym { font-family: var(--display); font-weight: 900; font-size: clamp(2.6rem, 7vw, 4rem); letter-spacing: -0.04em; line-height: 0.88; text-transform: uppercase; font-stretch: condensed; }
-    .hero .sym small { font-family: var(--mono); font-size: 0.26em; font-weight: 500; letter-spacing: 0.08em; color: var(--muted); margin-left: 8px; text-transform: none; vertical-align: middle; }
-    .ch-close { background: transparent; border: 1px solid var(--stroke2); color: var(--muted); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-family: var(--display); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.78rem; }
-    .ch-close:hover { color: var(--ink); border-color: var(--ink2); }
-    .hero-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 14px; position: relative; z-index: 1; }
-    .pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--display); font-weight: 800; font-size: 0.82rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--stroke2); background: var(--panel2); color: var(--muted); font-stretch: condensed; white-space: nowrap; }
-    .pill.long, .pill.TRIGGER, .pill.TAGGED, .pill.gA { color: var(--lime); border-color: rgba(200,242,58,0.4); background: var(--lime-dim); }
-    .pill.short, .pill.STOPPED, .pill.gX { color: var(--mag); border-color: rgba(255,45,138,0.4); background: var(--mag-dim); }
-    .pill.SETUP, .pill.FAKE, .pill.gB { color: var(--gold); border-color: rgba(224,184,74,0.4); background: var(--gold-dim); }
-    .pill.WATCH, .pill.FLAT, .pill.gC { color: var(--muted); }
-    .pill.blue { color: var(--blue); border-color: rgba(77,163,255,0.4); background: var(--blue-dim); }
-    .pill.orange { color: var(--orange); border-color: rgba(255,165,74,0.4); background: var(--orange-dim); }
-    .hero-scores { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 20px; padding: 14px 0; border-top: 1px solid var(--stroke); border-bottom: 1px solid var(--stroke); margin-bottom: 14px; position: relative; z-index: 1; }
-    .hero-scores .k { font-family: var(--serif); font-style: italic; font-size: 0.9rem; color: var(--muted); }
-    .hero-scores .v { white-space: nowrap; font-family: var(--display); font-weight: 900; font-size: 1.7rem; letter-spacing: -0.04em; line-height: 1; font-stretch: condensed; font-variant-numeric: tabular-nums; margin-top: 2px; }
-    .hero-scores .v small { font-family: var(--mono); font-size: 0.45em; color: var(--muted); font-weight: 500; margin-left: 4px; letter-spacing: 0; }
-    #chartWrap { position: relative; flex: 1; min-height: 240px; border-radius: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--stroke); overflow: hidden; z-index: 1; }
-    #chartCanvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
-    #chartTip { position: absolute; pointer-events: none; display: none; background: rgba(5,6,8,0.92); border: 1px solid var(--stroke2); border-radius: 10px; padding: 8px 10px; font-family: var(--mono); font-size: 11px; color: var(--ink2); line-height: 1.5; }
-    .ch-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-family: var(--serif); font-style: italic; font-size: 1.05rem; background: rgba(5,6,8,0.6); }
-    .spin { width: 28px; height: 28px; border: 3px solid rgba(77,163,255,0.25); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .hero-thesis { margin: 14px 0 0; font-family: var(--serif); font-style: italic; font-size: 1.05rem; line-height: 1.45; color: var(--ink2); position: relative; z-index: 1; }
-    .hero-thesis b { font-style: normal; font-family: var(--mono); font-size: 0.9em; color: var(--ink); font-weight: 600; }
-    .ch-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-family: var(--mono); font-size: 0.66rem; color: var(--muted); position: relative; z-index: 1; }
-    .ch-legend i { width: 14px; height: 2px; display: inline-block; margin-right: 5px; vertical-align: middle; border-radius: 1px; }
-
-    /* side column */
-    .side-col { display: flex; flex-direction: column; gap: 14px; }
-    .side-panel { padding: 16px 18px; }
-    .side-panel .lbl { font-family: var(--serif); font-style: italic; font-size: 0.95rem; color: var(--muted); }
-    .side-panel .big { font-family: var(--display); font-weight: 900; font-size: 1.6rem; letter-spacing: -0.02em; text-transform: uppercase; margin: 4px 0 10px; font-stretch: condensed; line-height: 1; }
-    .side-split { display: flex; flex-direction: column; gap: 10px; }
-    .side-split .row { display: flex; justify-content: space-between; align-items: baseline; font-family: var(--mono); font-size: 0.68rem; color: var(--muted); }
-    .side-split .row b { color: var(--ink); font-family: var(--display); font-size: 1rem; font-weight: 800; }
-    .track { height: 6px; border-radius: 99px; background: rgba(255,255,255,0.06); overflow: hidden; }
-    .track > i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--lime), var(--lime-hot)); box-shadow: 0 0 10px var(--lime-glow); transition: width 0.4s ease; }
-    .track.short > i { background: linear-gradient(90deg, var(--mag), #ff6aad); box-shadow: 0 0 10px var(--mag-glow); }
-    .track.blue > i { background: linear-gradient(90deg, var(--blue), #8cc4ff); box-shadow: 0 0 10px var(--blue-glow); }
-    .track.gold > i { background: linear-gradient(90deg, var(--gold), #f0d27a); box-shadow: 0 0 10px rgba(224,184,74,0.4); }
-    .stream-box .k { font-family: var(--serif); font-style: italic; font-size: 0.9rem; color: var(--muted); }
-    .stream-box .v { font-family: var(--mono); font-size: 0.8rem; font-weight: 600; margin-top: 4px; color: var(--lime); line-height: 1.6; }
-    .stream-box .v .m { font-weight: 400; }
-
-    /* section heads */
-    .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 8px 0 12px; flex-wrap: wrap; }
-    .sec-head h3 { margin: 0; font-family: var(--display); font-weight: 900; font-size: 1.35rem; letter-spacing: 0.02em; text-transform: uppercase; font-stretch: condensed; }
-    .sec-head h3 em { font-style: normal; color: var(--lime); }
-    .sec-head .hint { font-family: var(--serif); font-style: italic; font-size: 0.95rem; color: var(--muted); }
-
-    /* tape — horizontal ranked cards */
-    .tape-wrap { margin-bottom: 22px; }
-    .tape { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 16px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent; }
-    .sat { flex: 0 0 min(220px, 78vw); scroll-snap-align: start; padding: 16px; border-radius: 16px; background: var(--panel); border: 1px solid var(--stroke); cursor: pointer; transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s; }
-    .sat:hover { transform: translateY(-3px); border-color: var(--stroke2); }
-    .sat.active { border-color: rgba(77,163,255,0.6); box-shadow: 0 0 0 1px rgba(77,163,255,0.3), 0 16px 40px rgba(0,0,0,0.4); background: linear-gradient(165deg, rgba(77,163,255,0.08), var(--panel)); }
-    .sat .idx { font-family: var(--mono); font-size: 0.68rem; font-weight: 600; color: var(--muted2); margin-bottom: 4px; }
-    .sat .rsym { font-family: var(--display); font-weight: 900; font-size: 1.45rem; letter-spacing: -0.03em; text-transform: uppercase; font-stretch: condensed; line-height: 1; }
-    .sat .rsym small { font-family: var(--mono); font-size: 0.5em; font-weight: 500; color: var(--muted); margin-left: 4px; text-transform: none; }
-    .sat-pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
-    .sat-pills .pill { font-size: 0.7rem; padding: 3px 9px; }
-    .sat-mid { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
-    .sat-mid .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted2); flex-shrink: 0; }
-    .sat.long .dot { background: var(--lime); box-shadow: 0 0 10px var(--lime-glow); }
-    .sat.short .dot { background: var(--mag); box-shadow: 0 0 10px var(--mag-glow); }
-    .sat-mid .spark { flex: 1; height: 32px; }
-    .sat-mid .spark svg { width: 100%; height: 100%; display: block; }
-    .sat-foot { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 0.68rem; color: var(--muted); border-top: 1px solid var(--stroke); padding-top: 10px; }
-    .sat-foot b { color: var(--ink); font-family: var(--display); font-weight: 800; font-size: 1rem; letter-spacing: -0.02em; }
-
-    /* audit table */
-    .audit { padding: 18px 20px; margin-bottom: 18px; }
-    .audit-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-    .audit-head h3 { margin: 0; font-family: var(--display); font-weight: 900; font-size: 1.35rem; letter-spacing: 0.02em; text-transform: uppercase; font-stretch: condensed; }
-    .audit-head .hint { font-family: var(--serif); font-style: italic; font-size: 0.95rem; color: var(--muted); }
-    .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--stroke); background: rgba(0,0,0,0.25); }
-    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; min-width: 1180px; font-variant-numeric: tabular-nums; }
-    th { text-align: left; padding: 12px 10px; font-family: var(--display); font-size: 0.85rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--stroke); white-space: nowrap; background: rgba(0,0,0,0.3); font-stretch: condensed; cursor: pointer; position: sticky; top: 0; z-index: 2; }
+    /* ── desk: table left, chart right ── */
+    #desk { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr; }
+    #desk.open { grid-template-columns: minmax(380px, 1fr) minmax(400px, 1.05fr); }
+    .pane { min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent; }
+    .pane-chart { display: none; border-left: 1px solid var(--stroke); background: rgba(0,0,0,0.25); flex-direction: column; overflow: hidden; }
+    #desk.open .pane-chart { display: flex; }
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; min-width: 1040px; }
+    th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--stroke); white-space: nowrap; }
+    th {
+      font-family: var(--display); font-size: 0.8rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; font-stretch: condensed;
+      color: var(--muted); position: sticky; top: 0; background: #0a0c10; cursor: pointer; z-index: 2;
+    }
     th:hover { color: var(--ink2); }
-    td { padding: 10px; border-bottom: 1px solid var(--stroke); color: var(--ink2); white-space: nowrap; vertical-align: middle; font-family: var(--mono); font-size: 0.74rem; }
+    td { font-family: var(--mono); font-size: 0.72rem; color: var(--ink2); }
     tr { cursor: pointer; }
     tr:hover td { background: rgba(77,163,255,0.05); }
     tr.sel td { background: rgba(77,163,255,0.09); }
     tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
+    tr.act td:first-child { box-shadow: inset 3px 0 0 var(--lime); }
+    tr.sel.act td:first-child { box-shadow: inset 3px 0 0 var(--blue), inset 6px 0 0 var(--lime); }
     tr.stale td { opacity: 0.55; }
-    td.score { font-family: var(--display); font-weight: 900; font-size: 1.2rem; letter-spacing: -0.03em; color: var(--lime); font-stretch: condensed; }
-    td.sym { font-family: var(--display); font-weight: 800; font-size: 1rem; letter-spacing: -0.02em; text-transform: uppercase; color: var(--ink); font-stretch: condensed; }
-    td.sym .mark { color: var(--lime); font-size: 0.7em; margin-left: 4px; vertical-align: middle; }
-    td.note { font-family: var(--serif); font-style: italic; font-size: 0.9rem; color: var(--ink2); max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
-    td .src { color: var(--muted); }
-    .bars { display: inline-flex; gap: 2px; vertical-align: middle; margin-right: 6px; }
-    .bars i { width: 6px; height: 11px; border-radius: 1px; background: rgba(255,255,255,0.1); display: inline-block; }
-    .bars i.on { background: var(--lime); box-shadow: 0 0 6px var(--lime-glow); }
-    .bars.gold i.on { background: var(--gold); box-shadow: 0 0 6px rgba(224,184,74,0.4); }
-    .bars.mag i.on { background: var(--mag); box-shadow: 0 0 6px var(--mag-glow); }
-    .path-cell svg { width: 64px; height: 24px; display: block; }
-    .cost { color: var(--muted); margin-left: 4px; font-size: 0.9em; }
-    .empty { padding: 28px 16px; text-align: center; font-family: var(--serif); font-style: italic; color: var(--muted); font-size: 1.1rem; white-space: normal; }
-
-    /* method */
-    details.panel { margin-bottom: 18px; }
-    details.panel summary { cursor: pointer; padding: 16px 20px; font-family: var(--display); font-weight: 900; font-size: 1.35rem; letter-spacing: 0.02em; text-transform: uppercase; font-stretch: condensed; list-style: none; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-    details.panel summary::-webkit-details-marker { display: none; }
-    details.panel summary .hint { font-family: var(--serif); font-style: italic; font-size: 0.95rem; color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 400; }
-    .crit { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 20px 16px; }
-    .crit h4 { margin: 0 0 8px; font-family: var(--display); font-weight: 800; font-size: 1rem; letter-spacing: 0.04em; text-transform: uppercase; font-stretch: condensed; }
-    .crit .s h4 { color: var(--lime); } .crit .w h4 { color: var(--mag); }
-    .crit ul { margin: 0; padding-left: 18px; font-family: var(--serif); font-style: italic; font-size: 0.98rem; color: var(--ink2); line-height: 1.45; }
-    .crit li { margin-bottom: 6px; }
-    #from { padding: 0 20px 18px; font-family: var(--mono); font-size: 0.72rem; color: var(--muted); line-height: 1.7; }
-    #from b { font-weight: 600; }
-
-    /* footer */
-    .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; padding-top: 18px; border-top: 1px solid var(--stroke); font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
-    .foot .brand { font-family: var(--display); font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink2); font-size: 0.95rem; }
-    .inspire { font-family: var(--serif); font-style: italic; font-size: 0.98rem; color: var(--muted); max-width: 36rem; line-height: 1.4; text-align: right; }
-
-    @media (max-width: 900px) {
-      .mast { grid-template-columns: 1fr; }
-      .mast-meta { align-items: flex-start; text-align: left; }
-      .stage { grid-template-columns: 1fr; }
-      .regime-banner { grid-template-columns: 1fr; }
-      .inspire { text-align: left; }
+    .tk { font-family: var(--display); font-weight: 800; font-size: 0.95rem; letter-spacing: -0.02em; text-transform: uppercase; color: var(--ink); font-stretch: condensed; }
+    .badge, .grade {
+      display: inline-flex; align-items: center; justify-content: center; font-family: var(--display); font-weight: 800; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; font-stretch: condensed;
+      padding: 2px 9px; border-radius: 999px; border: 1px solid var(--stroke2); background: var(--panel2); color: var(--muted); min-width: 28px;
     }
-    @media (max-width: 720px) {
-      body { background-attachment: scroll; }      /* a fixed backdrop behind blurred panels repaints badly on phones */
-      .hero-scores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .TRIGGER, .TAGGED, .gA { color: var(--lime); border-color: rgba(200,242,58,0.4); background: var(--lime-dim); }
+    .SETUP, .FAKE, .gB { color: var(--gold); border-color: rgba(224,184,74,0.4); background: var(--gold-dim); }
+    .STOPPED, .gX { color: var(--mag); border-color: rgba(255,45,138,0.4); background: var(--mag-dim); }
+    .WATCH, .FLAT, .gC { color: var(--muted); }
+    .pos { color: var(--lime); font-weight: 600; } .neg { color: var(--mag); font-weight: 600; } .m { color: var(--muted); }
+    .edge { font-family: var(--display); font-weight: 900; font-size: 1.05rem; letter-spacing: -0.03em; color: var(--lime); font-stretch: condensed; }
+    .bluec { color: var(--blue); font-weight: 600; }
+    .orangec { color: var(--orange); font-weight: 600; }
+    .src { font-size: 0.68rem; color: var(--muted); }
+    .note { font-family: var(--serif); font-style: italic; font-size: 0.86rem; color: var(--ink2); max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
+    .cost { font-size: 0.9em; color: var(--muted); margin-left: 4px; }
+
+    /* ── chart pane ── */
+    .ch-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 18px 8px; gap: 12px; flex-shrink: 0; }
+    .ch-head h2 { margin: 0; font-family: var(--display); font-weight: 900; font-size: 2.4rem; letter-spacing: -0.04em; line-height: 0.9; text-transform: uppercase; font-stretch: condensed; }
+    .ch-sub { font-family: var(--serif); font-style: italic; color: var(--muted); font-size: 0.95rem; margin-top: 6px; }
+    .ch-close { background: transparent; border: 1px solid var(--stroke2); color: var(--muted); border-radius: 999px; padding: 0 12px; min-height: 30px; font-size: 0.74rem; white-space: nowrap; flex-shrink: 0; }
+    .ch-close:hover { color: var(--ink); border-color: var(--ink2); }
+    .ch-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 0 18px 10px; }
+    .ch-stat { background: rgba(0,0,0,0.3); border: 1px solid var(--stroke); border-radius: 12px; padding: 8px 10px; }
+    .ch-stat .k { font-family: var(--serif); font-style: italic; font-size: 0.82rem; color: var(--muted); text-transform: none; }
+    .ch-stat .v { font-family: var(--display); font-weight: 900; font-size: 1.25rem; letter-spacing: -0.03em; margin-top: 2px; font-stretch: condensed; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #chartWrap { flex: 1; min-height: 240px; position: relative; margin: 0 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--stroke); border-radius: 12px; overflow: hidden; }
+    #chartCanvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+    #chartTip { position: absolute; pointer-events: none; display: none; background: rgba(5,6,8,0.92); border: 1px solid var(--stroke2); border-radius: 10px; padding: 8px 10px; font-size: 11px; font-family: var(--mono); color: var(--ink2); line-height: 1.5; }
+    .ch-legend { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; padding: 10px; margin: 10px 12px 14px; background: rgba(0,0,0,0.25); border: 1px solid var(--stroke); border-radius: 12px; font-family: var(--mono); font-size: 0.64rem; color: var(--muted); }
+    .ch-legend i { width: 14px; height: 2px; display: inline-block; margin-right: 5px; vertical-align: middle; border-radius: 1px; }
+    .ch-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-family: var(--serif); font-style: italic; background: rgba(5,6,8,0.6); }
+    .spin { width: 28px; height: 28px; border: 3px solid rgba(77,163,255,0.25); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    footer { flex-shrink: 0; padding: 7px 14px; border-top: 1px solid var(--stroke); font-family: var(--mono); font-size: 0.68rem; color: var(--muted); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    footer .inspire { font-family: var(--serif); font-style: italic; font-size: 0.86rem; }
+    @media (max-width: 820px) {
+      #desk.open { grid-template-columns: 1fr; }
+      #desk.open .pane-list { display: none; }
+      .pane-chart { border-left: 0; overflow-y: auto; }
+      #chartWrap { flex: 0 0 300px; }
+      .ch-stats { grid-template-columns: repeat(2, 1fr); }
       .crit { grid-template-columns: 1fr; }
-      #myproxy { display: none; }
-      .hero { min-height: 0; }
-      #chartWrap { flex: 0 0 280px; }
+      #myproxy, #interval, #mode, .hint { display: none; }
+      #tickers { max-width: none; }
+      footer { display: none; }
     }
-    @media (prefers-reduced-motion: reduce) { .pulse.on { animation: none; } .sat { transition: none; } }
+    @media (prefers-reduced-motion: reduce) { .live-dot.on { animation: none; } }
   </style>
 </head>
 <body>
-<div class="shell">
-
-  <header class="mast">
-    <div>
-      <div class="brand-mark"><span class="pulse" id="dot"></span>VWAP Blue · Lab · v<span id="engVer"></span></div>
-      <h1>VWAP<em>Blue</em></h1>
-      <p class="tag">Blue day VWAP against the orange prior-day anchor — every name graded bar by bar, the same engine the desk runs, replayed without mercy.</p>
-    </div>
-    <div class="mast-meta">
-      <button class="live-pill offline" id="liveBtn" type="button" onclick="toggleLive()"><span class="pulse" id="dot2"></span>Stream live</button>
-      <div class="asof" id="asof">no scan yet · press scan or S</div>
-    </div>
-  </header>
-
-  <div id="honest" class="regime-banner" role="note"><span><span class="lbl">Honest replay</span><span class="h2">No demonstrated edge</span></span><span class="p">
-    Replayed on Jul 28 – Oct 19, graded bar by bar as the desk showed them and closed
-    by 16:00, this engine's grade-A triggers on US equities lost <b>−0.16R</b> per trade after costs (± 0.08 ·
-    654 trades · 59 sessions · t −2.1); the losses come from gap fades, not multi-day reclaims.
-    On crypto, replayed over a year of Binance bars (Oct 23 – Oct 22, 2025–26) on its 24h session, they lost
-    <b>−0.14R</b> (± 0.06 · 661 trades · 244 sessions · t −2.3); one-month windows had looked flat or positive.
-    A research scanner, not trade advice ·
-    <a href="https://github.com/21e8-miner/vwap-blue#honest-results" target="_blank" rel="noopener">how it was tested</a> ·
-    raw trades: <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_2026-10-19_v1.6.0.json" target="_blank" rel="noopener">equities</a>,
-    <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_crypto_2026-10-22_365d_binance_v1.6.0.json" target="_blank" rel="noopener">crypto</a>
-  </span></div>
-
-  <div class="ticker" id="meta"><div class="chip"><div class="k">Desk</div><div class="v">press scan</div></div></div>
-
-  <div class="toolbar">
-    <input id="tickers" type="text" placeholder="blank = universe" aria-label="tickers" autocomplete="off" />
+  <header>
+    <h1><span class="live-dot" id="dot"></span><span class="word">VWAP Blue</span><em>v1.6.0 · same engine as the desk · research only</em></h1>
+    <input id="tickers" type="text" placeholder="blank = universe" aria-label="tickers" />
     <input id="max" type="number" value="16" min="1" max="200" title="show top N after rank" aria-label="show top N" />
     <select id="mode" title="data mode">
       <option value="hybrid" selected>hybrid</option>
@@ -294,78 +194,48 @@
       <option value="B">grade ≥ B</option>
       <option value="C">grade ≥ C</option>
     </select>
-    <input id="minDvol" type="number" value="2" min="0" max="500" step="0.5" title="min session $vol ($M). 0=off" aria-label="minimum session dollar volume in millions" />
-    <span class="unit" title="Session $ volume floor in millions">$M vol</span>
-    <label class="toggle"><input type="checkbox" id="actOnly" /> actionable</label>
-    <button id="btn" class="go" type="button" onclick="scan()">Scan</button>
+    <input id="minDvol" type="number" value="2" min="0" max="500" step="0.5" title="min session $vol ($M). 0=off" style="width:72px" aria-label="minimum session dollar volume in millions" />
+    <span class="hint" title="Session $ volume floor in millions">$M vol</span>
+    <label class="chk"><input type="checkbox" id="actOnly" /> actionable</label>
+    <button id="btn" onclick="scan()">Scan</button>
+    <button class="live" id="liveBtn" type="button" onclick="toggleLive()">Live off</button>
     <input id="interval" type="number" value="45" min="15" max="300" title="live sec" aria-label="live interval seconds" />
-    <span class="unit">s</span>
-    <button type="button" onclick="loadProviders()">Providers</button>
-    <button type="button" onclick="loadCritique()">Method</button>
+    <button class="ghost" type="button" onclick="loadProviders()">Providers</button>
+    <button class="ghost" type="button" onclick="loadCritique()">Method</button>
     <input id="myproxy" type="text" placeholder="https://….workers.dev/?url=" title="CORS proxy (optional)" aria-label="CORS proxy" />
+  </header>
+  <div id="honest" role="note">
+    <b>No demonstrated edge.</b> Replayed on Jul 28 – Oct 19, graded bar by bar as the desk showed them and closed
+    by 16:00, this engine's grade-A triggers on US equities lost <b>−0.16R</b> per trade after costs (± 0.08 ·
+    654 trades · 59 sessions · t −2.1); the losses come from gap fades, not multi-day reclaims.
+    On crypto, replayed over a year of Binance bars (Oct 23 – Oct 22, 2025–26) on its 24h session, they lost
+    <b>−0.14R</b> (± 0.06 · 661 trades · 244 sessions · t −2.3); one-month windows had looked flat or positive.
+    A research scanner, not trade advice ·
+    <a href="https://github.com/21e8-miner/vwap-blue#honest-results" target="_blank" rel="noopener">how it was tested</a> ·
+    raw trades: <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_2026-10-19_v1.6.0.json" target="_blank" rel="noopener">equities</a>,
+    <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_crypto_2026-10-22_365d_binance_v1.6.0.json" target="_blank" rel="noopener">crypto</a>
   </div>
+  <div id="meta">Click a row for the dual-VWAP chart · ◆ live grade A · ● actionable · dimmed = stale bars</div>
   <div id="provBox"></div>
-
-  <section class="stage" id="desk">
-    <article class="hero panel" id="chartPane">
-      <div class="hero-top">
-        <div>
-          <div class="eyebrow" id="chEyebrow">01 · Top-ranked setup</div>
-          <div class="sym" id="chTicker">—</div>
-        </div>
-        <button class="ch-close" type="button" onclick="closeChart()" title="back to the top-ranked setup">✕ Top</button>
-      </div>
-      <div class="hero-pills" id="chPills"><span class="pill">waiting for a scan</span></div>
-      <div class="hero-scores" id="chStats"></div>
-      <div id="chartWrap">
-        <canvas id="chartCanvas"></canvas>
-        <div id="chartTip"></div>
-        <div class="ch-loading" id="chLoad" style="display:none"><div class="spin"></div></div>
-      </div>
-      <div class="ch-legend">
-        <span><i style="background:#c8c2b4"></i>price</span>
-        <span><i style="background:var(--blue)"></i>blue day VWAP ± σ</span>
-        <span><i style="background:var(--orange)"></i>orange anchor</span>
-        <span><i style="background:#5c574e"></i>prior close</span>
-        <span>◇ break · ▲▼ trigger · ● tag · ✕ stop</span>
-      </div>
-      <p class="hero-thesis" id="chSub">Blue day VWAP · orange prior-day anchor. Click a row or a card for its chart.</p>
-    </article>
-
-    <aside class="side-col">
-      <div class="panel side-panel">
-        <div class="lbl">Desk read</div>
-        <div class="big" id="sideTitle">—</div>
-        <div class="side-split" id="sideSplit"></div>
-      </div>
-      <div class="panel side-panel stream-box">
-        <div class="k">Session clock · feeds</div>
-        <div class="v" id="sideStream">—</div>
-      </div>
-    </aside>
-  </section>
-
-  <div class="tape-wrap">
-    <div class="sec-head"><h3>Ranked <em>tape</em></h3><span class="hint">rotation rank · click a card for its chart · keys 1–9</span></div>
-    <div class="tape" id="tape"></div>
-  </div>
-
-  <section class="panel audit">
-    <div class="audit-head">
-      <h3>Full-board audit</h3>
-      <span class="hint">click a header to sort · ◆ live grade A · ● actionable · dimmed = stale bars</span>
+  <details id="critBox" style="display:none">
+    <summary>Method · steelman / strawman</summary>
+    <div class="crit">
+      <div class="s"><h3>Steelman</h3><ul id="steel"></ul></div>
+      <div class="w"><h3>Strawman</h3><ul id="straw"></ul></div>
     </div>
-    <div class="table-wrap">
+    <div style="padding:0 14px 12px;color:var(--m)" id="from"></div>
+  </details>
+  <div id="desk">
+    <div class="pane pane-list">
       <table>
         <thead>
           <tr>
             <th data-k="edge">Edge</th>
             <th data-k="ticker">Ticker</th>
-            <th data-k="grade">Grade</th>
+            <th data-k="grade">Gr</th>
             <th data-k="signal">Signal</th>
-            <th data-k="regime" title="KER regime / setup mode">Regime</th>
+            <th data-k="regime" title="KER regime / setup mode">Reg</th>
             <th data-k="state">State</th>
-            <th>Path</th>
             <th data-k="price">Price</th>
             <th data-k="blue">Blue</th>
             <th data-k="orange">Orange</th>
@@ -380,26 +250,37 @@
             <th data-k="provider">Feed</th>
           </tr>
         </thead>
-        <tbody id="tb"><tr><td colspan="19" class="empty">Press Scan</td></tr></tbody>
+        <tbody id="tb"><tr><td colspan="18" class="m" style="padding:28px;text-align:center">Press Scan</td></tr></tbody>
       </table>
     </div>
-  </section>
-
-  <details class="panel" id="critBox" style="display:none">
-    <summary>Method <span class="hint">steelman / strawman</span></summary>
-    <div class="crit">
-      <div class="s"><h4>Steelman</h4><ul id="steel"></ul></div>
-      <div class="w"><h4>Strawman</h4><ul id="straw"></ul></div>
+    <div class="pane pane-chart" id="chartPane">
+      <div class="ch-head">
+        <div>
+          <h2 id="chTicker">—</h2>
+          <div class="ch-sub" id="chSub">Blue day VWAP · orange prior-day anchor</div>
+        </div>
+        <button class="ch-close" type="button" onclick="closeChart()">✕ Close</button>
+      </div>
+      <div class="ch-stats" id="chStats"></div>
+      <div id="chartWrap">
+        <canvas id="chartCanvas"></canvas>
+        <div id="chartTip"></div>
+        <div class="ch-loading" id="chLoad" style="display:none"><div class="spin"></div></div>
+      </div>
+      <div class="ch-legend">
+        <span><i style="background:#c8c2b4"></i>price</span>
+        <span><i style="background:var(--blue)"></i>blue day VWAP</span>
+        <span><i style="background:var(--orange)"></i>orange anchor</span>
+        <span><i style="background:#5c574e"></i>prior close</span>
+        <span>◇ break · ▼/▲ trig · ● tag · ✕ stop</span>
+      </div>
     </div>
-    <div id="from"></div>
-  </details>
-
-  <footer class="foot">
-    <div><span class="brand">VWAP Blue</span> · engine.js, a parity-tested port of engine.py · 5m free feeds, delayed · signals pre + RTH only · not financial advice · <span id="footProv"></span></div>
-    <div class="inspire">Nocturne idiom after <a href="https://21e8-miner.github.io/idiot-flow-bourse/" target="_blank" rel="noopener">Idiot Flow Bourse</a> · source on <a href="https://github.com/21e8-miner/vwap-blue" target="_blank" rel="noopener">GitHub</a></div>
+  </div>
+  <footer>
+    <span>Engine v<span id="engVer"></span> (engine.js, a parity-tested port of engine.py) · 5m free feeds, delayed ·
+    signals pre + RTH only · not financial advice · <span id="footProv"></span></span>
+    <span class="inspire">Nocturne idiom after <a href="https://21e8-miner.github.io/idiot-flow-bourse/" target="_blank" rel="noopener">Idiot Flow Bourse</a></span>
   </footer>
-
-</div>
 
 <script src="engine.js"></script>
 <script>
@@ -423,8 +304,6 @@ const n = (x,d=2) => x==null||Number.isNaN(+x) ? "—" : Number(x).toFixed(d);
 const sgn = x => x==null ? "m" : (x>=0 ? "pos" : "neg");
 const money = x => x==null ? "—" : "$"+Number(x).toFixed(Number(x)<10?4:2);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[ch]));
-const C = { lime: "#c8f23a", limeHot: "#e8ff6a", mag: "#ff2d8a", gold: "#e0b84a", blue: "#4da3ff", orange: "#ffa54a",
-            ink: "#f4f0e6", ink2: "#c8c2b4", muted: "#8a8478", muted2: "#5c574e" };
 
 // ── proxy pool (personal worker first) ───────────────────────
 const DEFAULT_WORKER = "https://blueline-cors-proxy.sussman-adam.workers.dev/?url=";
@@ -582,25 +461,25 @@ const CRITIQUE = {
 
 function loadCritique() {
   const box = $("critBox");
-  if (box.style.display !== "none" && box.open) { box.open = false; box.style.display = "none"; return; }
+  if (box.style.display !== "none" && box.open) { box.open = false; return; }
   $("steel").innerHTML = CRITIQUE.steelman.map(x => `<li>${esc(x)}</li>`).join("");
   $("straw").innerHTML = CRITIQUE.strawman.map(x => `<li>${esc(x)}</li>`).join("");
   $("from").innerHTML =
     '<b style="color:var(--blue)">From Blueline:</b> ' + esc(CRITIQUE.from_blueline.join(" · ")) +
     '<br><b style="color:var(--orange)">From VWAP One:</b> ' + esc(CRITIQUE.from_vwap_one.join(" · ")) +
-    '<br><b style="color:var(--muted)">Providers:</b> ' + esc(CRITIQUE.providers.join(" · "));
+    '<br><b style="color:var(--m)">Providers:</b> ' + esc(CRITIQUE.providers.join(" · "));
   box.style.display = "block";
   box.open = true;
-  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function loadProviders() {
   const box = $("provBox");
   if (box.style.display === "block") { box.style.display = "none"; return; }
   const mode = $("mode")?.value || "hybrid";
-  const bits = Object.entries(feedStats).map(([k, v]) => `<b>${esc(k)}</b> ok=${v.ok||0} fail=${v.fail||0}`);
+  const bits = Object.entries(feedStats).map(([k, v]) =>
+    `<b>${esc(k)}</b> ok=${v.ok||0} fail=${v.fail||0}`);
   box.innerHTML = `mode <b>${esc(mode)}</b> · ` + bits.join(" · ") +
-    ` · proxy ${proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public"}`;
+    ` · proxy <span class="src">${proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public"}</span>`;
   box.style.display = "block";
 }
 
@@ -620,27 +499,6 @@ function gradeCls(g) {
   if (g.startsWith("B")||g.startsWith("LB")) return "gB";
   return "gC";
 }
-const GRADE_BARS = { A: 5, LA: 4, B: 3, LB: 2, C: 1 };
-function gradeBars(g) {
-  const on = GRADE_BARS[g] ?? 0;
-  const tone = g === "✕" ? "mag" : (on >= 4 ? "" : "gold");
-  return `<span class="bars ${tone}">${[1,2,3,4,5].map(i => `<i class="${i <= on ? "on" : ""}"></i>`).join("")}</span>`;
-}
-
-// a day-only sparkline: price (lime/mag by side, ink when flat) over the blue VWAP (dim blue)
-function sparkSvg(c, w = 64, h = 24, stroke = 1.5) {
-  const s = (c && c.series || []).filter(p => p.price != null);
-  if (s.length < 2) return "";
-  const vals = s.flatMap(p => [p.price, p.blue]).filter(v => v != null && Number.isFinite(v));
-  let lo = Math.min(...vals), hi = Math.max(...vals); if (hi === lo) hi = lo + 1;
-  const x = i => (i / (s.length - 1)) * w, y = v => h - 2 - (v - lo) / (hi - lo) * (h - 4);
-  const path = key => s.map((p, i) => p[key] == null ? "" : `${i && s[i-1][key] != null ? "L" : "M"}${x(i).toFixed(1)},${y(p[key]).toFixed(1)}`).join("");
-  const col = c.side === "long" ? C.lime : c.side === "short" ? C.mag : C.ink2;
-  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
-    <path d="${path("blue")}" fill="none" stroke="${C.blue}" stroke-opacity="0.55" stroke-width="1" />
-    <path d="${path("price")}" fill="none" stroke="${col}" stroke-width="${stroke}" stroke-linejoin="round" />
-  </svg>`;
-}
 
 function sorted() {
   const regRank = { chop: 3, mixed: 2, trend: 1, unknown: 0 };
@@ -658,66 +516,40 @@ function sorted() {
 function render() {
   const list = sorted();
   if (!list.length) {
-    $("tb").innerHTML = `<tr><td colspan="19" class="empty">${emptyHint || "No rows"}</td></tr>`;
-  } else {
-    $("tb").innerHTML = list.map(r => {
-      const tk = esc(r.ticker);
-      if (r.error) return `<tr data-tk="${tk}"><td></td><td class="sym">${tk}</td><td colspan="17" class="note">${esc(r.error)}</td></tr>`;
-      const cls = [r.side === "long" ? "long" : r.side === "short" ? "short" : "", r.stale_bars?"stale":"", selected===r.ticker?"sel":""].filter(Boolean).join(" ");
-      const mark = r.live_actionable ? "◆" : (r.actionable ? "●" : "");
-      const d = r.dist_std;
-      const reg = r.regime || "—";
-      const regCls = reg === "chop" ? "pos" : (reg === "trend" ? "neg" : "m");
-      const age = r.bar_age_min;
-      return `<tr class="${cls}" data-tk="${tk}" title="${esc(r.note||"")}${r.ker!=null?` · KER ${r.ker}`:""}">
-        <td class="score">${r.edge??0}</td>
-        <td class="sym">${tk}${mark ? `<span class="mark">${mark}</span>` : ""}</td>
-        <td>${gradeBars(r.grade)}<span class="pill ${gradeCls(r.grade)}">${esc(r.grade||"–")}</span></td>
-        <td><span class="pill ${esc(r.signal||"FLAT")}">${esc(r.signal||"FLAT")}</span></td>
-        <td class="${regCls}" title="KER ${r.ker??"—"} · adapt ${r.adapt_mult??"—"}">${esc(reg)}${r.setup_mode?"/"+esc(r.setup_mode):""}</td>
-        <td class="note">${esc(r.note||"")}</td>
-        <td class="path-cell">${sparkSvg(chartCache.get(r.ticker))}</td>
-        <td>${n(r.price)}</td>
-        <td class="bluec">${n(r.blue)}</td>
-        <td class="orangec">${n(r.orange)}</td>
-        <td class="${sgn(r.gap_pct)}">${r.gap_pct==null?"—":(r.gap_pct>0?"+":"")+n(r.gap_pct)}</td>
-        <td class="${sgn(d)}">${d==null?"—":((d>0?"+":"")+n(d))}</td>
-        <td>${n(r.entry)}</td>
-        <td class="neg">${n(r.stop)}</td>
-        <td class="orangec">${n(r.target)}</td>
-        <td class="${(r.rr!=null&&r.rr>=1)?"pos":(r.rr!=null?"neg":"m")}">${n(r.rr)}${r.cost_r!=null?`<span class="cost">−${n(r.cost_r)}</span>`:""}</td>
-        <td class="m">${r.rvol==null?"—":n(r.rvol,2)}${r.rvol_n!=null?` <span style="opacity:.55">n=${r.rvol_n}</span>`:""}</td>
-        <td class="${r.stale_bars?"neg":"m"}">${age==null?"—":(age<100?n(age,0)+"m":">99m")}</td>
-        <td><span class="src">${esc(r.provider||"—")}</span></td>
-      </tr>`;
-    }).join("");
-    $("tb").querySelectorAll("tr[data-tk]").forEach(tr => tr.onclick = () => selectTicker(tr.dataset.tk));
-  }
-  renderTape(list);
-}
-
-function renderTape(list) {
-  const cards = list.filter(r => !r.error).slice(0, 12);
-  if (!cards.length) {
-    $("tape").innerHTML = `<div class="sat" style="flex-basis:100%;cursor:default"><div class="empty" style="padding:12px">${emptyHint || "No rows yet"}</div></div>`;
+    $("tb").innerHTML = `<tr><td colspan="18" class="m" style="padding:24px;text-align:center">${emptyHint || "No rows"}</td></tr>`;
     return;
   }
-  $("tape").innerHTML = cards.map((r, i) => {
-    const tk = esc(r.ticker), c = chartCache.get(r.ticker);
-    const side = r.side === "long" || r.side === "short" ? r.side : "";
-    return `<div class="sat ${side} ${selected===r.ticker?"active":""}" data-tk="${tk}">
-      <div class="idx">${String(i+1).padStart(2,"0")}${r.live_actionable ? " · live A" : r.actionable ? " · actionable" : ""}</div>
-      <div class="rsym">${tk}<small>${esc(r.regime||"")}${r.setup_mode?"/"+esc(r.setup_mode):""}</small></div>
-      <div class="sat-pills">
-        ${side ? `<span class="pill ${side}">${side}</span>` : ""}
-        <span class="pill ${esc(r.signal||"FLAT")}">${esc(r.signal||"FLAT")}</span>
-        <span class="pill ${gradeCls(r.grade)}">grade ${esc(r.grade||"–")}</span>
-      </div>
-      <div class="sat-mid"><span class="dot"></span><div class="spark">${sparkSvg(c, 120, 32, 1.6)}</div></div>
-      <div class="sat-foot"><span>edge <b>${r.edge??0}</b></span><span>R:R <b>${n(r.rr)}</b></span><span>${n(r.price)}</span></div>
-    </div>`;
+  $("tb").innerHTML = list.map(r => {
+    const tk = esc(r.ticker);
+    if (r.error) return `<tr data-tk="${tk}"><td></td><td class="tk">${tk}</td><td colspan="16" class="note">${esc(r.error)}</td></tr>`;
+    const cls = [r.actionable?"act":"", r.stale_bars?"stale":"", selected===r.ticker?"sel":""].filter(Boolean).join(" ");
+    const mark = r.live_actionable ? " ◆" : (r.actionable ? " ●" : "");
+    const d = r.dist_std;
+    const reg = r.regime || "—";
+    const regCls = reg === "chop" ? "pos" : (reg === "trend" ? "neg" : "m");
+    const age = r.bar_age_min;
+    return `<tr class="${cls}" data-tk="${tk}" title="${esc(r.note||"")}${r.ker!=null?` · KER ${r.ker}`:""}">
+      <td class="edge">${r.edge??0}</td>
+      <td class="tk">${tk}${mark}</td>
+      <td><span class="grade ${gradeCls(r.grade)}">${esc(r.grade||"–")}</span></td>
+      <td><span class="badge ${esc(r.signal||"FLAT")}">${esc(r.signal||"FLAT")}</span></td>
+      <td class="${regCls}" title="KER ${r.ker??"—"} · adapt ${r.adapt_mult??"—"}">${esc(reg)}${r.setup_mode?"/"+esc(r.setup_mode):""}</td>
+      <td class="note">${esc(r.note||"")}</td>
+      <td>${n(r.price)}</td>
+      <td class="bluec">${n(r.blue)}</td>
+      <td class="orangec">${n(r.orange)}</td>
+      <td class="${sgn(r.gap_pct)}">${r.gap_pct==null?"—":(r.gap_pct>0?"+":"")+n(r.gap_pct)}</td>
+      <td class="${sgn(d)}">${d==null?"—":((d>0?"+":"")+n(d))}</td>
+      <td>${n(r.entry)}</td>
+      <td class="neg">${n(r.stop)}</td>
+      <td class="orangec">${n(r.target)}</td>
+      <td class="${(r.rr!=null&&r.rr>=1)?"pos":(r.rr!=null?"neg":"m")}">${n(r.rr)}${r.cost_r!=null?`<span class="cost">−${n(r.cost_r)}</span>`:""}</td>
+      <td class="m">${r.rvol==null?"—":n(r.rvol,2)}${r.rvol_n!=null?` <span style="opacity:.55">n=${r.rvol_n}</span>`:""}</td>
+      <td class="${r.stale_bars?"neg":"m"}">${age==null?"—":(age<100?n(age,0)+"m":">99m")}</td>
+      <td class="src">${esc(r.provider||"—")}</td>
+    </tr>`;
   }).join("");
-  $("tape").querySelectorAll(".sat[data-tk]").forEach(el => el.onclick = () => selectTicker(el.dataset.tk));
+  $("tb").querySelectorAll("tr[data-tk]").forEach(tr => tr.onclick = () => selectTicker(tr.dataset.tk));
 }
 
 function analyzeRow(sym, bars, provider, nowMs) {
@@ -734,7 +566,7 @@ async function scan() {
   try {
     await runScan();
   } catch (e) {
-    $("asof").textContent = "scan failed: " + (e && e.message || e);
+    $("meta").textContent = "Scan failed: " + (e && e.message || e);
   } finally {
     scanning = false;
     btn.disabled = false; btn.textContent = "Scan";
@@ -756,7 +588,7 @@ async function runScan() {
       const sym = list[i++];
       try { fetched.set(sym, await fetchBars(sym)); }
       catch (e) { fetched.set(sym, { error: String(e && e.message || e) }); }
-      $("asof").textContent = `scanning ${++done}/${list.length}…`;
+      $("meta").innerHTML = `Scanning <b>${++done}/${list.length}</b>…`;
     }
   }
   await Promise.all(Array.from({ length: Math.min(6, list.length) }, worker));
@@ -784,12 +616,10 @@ async function runScan() {
   chartCache = new Map(all.filter(r => r._chart).map(r => [r.ticker, E.chartFromRow(r)]));
   lastScan = { all, list, liquid, volDrop, minDvol, secs: (performance.now() - t0) / 1000, nowMs };
   present();
+  if (selected) showChart(selected);
 }
 
-const chip = (k, v, tone = "") => `<div class="chip"><div class="k">${esc(k)}</div><div class="v ${tone}">${v}</div></div>`;
-
-// Filters, rank, the chips, the side panels, the tape and the table from the last scan: the actionable box,
-// grade floor and row count apply at once, with no refetch.
+// Filters, rank and the table from the last scan: the actionable box, grade floor and row count apply at once.
 function present() {
   if (!lastScan) return;
   const { all, list, liquid, volDrop, minDvol, secs, nowMs } = lastScan;
@@ -817,69 +647,33 @@ function present() {
 
   const ok = all.filter(r => !r.error);
   const regimes = {};
-  for (const r of ok) regimes[r.regime || "unknown"] = (regimes[r.regime || "unknown"] || 0) + 1;
+  for (const r of rows) if (!r.error) regimes[r.regime || "unknown"] = (regimes[r.regime || "unknown"] || 0) + 1;
   const eq = E.sessionLabel(false, nowMs).session_label;
   const lastDay = ok.filter(r => !r.is_crypto).map(r => r.focus_day).sort().pop();
   const feeds = [...new Set(ok.map(r => r.provider).filter(Boolean))];
   const errN = all.length - ok.length;
-  const live = rows.filter(r => r.live_actionable).length, act = rows.filter(r => r.actionable).length;
-  const gradeA = rows.filter(r => /^L?A$/.test(r.grade||"")).length;
-  const stale = rows.filter(r => r.stale_bars).length;
-  const longs = ok.filter(r => r.side === "long" && (r.actionable || r.live_actionable)).length;
-  const shorts = ok.filter(r => r.side === "short" && (r.actionable || r.live_actionable)).length;
-
   $("meta").innerHTML =
-    chip("Shown", `${rows.length}<small>of ${all.length}</small>`) +
-    chip("Pool · liquid", `${list.length} · ${liquid.length}` + (volDrop ? ` <small>−${volDrop}</small>` : "")) +
-    chip("Actionable", `${act}<small>${actPool} in pool</small>`, act ? "lime" : "") +
-    chip("Live grade A", String(live), live ? "lime" : "") +
-    chip("Grade A shown", String(gradeA), gradeA ? "blue" : "") +
-    chip("Floor", `≥ ${esc(floor)}${$("actOnly").checked ? " · act" : ""}` + (minDvol ? ` · $${minDvol/1e6}M` : "")) +
-    (Object.keys(regimes).length ? chip("Regime", Object.entries(regimes).map(([k,v]) => `${esc(k)} ${v}`).join(" · ")) : "") +
-    (stale ? chip("Stale bars", String(stale), "mag") : "") +
-    (errN ? chip("Feed errors", String(errN), "mag") : "");
-
-  $("sideTitle").textContent = rows.length
-    ? (live ? `${live} live grade A` : act ? `${act} actionable` : `${gradeA ? gradeA + " grade A, none live" : "nothing actionable"}`)
-    : "quiet board";
-  const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
-  $("sideSplit").innerHTML = `
-    <div class="row"><span>Long setups (actionable)</span><b>${longs}</b></div><div class="track"><i style="width:${pct(longs, longs+shorts)}%"></i></div>
-    <div class="row"><span>Short setups (actionable)</span><b>${shorts}</b></div><div class="track short"><i style="width:${pct(shorts, longs+shorts)}%"></i></div>
-    <div class="row"><span>Graded A in pool</span><b>${ok.filter(r => /^L?A$/.test(r.grade||"")).length}</b></div><div class="track blue"><i style="width:${pct(ok.filter(r => /^L?A$/.test(r.grade||"")).length, ok.length)}%"></i></div>
-    <div class="row"><span>Chop regime share</span><b>${pct(regimes.chop||0, ok.length)}%</b></div><div class="track gold"><i style="width:${pct(regimes.chop||0, ok.length)}%"></i></div>`;
-  $("sideStream").innerHTML =
-    `equities <span class="m">·</span> ${esc(eq)}${lastDay && eq !== "rth" ? ` <span class="m">(session ${esc(lastDay)})</span>` : ""}<br>` +
-    `feeds <span class="m">·</span> ${esc(feeds.join(", ") || "—")}<br>` +
-    `scan <span class="m">·</span> ${secs.toFixed(1)}s for ${list.length} names<br>` +
-    `proxies <span class="m">·</span> ${proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public"}`;
-  $("asof").textContent = `as of ${new Date(nowMs).toLocaleTimeString()} · scan ${secs.toFixed(1)}s · engine v${E.VERSION}`;
+    `<b>${rows.length}</b> shown · pool <b>${list.length}</b> · liquid <b>${liquid.length}</b>` +
+    (volDrop ? ` · vol-drop <b>${volDrop}</b>` : "") + (minDvol ? ` · floor <b>$${minDvol/1e6}M</b> (crypto $${E.dollarVolumeFloor("BTC-USD", minDvol)/1e6}M 24h)` : "") +
+    ` · <b>${rows.filter(r=>r.actionable).length}</b> actionable (${actPool} in pool)${$("actOnly").checked ? " · <b>filter on</b>" : ""}` +
+    ` · <b>${rows.filter(r=>r.live_actionable).length}</b> live` +
+    ` · <b>${rows.filter(r=>/^L?A$/.test(r.grade||"")).length}</b> grade A · grade ≥ <b>${esc(floor)}</b>` +
+    (rows.some(r => r.stale_bars) ? ` · <span class="neg">stale ${rows.filter(r=>r.stale_bars).length}</span>` : "") +
+    (Object.keys(regimes).length ? ` · regime {${Object.entries(regimes).map(([k,v]) => `${esc(k)}:${v}`).join(" ")}}` : "") +
+    ` · equities <b>${esc(eq)}</b>` + (lastDay && eq !== "rth" ? ` (session ${esc(lastDay)})` : "") +
+    (errN ? ` · <span class="neg">${errN} feed errors</span>` : "") +
+    ` · feeds <b>${esc(feeds.join(", ") || "—")}</b> · <b>${secs.toFixed(1)}s</b> · ${new Date(nowMs).toLocaleTimeString()}`;
   $("footProv").textContent = "proxies: " + (proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public");
   if ($("provBox").style.display === "block") { $("provBox").style.display = "none"; loadProviders(); }
-
-  // the hero shows the selected setup, else the top-ranked one
-  if (!rows.length) selected = null;
-  else if (!selected || !rows.some(r => r.ticker === selected)) selected = rows[0].ticker;
   render();
-  if (selected) showChart(selected); else emptyHero();
-}
-
-function emptyHero() {
-  $("chEyebrow").textContent = "01 · Top-ranked setup";
-  $("chTicker").textContent = "—";
-  $("chPills").innerHTML = `<span class="pill">${esc(emptyHint || "no setup to show")}</span>`;
-  $("chStats").innerHTML = "";
-  $("chSub").textContent = "Blue day VWAP · orange prior-day anchor.";
-  $("chartPane").classList.remove("long", "short");
-  const ctx = $("chartCanvas").getContext("2d"); ctx && ctx.clearRect(0, 0, $("chartCanvas").width, $("chartCanvas").height);
 }
 
 function toggleLive() {
   liveOn = !liveOn;
   const btn = $("liveBtn");
   const interval = Math.max(15, +$("interval").value || 45);
-  btn.innerHTML = `<span class="pulse ${liveOn ? "on" : ""}"></span>${liveOn ? `Live · ${interval}s` : "Stream live"}`;
-  btn.classList.toggle("offline", !liveOn);
+  btn.textContent = liveOn ? `Live ${interval}s` : "Live off";
+  btn.classList.toggle("on", liveOn);
   $("dot").classList.toggle("on", liveOn);
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   if (liveOn) {
@@ -891,14 +685,14 @@ function toggleLive() {
 function selectTicker(tk) {
   selected = tk;
   render();
+  $("desk").classList.add("open");
   showChart(tk);
-  $("chartPane").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function closeChart() {          // back to the top-ranked setup
-  selected = rows.length ? rows[0].ticker : null;
+function closeChart() {
+  selected = null;
+  $("desk").classList.remove("open");
   render();
-  if (selected) showChart(selected); else emptyHero();
 }
 
 function showChart(tk) {
@@ -923,35 +717,21 @@ function showChart(tk) {
 
 function paintChart(d) {
   $("chLoad").style.display = "none";
-  const rank = rows.findIndex(r => r.ticker === (d.ticker || selected));
-  $("chEyebrow").textContent = `${rank >= 0 ? String(rank + 1).padStart(2, "0") : "—"} · ${rank === 0 ? "Top-ranked setup" : "Selected setup"}`;
-  $("chTicker").innerHTML = `${esc(d.ticker || selected)}<small>${esc(d.provider || "")}</small>`;
-  const pane = $("chartPane"); pane.classList.remove("long", "short"); if (d.side === "long" || d.side === "short") pane.classList.add(d.side);
-  const row = rows.find(r => r.ticker === (d.ticker || selected)) || {};
-  $("chPills").innerHTML = [
-    d.side ? `<span class="pill ${esc(d.side)}">${esc(d.side)}</span>` : "",
-    row.signal ? `<span class="pill ${esc(row.signal)}">${esc(row.signal)}</span>` : "",
-    `<span class="pill ${gradeCls(d.grade)}">grade ${esc(d.grade||"–")}</span>`,
-    d.regime ? `<span class="pill ${d.regime === "chop" ? "blue" : d.regime === "trend" ? "orange" : ""}">${esc(d.regime)}${d.setup_mode ? "/" + esc(d.setup_mode) : ""}</span>` : "",
-    row.live_actionable ? `<span class="pill long">◆ live A</span>` : row.actionable ? `<span class="pill long">● actionable</span>` : "",
-    row.stale_bars ? `<span class="pill short">stale bars</span>` : "",
-  ].filter(Boolean).join("");
-  const score = (k, v, tone = "") => `<div><div class="k">${esc(k)}</div><div class="v ${tone}">${v}</div></div>`;
-  $("chStats").innerHTML =
-    score("Edge", String(row.edge ?? "—"), "pos") +
-    score(d.cost_r != null ? `R:R · cost ${n(d.cost_r)}R` : "R:R", d.rr == null ? "—" : n(d.rr), d.rr != null && d.rr >= 1 ? "pos" : d.rr != null ? "neg" : "") +
-    score("Gap", d.gap_pct == null ? "—" : ((d.gap_pct > 0 ? "+" : "") + n(d.gap_pct) + "%"), d.gap_pct == null ? "" : d.gap_pct >= 0 ? "pos" : "neg") +
-    score("RVOL", row.rvol == null ? "—" : `${n(row.rvol, 2)}<small>n=${row.rvol_n ?? 0}</small>`);
-  $("chSub").innerHTML =
-    `${esc(d.state || "")}. Price <b>${esc(money(d.price))}</b> against blue <b class="bluec">${esc(money(d.blue))}</b> and orange <b class="orangec">${esc(money(d.orange))}</b>` +
-    (d.entry != null ? `; the plan enters <b>${esc(money(d.entry))}</b>, stops <b class="neg">${esc(money(d.stop))}</b>, targets <b class="orangec">${esc(money(d.target))}</b>.` : ". No plan on this bar.");
+  $("chTicker").textContent = d.ticker || selected;
+  $("chSub").textContent = [`Grade ${d.grade||"–"}`, d.state, d.side, d.regime && `${d.regime}${d.setup_mode ? "/" + d.setup_mode : ""}`, d.provider]
+    .filter(Boolean).join(" · ");
+  $("chStats").innerHTML = [
+    ["Price", money(d.price)], ["Blue", money(d.blue)], ["Orange", money(d.orange)],
+    ["Gap", d.gap_pct==null?"—":((d.gap_pct>0?"+":"")+n(d.gap_pct)+"%")],
+    ["Entry", money(d.entry)], ["Stop", money(d.stop)], ["Target", money(d.target)],
+    [d.cost_r!=null ? `R:R · cost ${n(d.cost_r)}R` : "R:R", d.rr==null?"—":n(d.rr)],
+  ].map(([k,v]) => `<div class="ch-stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("");
   drawChart(d);
 }
 
 function drawChart(d) {
   const canvas = $("chartCanvas"), wrap = $("chartWrap"), tip = $("chartTip");
   const W = wrap.clientWidth, H = wrap.clientHeight;
-  if (!W || !H) return;
   const dpr = window.devicePixelRatio || 1;
   canvas.width = W*dpr; canvas.height = H*dpr;
   canvas.style.width = W+"px"; canvas.style.height = H+"px";
@@ -960,7 +740,7 @@ function drawChart(d) {
   ctx.clearRect(0,0,W,H);
   const series = d.series || [];
   if (series.length < 2) return;
-  const pad = { l:56, r:14, t:16, b:26 };
+  const pad = { l:52, r:12, t:16, b:28 };
   const plotW = W-pad.l-pad.r, plotH = H-pad.t-pad.b;
   let lo=Infinity, hi=-Infinity;
   for (const s of series) for (const k of ["low","high","blue","orange","upper","lower"]) {
@@ -977,10 +757,10 @@ function drawChart(d) {
     const y = pad.t+(g/4)*plotH;
     ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
     const px = hi-(g/4)*(hi-lo);
-    ctx.fillStyle=C.muted; ctx.font="10px 'Azeret Mono', ui-monospace, monospace"; ctx.textAlign="right";
-    ctx.fillText(px.toFixed(px<10?3:2), pad.l-8, y+3);
+    ctx.fillStyle="#8a8478"; ctx.font="10px 'Azeret Mono', ui-monospace, monospace"; ctx.textAlign="right";
+    ctx.fillText(px.toFixed(px<10?3:2), pad.l-6, y+3);
   }
-  // σ band around blue
+  // band
   ctx.beginPath(); let started=false;
   for (let i=0;i<series.length;i++) {
     if (series[i].upper==null) continue;
@@ -994,7 +774,7 @@ function drawChart(d) {
   ctx.closePath(); ctx.fillStyle="rgba(77,163,255,0.10)"; ctx.fill();
 
   if (d.prior_close!=null) {
-    ctx.setLineDash([4,4]); ctx.strokeStyle=C.muted2;
+    ctx.setLineDash([4,4]); ctx.strokeStyle="#5c574e";
     ctx.beginPath(); ctx.moveTo(pad.l,yOf(d.prior_close)); ctx.lineTo(W-pad.r,yOf(d.prior_close)); ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -1002,7 +782,7 @@ function drawChart(d) {
   const cw = Math.max(2, plotW/series.length*0.6);
   for (let i=0;i<series.length;i++) {
     const s=series[i], x=xOf(i), up=s.price>=s.open;
-    ctx.strokeStyle = up?C.lime:C.mag;
+    ctx.strokeStyle = up?"#c8f23a":"#ff2d8a";
     ctx.fillStyle = up?"rgba(200,242,58,0.28)":"rgba(255,45,138,0.28)";
     ctx.beginPath(); ctx.moveTo(x,yOf(s.high)); ctx.lineTo(x,yOf(s.low)); ctx.stroke();
     const y1=yOf(Math.max(s.open,s.price)), y2=yOf(Math.min(s.open,s.price));
@@ -1011,8 +791,7 @@ function drawChart(d) {
   }
 
   const line = (key, color, glow) => {
-    ctx.save();
-    if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 8; }
+    ctx.save(); ctx.shadowColor = glow; ctx.shadowBlur = 8;
     ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath(); let st=false;
     for (let i=0;i<series.length;i++) {
       if (series[i][key]==null) continue;
@@ -1021,7 +800,7 @@ function drawChart(d) {
     }
     ctx.stroke(); ctx.restore();
   };
-  line("blue",C.blue,"rgba(77,163,255,0.45)"); line("orange",C.orange,"rgba(255,165,74,0.45)");
+  line("blue","#4da3ff","rgba(77,163,255,0.45)"); line("orange","#ffa54a","rgba(255,165,74,0.45)");
 
   const lvl = (px, color) => {
     if (px==null) return;
@@ -1029,7 +808,7 @@ function drawChart(d) {
     ctx.beginPath(); ctx.moveTo(pad.l,yOf(px)); ctx.lineTo(W-pad.r,yOf(px)); ctx.stroke();
     ctx.setLineDash([]);
   };
-  lvl(d.levels?.entry,C.lime); lvl(d.levels?.stop,C.mag); lvl(d.levels?.target,C.orange);
+  lvl(d.levels?.entry,"#c8f23a"); lvl(d.levels?.stop,"#ff2d8a"); lvl(d.levels?.target,"#ffa54a");
 
   const mk = d.markers||{};
   const mark = (rel, symb, color, dy) => {
@@ -1037,14 +816,14 @@ function drawChart(d) {
     ctx.fillStyle=color; ctx.font="12px 'Azeret Mono', ui-monospace, monospace"; ctx.textAlign="center";
     ctx.fillText(symb, xOf(rel), yOf(series[rel].price)+(dy||-8));
   };
-  mark(mk.firstBreak,"◇",C.gold,-10);
+  mark(mk.firstBreak,"◇","#e0b84a",-10);
   const long = d.side === "long";
-  if (mk.trig!=null) mark(mk.trig, long?"▲":"▼", long?C.lime:C.mag, -10);
+  if (mk.trig!=null) mark(mk.trig, long?"▲":"▼", long?"#c8f23a":"#ff2d8a", -10);
   if (mk.tagged!=null && mk.tagged < series.length) {
-    ctx.fillStyle=C.orange; ctx.beginPath();
+    ctx.fillStyle="#ffa54a"; ctx.beginPath();
     ctx.arc(xOf(mk.tagged), yOf(series[mk.tagged].price), 4, 0, Math.PI*2); ctx.fill();
   }
-  mark(mk.stopped,"✕",C.mag,-10);
+  mark(mk.stopped,"✕","#ff2d8a",-10);
 
   canvas.onmousemove = (ev) => {
     const rect = canvas.getBoundingClientRect();
@@ -1052,9 +831,9 @@ function drawChart(d) {
     const i = Math.round(((mx-pad.l)/plotW)*(series.length-1));
     if (i<0||i>=series.length) { tip.style.display="none"; return; }
     const s = series[i];
-    tip.style.display="block"; tip.style.left=Math.min(rect.width-170,Math.max(8,mx+12))+"px"; tip.style.top="12px";
+    tip.style.display="block"; tip.style.left=Math.min(rect.width-160,Math.max(8,mx+12))+"px"; tip.style.top="12px";
     tip.innerHTML = `<b>${esc(s.time)}</b><br>O ${n(s.open)} H ${n(s.high)}<br>L ${n(s.low)} C ${n(s.price)}<br>
-      <span style="color:${C.blue}">blue ${n(s.blue)}</span><br><span style="color:${C.orange}">orange ${n(s.orange)}</span>`;
+      <span style="color:#4da3ff">blue ${n(s.blue)}</span><br><span style="color:#ffa54a">orange ${n(s.orange)}</span>`;
   };
   canvas.onmouseleave = () => { tip.style.display="none"; };
 }
@@ -1090,7 +869,7 @@ document.addEventListener("keydown", e => {
   $("interval").addEventListener("change", () => {                  // a running Live timer picks up the new interval
     if (!liveOn) return;
     const interval = Math.max(15, +$("interval").value || 45);
-    $("liveBtn").innerHTML = `<span class="pulse on"></span>Live · ${interval}s`;
+    $("liveBtn").textContent = `Live ${interval}s`;
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(scan, interval * 1000);
   });
