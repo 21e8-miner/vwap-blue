@@ -4,3 +4,5 @@ yfinance>=0.2.40
 pandas>=2.0
 numpy>=1.24
 pydantic>=2.0
+# 3.0 (Oct 2026): pandas 3.1 cannot localize its tz objects (get_dst_info: NoneType.total_seconds)
+python-dateutil>=2.8,<3
