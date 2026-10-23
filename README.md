@@ -246,6 +246,12 @@ version of these results included them (4 v1.5.0 trades: 149 instead of 145, ± 
 | Sep 5 – Oct 3 | v1.5.0 | Coinbase, 43 names | 128 | +0.18 | +0.13 ± 0.17 | inconclusive (t 0.7) |
 | **Sep 20 – Oct 18** | **v1.6.0 · mdrev to the nearest real level** | Yahoo, refetched Oct 19 | 76 | +0.38 | **+0.31 ± 0.22** | inconclusive (t 1.4) |
 | Sep 20 – Oct 18 | v1.5.0 on the same bars | Yahoo | 180 | +0.30 | +0.24 ± 0.16 | inconclusive (t 1.6) |
+| **Oct 23 – Oct 22 (a year)** | **v1.6.0**, 47 names ⁵ | Binance archive (real volume) | 661 | −0.07 | **−0.14 ± 0.06** | negative (t −2.3) |
+
+⁵ `replay_crypto.py --source binance-vision --days 365`: Binance spot 5m klines from data.binance.vision
+(checksum-verified archive files, the venue's own volume; Yahoo prints zero on about half its 5m crypto
+bars). All 48 crypto names except MKR-USD, which has no USDT pair there. 365 complete UTC days ending
+Oct 22, 2026, replayed on the engine's ET calendar day; 244 of the 365 sessions had a grade-A trade.
 
 All Yahoo rows replay one fetch of 36 names; the two Coinbase rows share another (on Coinbase,
 ARB-USD and TON-USD are Arbitrum and Toncoin). Without a gap fade no crypto trigger depends on later
@@ -265,6 +271,13 @@ What this says:
   ≥ 0.15% step between consecutive 5m alt bars is routine), so only the multi-day reverse trades:
   +0.01R ± 0.13 on the same bars. The +0.91R ± 0.20 paired change is the fades going away, not the
   longer day: v1.4.1 with only its gap fade switched off scores the same.
+- **Over a year, crypto's multi-day reclaims lose.** On Binance's own bars, v1.6.0's grade-A
+  crypto triggers (all multi-day reclaims) lost −0.14R ± 0.06 per trade (t −2.3, 661 trades,
+  244 sessions): the one-month Yahoo windows above (+0.01R, then +0.31R) were noise around a
+  negative mean. Longs did the damage (−0.27R ± 0.09, t −2.8, 299 trades); shorts were flat
+  (−0.03R ± 0.08). The mirror lost −0.06R and trade − mirror is −0.07R ± 0.12: the direction
+  call adds nothing here either. Monthly means ran from −0.39R to +0.11R with no run of two
+  positive months, which is why a month at a time never settled it.
 - **Even the break-even is fragile.** Starting the day at 00:00 UTC instead of 00:00 ET changes
   which reclaim is the day's first and where orange is anchored, and the same rules lose −0.35R
   (t −3.4). ET was chosen before either day was replayed, because the replay, the ledger and

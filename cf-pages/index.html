@@ -186,11 +186,12 @@
     <b>No demonstrated edge.</b> Replayed on Jul 28 – Oct 19, graded bar by bar as the desk showed them and closed
     by 16:00, this engine's grade-A triggers on US equities lost <b>−0.16R</b> per trade after costs (± 0.08 ·
     654 trades · 59 sessions · t −2.1); the losses come from gap fades, not multi-day reclaims.
-    On crypto, replayed Sep 20 – Oct 18 on its 24h session, they made <b>+0.31R</b> (± 0.22 · 76 trades ·
-    25 sessions · t 1.4): inside the noise, and the month before was flat. A research scanner, not trade advice ·
+    On crypto, replayed over a year of Binance bars (Oct 23 – Oct 22, 2025–26) on its 24h session, they lost
+    <b>−0.14R</b> (± 0.06 · 661 trades · 244 sessions · t −2.3); one-month windows had looked flat or positive.
+    A research scanner, not trade advice ·
     <a href="https://github.com/21e8-miner/vwap-blue#honest-results" target="_blank" rel="noopener">how it was tested</a> ·
     raw trades: <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_2026-10-19_v1.6.0.json" target="_blank" rel="noopener">equities</a>,
-    <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_crypto_2026-10-19_v1.6.0.json" target="_blank" rel="noopener">crypto</a>
+    <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_crypto_2026-10-22_365d_binance_v1.6.0.json" target="_blank" rel="noopener">crypto</a>
   </div>
   <div id="meta">Click a row for the dual-VWAP chart · ◆ live grade A · ● actionable · dimmed = stale bars</div>
   <div id="provBox"></div>
@@ -409,7 +410,7 @@ const CRITIQUE = {
     "No demonstrated edge: grade-A triggers lost money after costs on the out-of-sample replay (numbers in the banner), and August's in-sample gain was inside the noise too.",
     "A quarter of the replayed equity trades (160 of 654) trigger before the 09:30 open and fill on the next premarket bar at +2 bps; thin premarket tape can cost more.",
     "Gap fades carry the losses: on the same 59 sessions they lost 0.21R per trade (t −1.9) and gap + reclaim setups 0.34R (t −2.4), while multi-day reclaims were flat.",
-    "Crypto has no edge either. Through v1.4.1 it ran the equity clock and its grade-A fades, fired just after the midnight-ET VWAP reset, lost 0.91R per trade; the 24h session came out flat on Sep 5 – Oct 3 and positive but inside the noise on Sep 20 – Oct 18, and loses if the day starts at UTC midnight.",
+    "Crypto has no edge either. Through v1.4.1 it ran the equity clock and its grade-A fades, fired just after the midnight-ET VWAP reset, lost 0.91R per trade; the 24h session looked flat or positive a month at a time, and over a year of Binance bars lost 0.14R per trade (t −2.3), the longs doing the damage; it also loses if the day starts at UTC midnight.",
     "Crypto bars here are Yahoo's, which report zero volume on about half of the 5m bars; the local desk grades crypto on exchange candles (OKX first), so the two can disagree.",
     "Segments flip sign month to month (mdrev in mixed regimes was August's best and September's worst); a grade is a ranking, not a forecast.",
     "Free 5m Yahoo bars through CORS proxies: they lag, and the guard only catches stalls over 15 min.",
