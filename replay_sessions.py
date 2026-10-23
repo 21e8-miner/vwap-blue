@@ -129,6 +129,7 @@ class Trade:
     entry_mode: str = "trigger_close"
     entry_plan: float = 0.0     # the engine's printed entry (trigger-bar close)
     trigger_time: str = ""      # the trigger bar, ET "MM-DD HH:MM"
+    mirror_r_net: Optional[float] = None   # the same bracket the other way from the same bar (_mirror)
 
 
 def _is_crypto(t: str) -> bool:
@@ -429,7 +430,40 @@ def _pack(trades: List[Trade]) -> Dict[str, Any]:
         "gross_clustered": clustered(rs, sessions),
         "verdict": verdict(net),
         "segments_net": segments(rows, ("setup_mode", "regime")),
+        **_mirror_block(trades),
     }
+
+
+def _mirror_block(trades: List[Trade]) -> Dict[str, Any]:
+    """The mirror control (_mirror) and trade minus mirror, per session-clustered; absent for older files."""
+    paired = [t for t in trades if t.mirror_r_net is not None]
+    if not paired:
+        return {}
+    sessions = [t.session for t in paired]
+    return {"mirror": {
+        "net_clustered": clustered([t.mirror_r_net for t in paired], sessions),
+        "direction": clustered([t.r_net - t.mirror_r_net for t in paired], sessions),
+        "direction_verdict": verdict(clustered([t.r_net - t.mirror_r_net for t in paired], sessions)),
+        "note": "direction = trade minus the same bracket the other way from the same bar; costs cancel",
+    }}
+
+
+def _mirror(side: str, entry: float, stop: float, target: float, entry_mode: str,
+            slip_bps: float) -> Tuple[str, float, float, float]:
+    """
+    The control trade: the other side from the same bar, with the same stop and target distances. A
+    next-bar fill is re-priced with the slippage against the mirror's side; costs in R are the same, so
+    trade minus mirror isolates what the trigger's direction adds.
+    """
+    mside = "short" if side == "long" else "long"
+    m_entry = entry
+    if entry_mode == "next_open" and slip_bps:
+        raw = entry / (1 + slip_bps / 1e4) if side == "long" else entry / (1 - slip_bps / 1e4)
+        m_entry = raw * (1 + slip_bps / 1e4) if mside == "long" else raw * (1 - slip_bps / 1e4)
+    d_stop, d_tgt = abs(entry - stop), abs(target - entry)
+    if mside == "long":
+        return mside, m_entry, m_entry - d_stop, m_entry + d_tgt
+    return mside, m_entry, m_entry + d_stop, m_entry - d_tgt
 
 
 def trades_at(
@@ -455,11 +489,12 @@ def trades_at(
         return [], fill
     cost = COST["crypto" if _is_crypto(t) else "equity"] * 100.0
     risk_pct = abs(entry - stop) / entry * 100.0 if entry else 0.0
+    mside, m_entry, m_stop, m_target = _mirror(side, entry, stop, target, entry_mode, slip_bps)
     out: List[Trade] = []
     for model in models:
-        exit_px, reason, r, mfe_r, mae_r, held = _simulate(
-            side, entry, stop, target, day if model.after_hours else session, k, model, t,
-        )
+        bars = day if model.after_hours else session
+        exit_px, reason, r, mfe_r, mae_r, held = _simulate(side, entry, stop, target, bars, k, model, t)
+        m_r = _simulate(mside, m_entry, m_stop, m_target, bars, k, model, t)[2]
         out.append(
             Trade(
                 ticker=t,
@@ -493,6 +528,7 @@ def trades_at(
                 entry_mode=entry_mode,
                 entry_plan=entry_plan,
                 trigger_time=str(day[k].get("time") or ""),
+                mirror_r_net=round(net_r(float(m_r), t, m_entry, m_stop), 3),
             )
         )
     return out, fill
@@ -618,6 +654,9 @@ def print_honest(summaries: Dict[str, Dict[str, Any]]) -> None:
         if name == "classic_after_hours" and s["net_clustered"] == (summaries.get("classic") or {}).get("net_clustered"):
             continue                                    # crypto: no after-hours, the same as classic
         print(f"  {name:19s} gross {s['avg_r']:+.3f}R  cost {s['avg_cost_r']:.3f}R  net {fmt_stat(s['net_clustered'])}")
+        if s.get("mirror"):
+            print(f"  {'':19s} mirror (same bracket, other side) net {fmt_stat(s['mirror']['net_clustered'])}")
+            print(f"  {'':19s} direction (trade − mirror)       {fmt_stat(s['mirror']['direction'])}")
     s = summaries.get("classic") or {}
     if s.get("segments_net"):
         print("\n  classic, net R by setup mode x regime:")
