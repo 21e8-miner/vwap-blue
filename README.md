@@ -84,6 +84,7 @@ bars **beyond blue by adaptive volume-weighted σ** → **confirm**. Target
 # fills on the bar after the trigger (+2 bps), equities out by the 16:00 close; prints net-of-cost R
 # with session-clustered CIs.
 python3 replay_sessions.py --max-tickers 96 --grade-min A
+python3 replay_sessions.py --range-60d --save-bars data/backtests/eq_60d.pkl   # 60 days of 5m bars (Yahoo chart API), ~59 sessions
 python3 replay_sessions.py --save-bars data/backtests/equity_bars.pkl  # keep the fetch: Yahoo's window moves
 python3 replay_sessions.py --bars data/backtests/equity_bars.pkl       # replay those bars again
 python3 replay_sessions.py --entry trigger_close          # the old, optimistic trigger-close fill
