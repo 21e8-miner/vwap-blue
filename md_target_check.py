@@ -17,21 +17,19 @@ import argparse
 import json
 import pickle
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import pandas as pd
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 import engine  # noqa: E402
 import honest  # noqa: E402
 import replay_sessions as rs  # noqa: E402
-from data import load_universe  # noqa: E402
+from data import load_universe, yahoo_chart_history  # noqa: E402
 
 ET = ZoneInfo("America/New_York")
 VARIANTS = [
@@ -79,30 +77,14 @@ def summary(trades):
 
 
 def fetch_holdout(path):
-    import requests
-    s = requests.Session()
-    s.headers["User-Agent"] = "Mozilla/5.0"
     tickers = [t for t in load_universe() if not engine._is_crypto(t)][:96]
-    bars = {}
-    for t in tickers:
-        for _ in range(3):
-            try:
-                j = s.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{t}",
-                          params={"interval": "5m", "range": "60d", "includePrePost": "true"}, timeout=20).json()
-                r = j["chart"]["result"][0]
-                q = r["indicators"]["quote"][0]
-                bars[t] = pd.DataFrame({"Open": q["open"], "High": q["high"], "Low": q["low"], "Close": q["close"],
-                                        "Volume": [v or 0 for v in q["volume"]]},
-                                       index=pd.to_datetime(r["timestamp"], unit="s", utc=True)).dropna(subset=["Close"])
-                break
-            except Exception:  # noqa: BLE001
-                time.sleep(2)
-        time.sleep(0.25)
-    cache = {"fetched_at": datetime.now(ET).isoformat(timespec="seconds"), "tickers": tickers, "bars": bars,
-             "bar_prov": {t: "yahoo_chart_60d" for t in bars}, "daily": {}, "live": {}, "qmeta": {}}
+    bars, failed = yahoo_chart_history(tickers, interval="5m", range_="60d")
+    cache = {"fetched_at": datetime.now(ET).isoformat(timespec="seconds"), "source": "yahoo_chart_60d",
+             "tickers": tickers, "bars": bars, "bar_prov": {t: "yahoo_chart_60d" for t in bars}, "daily": {},
+             "live": {}, "qmeta": {}, "failed": failed}
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(pickle.dumps(cache))
-    print(f"wrote {path}: {len(bars)}/{len(tickers)} tickers")
+    print(f"wrote {path}: {len(bars)}/{len(tickers)} tickers" + (f"; no bars for {sorted(failed)}" if failed else ""))
 
 
 def main():

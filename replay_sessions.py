@@ -52,7 +52,7 @@ import numpy as np
 import pandas as pd
 
 import engine
-from data import batch_fetch, load_universe, passes_volume_filter
+from data import batch_fetch, load_universe, passes_volume_filter, yahoo_chart_history
 from engine import CRYPTO_CLOSE_M, ENGINE_VERSION, RTH_CLOSE_M
 from honest import COST, clustered, cost_r, fmt_stat, net_r, segments, verdict
 
@@ -658,6 +658,8 @@ def main() -> int:
                     help="next_open: fill on the bar after the trigger (+slippage); trigger_close: the old optimistic fill")
     ap.add_argument("--slip-bps", type=float, default=2.0, help="slippage against us on next_open fills (bps)")
     ap.add_argument("--bars", help="replay a --save-bars file instead of fetching")
+    ap.add_argument("--range-60d", action="store_true",
+                    help="fetch 60 days of 5m bars from Yahoo's chart API (equities) instead of the desk's 32-day fetch")
     ap.add_argument("--save-bars", help="write the fetch here (pickle), to replay the same bars again with --bars")
     ap.add_argument("--through", help="last session, YYYY-MM-DD (default: the last one that was over at the fetch)")
     ap.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1), help="worker processes (split by ticker)")
@@ -691,6 +693,15 @@ def main() -> int:
         if missing:
             raise SystemExit(f"{args.bars} was not fetched for {missing[:5]}… ({len(missing)}): use its --max-tickers")
         print(f"  Bars: {args.bars} (fetched {cache['fetched_at']})")
+    elif args.range_60d:
+        if args.interval != "5m":
+            raise SystemExit("--range-60d serves 5m bars only")
+        bars, failed = yahoo_chart_history(tickers, interval="5m", range_="60d")
+        if failed:
+            print(f"  Yahoo chart: no bars for {len(failed)} names: {', '.join(list(failed)[:8])}")
+        cache = {"fetched_at": now.isoformat(timespec="seconds"), "source": "yahoo_chart_60d", "tickers": tickers,
+                 "bars": bars, "bar_prov": {t: "yahoo_chart_60d" for t in bars}, "daily": {}, "live": {},
+                 "qmeta": {}, "failed": failed}
     else:
         bars, daily, bar_prov, live, qmeta = batch_fetch(
             tickers, force=True, mode=args.mode, bars_interval=args.interval,
@@ -761,7 +772,8 @@ def main() -> int:
         fetch_meta[t] = {"provider": bar_prov.get(t), "bars": int(len(df)), "first": idx[0].isoformat(),
                          "last": idx[-1].isoformat()}
     method: Dict[str, Any] = {
-        "bars": f"{args.interval} hybrid ~{ '8d' if args.interval=='1m' else '1mo' }",
+        "bars": ("5m Yahoo chart API, 60 days" if cache.get("source") == "yahoo_chart_60d"
+                 else f"{args.interval} hybrid ~{ '8d' if args.interval=='1m' else '1mo' }"),
         "fetched_at": cache["fetched_at"],
         "window": [sessions[0], sessions[-1]] if sessions else None,
         "sessions_replayed": len(sessions),

@@ -17,11 +17,16 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from urllib.parse import quote, urlencode
+
 from providers import (
+    NotListed,
+    _get_json,
     batch_rotate_fetch,
     fetch_quote,
     looks_crypto,
     provider_status,
+    to_yahoo_symbol,
 )
 
 log = logging.getLogger("vwap_one.data")
@@ -306,6 +311,54 @@ def batch_fetch(
     }
     _cache[key] = (now, payload)
     return bar_map, day_map, bar_prov, live, quote_meta
+
+
+YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/"
+
+
+def yahoo_chart_history(
+    tickers: List[str],
+    interval: str = "5m",
+    range_: str = "60d",
+    pause_s: float = 0.25,
+    tries: int = 3,
+    get_json=_get_json,
+    sleep=time.sleep,
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, str]]:
+    """
+    Yahoo's chart API, one name at a time, pre and post market included. For 5m bars it serves 60 days,
+    where the desk's yfinance fetch asks for 32 (the replay's only window before this). Returns (bars,
+    failed): a frame per name that came back (UTC index, OHLCV, rows without a close dropped) and, per
+    name that did not, why. A name Yahoo does not list fails at once; anything else is retried.
+    """
+    bars: Dict[str, pd.DataFrame] = {}
+    failed: Dict[str, str] = {}
+    qs = urlencode({"interval": interval, "range": range_, "includePrePost": "true"})
+    for t in tickers:
+        url = f"{YAHOO_CHART}{quote(to_yahoo_symbol(t))}?{qs}"
+        for k in range(tries):
+            try:
+                r = get_json(url)["chart"]["result"][0]
+                q = r["indicators"]["quote"][0]
+                df = pd.DataFrame(
+                    {"Open": q["open"], "High": q["high"], "Low": q["low"], "Close": q["close"],
+                     "Volume": [v or 0 for v in q["volume"]]},
+                    index=pd.to_datetime(r["timestamp"], unit="s", utc=True),
+                ).dropna(subset=["Close"])
+                if df.empty:
+                    raise ValueError("no bars")
+                bars[t] = df
+                failed.pop(t, None)
+                break
+            except NotListed as e:
+                failed[t] = f"not listed ({e})"
+                break
+            except Exception as e:  # noqa: BLE001 — a bad payload or a dropped connection: try again
+                failed[t] = f"{type(e).__name__}: {e}"
+                if k + 1 < tries:
+                    sleep(2.0 * (k + 1))
+        sleep(pause_s)
+    return bars, failed
 
 
 def live_last_prices(tickers: List[str], force: bool = False) -> Dict[str, float]:
