@@ -12,3 +12,4 @@ venv/
 .mypy_cache/
 data/backtests/
 data/signals/
+data/binance_vision/

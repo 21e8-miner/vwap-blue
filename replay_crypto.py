@@ -13,7 +13,9 @@ Bars (--source yahoo, the default). data.batch_fetch(mode="hybrid") pages crypto
 venues are held in cooldown, so batch_fetch takes its own Yahoo chart fallback (5m, the last 30 ET
 days), the feed the GitHub Pages demo grades crypto on. Yahoo prints zero volume on about half of its
 5m crypto bars, so the VWAPs are built from the rest. --source coinbase pages through Coinbase's 5m
-candles instead (every bar has its volume): a data-source cross-check.
+candles instead (every bar has its volume): a data-source cross-check. --source binance-vision reads
+Binance's public bulk archive (binance_vision.py): checksum-verified monthly/daily kline files with the
+venue's volume, as far back as --days asks (a year or more), cached under data/binance_vision/.
 
 Only complete sessions are replayed. A 24/7 market's current session is still open, so bars after
 --through (default: the day before the fetch, ET) are dropped. Fetched bars can be cached
@@ -52,6 +54,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+import binance_vision
 import providers
 import replay_sessions as rs
 from data import batch_fetch, load_universe
@@ -237,11 +240,20 @@ def paired_block(trades: List[rs.Trade], alt: List[rs.Trade]) -> Dict[str, Any]:
     return out
 
 
+def fetch_binance_vision(tickers: List[str], days: int) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    """`days` complete UTC days of 5m USDT-pair klines from data.binance.vision (see binance_vision.py)."""
+    bars, failed = binance_vision.history(tickers, days)
+    if failed:
+        print(f"  binance-vision: no bars for {len(failed)}: " + ", ".join(f"{t} ({why})" for t, why in list(failed.items())[:6]))
+    return bars, {t: "binance_vision" for t in bars}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Session replay of the crypto names in universe.txt")
     ap.add_argument("--bars", help="replay cached bars (a --save-bars file) instead of fetching")
     ap.add_argument("--save-bars", help="write the fetched bars here (pickle) for paired re-runs")
-    ap.add_argument("--source", choices=("yahoo", "coinbase"), default="yahoo", help="where to fetch bars")
+    ap.add_argument("--source", choices=("yahoo", "coinbase", "binance-vision"), default="yahoo", help="where to fetch bars")
+    ap.add_argument("--days", type=int, default=30, help="binance-vision: complete UTC days of history (e.g. 365)")
     ap.add_argument("--through", help="last session to replay, YYYY-MM-DD (default: the day before the fetch, ET)")
     ap.add_argument("--utc-days", action="store_true", help="sensitivity: replay crypto's day as the UTC day")
     ap.add_argument("--engine", help="engine file to replay (default: ./engine.py)")
@@ -261,8 +273,12 @@ def main() -> int:
     else:
         tickers = crypto_universe()
         t0 = time.time()
-        fetch = fetch_coinbase_month if args.source == "coinbase" else fetch_yahoo_month
-        bars, bar_prov = fetch(tickers)
+        if args.source == "binance-vision":
+            bars, bar_prov = fetch_binance_vision(tickers, args.days)
+        elif args.source == "coinbase":
+            bars, bar_prov = fetch_coinbase_month(tickers)
+        else:
+            bars, bar_prov = fetch_yahoo_month(tickers)
         cache = {"fetched_at": datetime.now(rs.ET).isoformat(timespec="seconds"), "source": args.source,
                  "tickers": tickers, "bars": bars, "bar_prov": bar_prov}
         print(f"  fetched {sum(1 for t in tickers if t in bars)}/{len(tickers)} in {time.time() - t0:.1f}s")
@@ -295,9 +311,11 @@ def main() -> int:
         fetch_meta[t] = {"provider": bar_prov.get(t), "bars": int(len(df)), "first": idx[0].isoformat(),
                          "last": idx[-1].isoformat(), "zero_volume_share": round(float((df["Volume"] <= 0).mean()), 3)}
     method: Dict[str, Any] = {
-        "bars": ("5m Yahoo chart, the last 30 ET days: data.batch_fetch(mode='hybrid', crypto_days=30) with "
-                 "the crypto venues held in cooldown") if source == "yahoo"
-                else "5m Coinbase candles, 30 days, paged through the public candles endpoint",
+        "bars": {"yahoo": "5m Yahoo chart, the last 30 ET days: data.batch_fetch(mode='hybrid', crypto_days=30) "
+                          "with the crypto venues held in cooldown",
+                 "coinbase": "5m Coinbase candles, 30 days, paged through the public candles endpoint",
+                 "binance-vision": "5m Binance spot USDT-pair klines from data.binance.vision (checksum-verified "
+                                   "monthly/daily archive files; base-asset volume)"}.get(source, source),
         "session_clock": "UTC day (bars relabelled by their ET offset)" if args.utc_days else "ET calendar day",
         "window": [sessions[0], sessions[-1]] if sessions else None,
         "sessions_replayed": len(sessions),
