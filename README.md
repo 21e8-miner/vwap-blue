@@ -127,7 +127,11 @@ python3 walkforward.py --max-tickers 20
 Grade ≥ A at the trigger bar · 5m bars · R **net of round-trip costs** (0.08% equity, 0.15% crypto,
 converted per trade: cost ÷ risk) · ± **session-clustered** standard error (`honest.py`: setups on
 the same day share the tape, so ~400 trades from 22 sessions are ~22 independent draws). Verdicts
-need |t| ≥ 2 across ≥ 10 sessions.
+need ≥ 10 sessions and |t| past Student's t with (sessions − 1) degrees of freedom at two-sided 5%,
+never less than 2: 2.26 at 10 sessions, 2.09 at 21, 2.00 at 61 (before Oct 23 the bar was a flat 2;
+no verdict in these tables changes). Every replay also scores a **mirror**: the same bracket the
+other way from the same bar, so *trade − mirror* shows what the trigger's direction adds after the
+stop, target and costs, which the mirror shares.
 
 Since Oct 4 the replay grades each bar as the desk showed it then, on the bars up to that one, and
 trades the first tradeable trigger (*bar by bar*); before, it took each session's trigger from the
@@ -189,6 +193,12 @@ What this says:
   reclaims made +0.05R ± 0.13 (174); v1.5.0 on the same bars splits the same way. With the
   breakout-vs-fade check below finding no edge in the other direction either, the opening gap
   is where this engine loses, and what a forward test should watch.
+- **The direction call adds nothing measurable; the bracket loses either way.** On the same 59
+  sessions the mirror (each trade's bracket the other way, same bar, same costs) lost −0.16R
+  ± 0.06, as much as the trades (−0.16R): trade − mirror = +0.01R ± 0.11 (t 0.0). By setup,
+  multi-day reclaims are the only hint of a direction worth keeping (+0.05R vs −0.28R mirrored,
+  difference +0.33R ± 0.19, t 1.7, not significant); gap fades did worse than their mirror
+  (−0.21R vs −0.09R, t −0.7), and gap + reclaim setups lost either way (−0.34R vs −0.26R).
 - **No demonstrated edge.** August's edge was never distinguishable from zero once costs and
   same-day clustering are counted, and the rule set tuned on August lost about 0.5R per trade
   relative to that in September.
