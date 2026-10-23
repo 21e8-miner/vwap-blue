@@ -615,7 +615,10 @@ function present() {
       ? `No actionable row at grade ≥ ${esc(floor)} (${actPool} actionable at a lower grade) · lower the grade floor or untick “actionable”`
       : `Nothing actionable in the ${all.length} names graded right now · untick “actionable” to see every setup`;
   } else if (!rows.length) {
-    rows = all.filter(r => r.error).slice(0, max);
+    const graded = all.filter(r => !r.error).length;
+    emptyHint = graded
+      ? `No row at grade ≥ ${esc(floor)} among the ${graded} names graded · lower the grade floor to see more`
+      : `No bars came back for any of the ${all.length} names · check the proxy (Providers)`;
   }
 
   const ok = all.filter(r => !r.error);
@@ -837,6 +840,14 @@ document.addEventListener("keydown", e => {
     try { localStorage.setItem("vwap_blue_proxy", $("myproxy").value||""); } catch {}
   });
   for (const id of ["actOnly", "gradeMin", "max"]) $(id).addEventListener("change", present);   // re-filter, no refetch
+  for (const id of ["mode", "tickers", "minDvol"]) $(id).addEventListener("change", () => scan());  // need new bars
+  $("interval").addEventListener("change", () => {                  // a running Live timer picks up the new interval
+    if (!liveOn) return;
+    const interval = Math.max(15, +$("interval").value || 45);
+    $("liveBtn").textContent = `Live ${interval}s`;
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(scan, interval * 1000);
+  });
   setTimeout(scan, 400);   // auto-scan on load
 })();
 </script>

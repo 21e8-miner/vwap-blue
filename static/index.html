@@ -255,6 +255,7 @@
   <script>
     const $ = id => document.getElementById(id);
     let rows = [], sortKey = 'edge', sortAsc = false, liveOn = false, pollTimer = null;
+    const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     let selected = null, chartData = null, hoverIdx = null;
     const PAPER = new Map(); // session paper book
 
@@ -308,24 +309,61 @@
       return m * 1e6; // UI is $M
     }
 
+    // the server rejects (422) an interval outside 15–300 s or a max outside 1–200: clamp, and show the clamp
+    function clampInput(id, lo, hi, dflt) {
+      const v = Math.round(+$(id).value);
+      const c = Number.isFinite(v) && v > 0 ? Math.min(hi, Math.max(lo, v)) : dflt;
+      $(id).value = c;
+      return c;
+    }
+
+    const GRADE_RANK_UI = { A: 5, LA: 4, B: 3, LB: 2, C: 1, '✕': 0, '–': -1 };
+    function gradeOk(g, floor) {          // app._grade_ok
+      g = g || '–'; const f = (floor || 'C').toUpperCase();
+      if (f === 'A' && (g === 'A' || g === 'LA')) return true;
+      if (f === 'B' && ['A', 'LA', 'B', 'LB'].includes(g)) return true;
+      return (GRADE_RANK_UI[g] ?? -1) >= (GRADE_RANK_UI[f] ?? 1);
+    }
+
+    let pending = false, lastAsof = null;
+    const tickerKey = v => (Array.isArray(v) ? v : String(v || '').split(/[,\s]+/)).map(x => x.trim().toUpperCase()).filter(Boolean).join(',');
+
+    let lastMeta = {};
     function applyData(data, rtt) {
-      rows = data.results || [];
-      // a live scan started before the box was ticked still comes back unfiltered: filter here too
-      if ($('actOnly').checked) rows = rows.filter(r => r.actionable || r.live_actionable);
       const m = data.meta || {};
+      lastMeta = m;
+      const all = data.results || [];
+      // A live scan started before a change still comes back with the old settings: apply the filters here too.
+      // Feed errors are kept so a desk whose feeds are down says so.
+      const floor = $('gradeMin').value || 'A';
+      const max = +$('max').value || 16;
+      rows = all.filter(r => r.error || (
+        (!$('actOnly').checked || r.actionable || r.live_actionable) &&
+        (['', 'C', '–', '-'].includes(floor.toUpperCase()) || gradeOk(r.grade, floor))
+      )).slice(0, max);
+      if (pending && m.grade_min === floor && m.mode === $('mode').value && (m.max == null || m.max === max) &&
+          (m.actionable_only == null || m.actionable_only === $('actOnly').checked) &&
+          (m.tickers === undefined || tickerKey(m.tickers) === tickerKey($('tickers').value))) pending = false;
       const prov = (m.providers_used||[]).join(', ') || '—';
       const reg = m.regime_counts ? Object.entries(m.regime_counts).map(([k,v])=>`${k}:${v}`).join(' ') : '';
       const dvolM = m.min_dvol != null ? (m.min_dvol / 1e6) : null;
+      const age = data.age_sec;
+      const interval = +$('interval').value || 45;
+      const ageTxt = age != null ? ` · <span class="${age > 2 * interval + 60 ? 'neg' : 'm'}">updated ${Math.round(age)}s ago</span>` : '';
       $('meta').innerHTML =
-        `<b>${m.count ?? rows.length}</b> shown · pool <b>${m.pool_scanned||'—'}</b>` +
+        (pending ? '<span class="neg">applying new settings… (the scan in progress finishes first)</span> · ' : '') +
+        (m.one_off ? '<span class="neg">one-off scan (Live is on)</span> · ' : '') +
+        `<b>${rows.length}</b> shown${m.count != null && m.count !== rows.length ? ` of ${m.count}` : ''}` +
+        ` · pool <b>${m.pool_scanned||'—'}</b>` +
         (m.pool_liquid!=null ? ` · liquid <b>${m.pool_liquid}</b>` : '') +
         (m.volume_dropped!=null ? ` · vol-drop <b>${m.volume_dropped}</b>` : '') +
         (dvolM!=null ? ` · floor <b>$${dvolM}M</b>` + (m.min_dvol_crypto ? ` (crypto $${m.min_dvol_crypto / 1e6}M 24h)` : '') : '') +
+        (m.errors ? ` · <span class="neg">${m.errors} feed errors</span>` : '') +
         ` · ` +
         `<b>${m.actionable||0}</b> actionable · <b>${m.live_actionable||0}</b> live · ` +
         `<b>${m.grade_a||0}</b> grade A · conflicts <b>${m.conflicts||0}</b> · ` +
         `floor <b>${m.grade_min||'A'}</b> · v${m.version||''} · <b>${m.mode||'—'}</b> · feeds <b>${prov}</b> · ` +
-        `<b>${m.elapsed_sec ?? '—'}s</b>${rtt!=null ? ' · '+rtt.toFixed(2)+'s rtt' : ''} · ${m.asof||''}` +
+        `<b>${m.elapsed_sec ?? '—'}s</b>${rtt!=null ? ' · '+rtt.toFixed(2)+'s rtt' : ''} · ${m.asof||''}` + ageTxt +
         (m.live ? ' · <span class="pos">LIVE</span>' : '') +
         (reg ? ` · regime {${reg}}` : '') +
         (m.stale ? ` · <span class="neg">stale ${m.stale}</span>` : '') +
@@ -334,14 +372,32 @@
             (m.forward.se != null ? `±${m.forward.se.toFixed(2)} (${m.forward.sessions} sess, ${m.forward.verdict})` : '') : '') : '') +
         ` · <span class="src">VW-σ · KER gate · rotate universe</span>`;
       render();
+      // a new scan: refresh the open chart too (its cache is that scan's row)
+      if (m.asof && m.asof !== lastAsof) {
+        lastAsof = m.asof;
+        if (selected) loadChart(selected, false);
+      }
+    }
+
+    async function postJson(url, body) {
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const d = data.detail;
+        throw new Error(`${res.status}: ` + (Array.isArray(d) ? d.map(x => `${(x.loc || []).slice(-1)[0]} ${x.msg}`).join('; ') : (d || res.statusText)));
+      }
+      return data;
     }
 
     async function scan(force=false) {
+      // With Live on the server's loop is the scanner: hand it the settings (it rescans at once) rather than
+      // running a second scan the next poll would replace.
+      if (liveOn) return settingsChanged();
       const btn = $('btn');
       btn.disabled = true; btn.textContent = '…';
       const raw = $('tickers').value.trim();
       const body = {
-        max: +$('max').value || 16,
+        max: clampInput('max', 1, 200, 16),
         actionable_only: $('actOnly').checked,
         force: !!force,
         mode: $('mode').value || 'hybrid',
@@ -351,14 +407,11 @@
       if (raw) body.tickers = raw.split(/[,\s]+/).filter(Boolean);
       try {
         const t0 = performance.now();
-        const res = await fetch('/api/scan', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        applyData(await res.json(), (performance.now()-t0)/1000);
-        if (selected) loadChart(selected, false);
+        const data = await postJson('/api/scan', body);
+        lastAsof = null;                 // a manual scan always refreshes the open chart
+        applyData(data, (performance.now()-t0)/1000);
       } catch (e) {
-        $('meta').textContent = 'Error: ' + e;
+        $('meta').innerHTML = '<span class="neg">Scan failed: ' + esc(String(e.message || e)) + '</span>';
       } finally {
         btn.disabled = false; btn.textContent = 'Scan';
       }
@@ -374,40 +427,59 @@
     function liveBody() {
       const raw = $('tickers').value.trim();
       const body = {
-        enabled: liveOn, interval_sec: +$('interval').value || 45,
-        max: +$('max').value || 16,
+        enabled: liveOn, interval_sec: clampInput('interval', 15, 300, 45),
+        max: clampInput('max', 1, 200, 16),
         actionable_only: $('actOnly').checked,
         mode: $('mode').value || 'hybrid',
         grade_min: $('gradeMin').value || 'A',
         min_dvol: minDvolPayload(),
       };
-      if (raw) body.tickers = raw.split(/[,\s]+/).filter(Boolean);
+      body.tickers = raw ? raw.split(/[,\s]+/).filter(Boolean) : null;
       return body;
     }
 
+    function startPolling() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      if (liveOn) pollTimer = setInterval(pollLast, Math.min(5000, (+$('interval').value || 45) * 500));
+    }
+
     // A filter or setting changed. With Live on the server's loop is the only scanner and the page shows its
-    // results every few seconds, so the change has to go to the loop (it rescans at once); a local filter
-    // alone would be overwritten by the next poll.
+    // results every few seconds, so the change goes to the loop (it rescans once the scan in progress ends).
     async function settingsChanged() {
       if (!liveOn) return scan(false);
-      if ($('actOnly').checked) { rows = rows.filter(r => r.actionable || r.live_actionable); render(); }
-      await fetch('/api/live', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(liveBody()) });
-      setTimeout(pollLast, 1500);
+      pending = true;
+      try {
+        await postJson('/api/live', liveBody());
+      } catch (e) {
+        pending = false;
+        $('meta').innerHTML = '<span class="neg">Settings not applied: ' + esc(String(e.message || e)) + '</span>';
+        return;
+      }
+      $('liveBtn').textContent = `Live ${$('interval').value}s`;
+      startPolling();
+      await pollLast();                 // shows the current rows through the new filters, marked "applying…"
     }
 
     async function toggleLive() {
-      liveOn = !liveOn;
+      const want = !liveOn;
+      const was = liveOn;
+      liveOn = want;
+      try {
+        await postJson('/api/live', liveBody());
+      } catch (e) {
+        liveOn = was;
+        $('meta').innerHTML = '<span class="neg">Live not changed: ' + esc(String(e.message || e)) + '</span>';
+        return;
+      }
       const btn = $('liveBtn');
-      const interval = +$('interval').value || 45;
-      await fetch('/api/live', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(liveBody()) });
-      btn.textContent = liveOn ? `Live ${interval}s` : 'Live off';
+      btn.textContent = liveOn ? `Live ${$('interval').value}s` : 'Live off';
       btn.classList.toggle('on', liveOn);
       $('dot').classList.toggle('on', liveOn);
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      startPolling();
       if (liveOn) {
+        pending = true;
         // the server's live loop scans now with these settings; poll its results instead of a second scan
         await pollLast();
-        pollTimer = setInterval(pollLast, Math.min(5000, interval * 500));
       }
     }
 
@@ -432,14 +504,16 @@
     function render() {
       const list = sorted();
       if (!list.length) {
+        const graded = lastMeta.pool_liquid ?? lastMeta.pool_scanned;
         const hint = $('actOnly').checked
           ? 'Nothing actionable right now · untick “actionable” to see every setup'
-          : 'No rows';
+          : (graded ? `No row at grade ≥ ${esc($('gradeMin').value || 'A')} among the ${graded} names graded · lower the grade floor to see more`
+                    : 'No rows');
         $('tb').innerHTML = `<tr><td colspan="16" class="m" style="padding:24px;text-align:center">${hint}</td></tr>`;
         return;
       }
       $('tb').innerHTML = list.map(r => {
-        if (r.error) return `<tr data-tk="${r.ticker}"><td></td><td class="tk">${r.ticker}</td><td colspan="15" class="note">${r.error}</td></tr>`;
+        if (r.error) return `<tr data-tk="${esc(r.ticker)}"><td></td><td class="tk">${esc(r.ticker)}</td><td colspan="15" class="note">${esc(r.error)}</td></tr>`;
         const d = r.dist_std;
         const cls = [
           r.live_actionable ? 'liveact' : '',
@@ -778,14 +852,17 @@
             if (cfg.max) $('max').value = cfg.max;
             if (cfg.mode) $('mode').value = cfg.mode;
             if (cfg.interval_sec) $('interval').value = cfg.interval_sec;
+            // so this tab's next change does not wipe another tab's list or an env $ floor
+            $('tickers').value = Array.isArray(cfg.tickers) ? cfg.tickers.join(',') : '';
+            if (cfg.min_dvol != null) $('minDvol').value = cfg.min_dvol / 1e6;
           } catch (_) {}
           $('liveBtn').textContent = `Live ${$('interval').value}s`;
           $('liveBtn').classList.add('on');
           $('dot').classList.add('on');
-          pollTimer = setInterval(pollLast, 4000);
+          startPolling();
         }
       } catch (_) {}
-      for (const id of ['actOnly', 'gradeMin', 'max', 'mode', 'minDvol']) $(id).addEventListener('change', settingsChanged);
+      for (const id of ['actOnly', 'gradeMin', 'max', 'mode', 'minDvol', 'tickers', 'interval']) $(id).addEventListener('change', settingsChanged);
       if (liveOn) await pollLast(); else await scan(false);
     })();
   </script>

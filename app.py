@@ -63,6 +63,7 @@ _live_cfg: Dict[str, Any] = {
     "min_dvol": _DEFAULT_MIN_DVOL,
 }
 _live_thread: Optional[threading.Thread] = None
+_live_running = False   # set when a loop starts, cleared (under _live_lock) when it decides to stop
 # While live is on, the loop is the only scanner: /api/live sets this to make it rescan now with the
 # new settings (or stop) instead of scanning alongside it.
 _live_wake = threading.Event()
@@ -209,7 +210,9 @@ def run_scan(
     mode: str = "hybrid",
     grade_min: str = "A",
     min_dvol: Optional[float] = None,
+    publish: bool = True,
 ) -> Dict[str, Any]:
+    """publish=False (a manual scan while the live loop runs) returns rows without replacing /api/last."""
     t0 = time.time()
     user_supplied = bool(tickers)
     full = load_universe()
@@ -288,11 +291,12 @@ def run_scan(
         except Exception as e:
             log.warning("ledger record failed: %s", e)
 
+    # feed errors survive the filters (they grade "–"), so a desk whose feeds are down says so
     if actionable_only:
-        rows = [r for r in rows if r.get("actionable") or r.get("live_actionable")]
+        rows = [r for r in rows if r.get("error") or r.get("actionable") or r.get("live_actionable")]
     if grade_min and grade_min.upper() not in ("", "C", "–", "-"):
         gm = grade_min.upper()
-        rows = [r for r in rows if _grade_ok(r.get("grade") or "–", gm)]
+        rows = [r for r in rows if r.get("error") or _grade_ok(r.get("grade") or "–", gm)]
 
     # Rotation: gappers / high |dev| / RVOL / $vol / edge first, then hard-cap max_n
     rows.sort(
@@ -320,6 +324,10 @@ def run_scan(
         regimes[rg] = regimes.get(rg, 0) + 1
     meta = {
         "count": len(rows),
+        "errors": sum(1 for r in rows if r.get("error")),
+        "max": max_n,
+        "actionable_only": bool(actionable_only),
+        "tickers": [t.upper() for t in tickers] if user_supplied else None,
         "actionable": sum(1 for r in rows if r.get("actionable")),
         "live_actionable": sum(1 for r in rows if r.get("live_actionable")),
         "setups": sum(1 for r in rows if r.get("signal") in ("SETUP", "TRIGGER", "TAGGED")),
@@ -342,13 +350,15 @@ def run_scan(
         "providers_used": provs,
         "elapsed_sec": round(time.time() - t0, 2),
         "asof": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "live": bool(_live_cfg.get("enabled")),
+        "live": bool(publish and _live_cfg.get("enabled")),
+        "one_off": not publish,
         "engine": "blueline dual VWAP · KER regime · VW-σ adaptive · 10× pool · $vol filter · One conflict",
     }
-    _last["ts"] = time.time()
-    _last["rows"] = rows
-    _last["meta"] = meta
-    _last["by_ticker"] = by_ticker
+    if publish:
+        _last["ts"] = time.time()
+        _last["rows"] = rows
+        _last["meta"] = meta
+        _last["by_ticker"] = by_ticker
     log.info(
         "scan ok n=%s pool=%s liquid=%s drop_vol=%s A=%s conflicts=%s feeds=%s in %.1fs",
         meta["count"], meta["pool_scanned"], meta["pool_liquid"], vol_dropped,
@@ -404,11 +414,13 @@ def _maybe_auto_resolve_ledger(now_dt: Optional[datetime] = None) -> Optional[Di
 
 
 def _live_loop() -> None:
+    global _live_running
     log.info("live loop started")
     while True:
         _live_wake.clear()
         with _live_lock:
             if not _live_cfg["enabled"]:
+                _live_running = False     # under the lock: live_set either sees this or keeps this loop going
                 break
             interval = int(_live_cfg["interval_sec"])
             max_n = int(_live_cfg["max"])
@@ -433,11 +445,13 @@ def _live_loop() -> None:
 
 
 def _ensure_live_thread() -> None:
-    global _live_thread
-    if _live_thread and _live_thread.is_alive():
-        return
-    _live_thread = threading.Thread(target=_live_loop, name="vwap-blue-live", daemon=True)
-    _live_thread.start()
+    global _live_thread, _live_running
+    with _live_lock:
+        if _live_running and _live_thread and _live_thread.is_alive():
+            return
+        _live_running = True
+        _live_thread = threading.Thread(target=_live_loop, name="vwap-blue-live", daemon=True)
+        _live_thread.start()
 
 
 def _boot_live_party() -> None:
@@ -497,7 +511,7 @@ def scan_post(body: ScanBody):
     return run_scan(
         body.tickers, body.max, body.actionable_only,
         force=body.force, mode=body.mode, grade_min=body.grade_min,
-        min_dvol=body.min_dvol,
+        min_dvol=body.min_dvol, publish=not _live_cfg.get("enabled"),
     )
 
 
@@ -514,7 +528,7 @@ def scan_get(
     tlist = [x.strip() for x in tickers.split(",")] if tickers else None
     return run_scan(
         tlist, max, actionable_only, force=force, mode=mode,
-        grade_min=grade_min, min_dvol=min_dvol,
+        grade_min=grade_min, min_dvol=min_dvol, publish=not _live_cfg.get("enabled"),
     )
 
 
@@ -577,7 +591,9 @@ def chart(ticker: str, mode: str = Query("hybrid"), force: bool = Query(False)):
         quote_provider=qm.get("provider"),
         quote_latency_ms=qm.get("latency_ms"),
     )
-    _last.setdefault("by_ticker", {})[t] = row
+    # the same guards as a scan row; not written back, so the table and its chart cache stay one scan
+    apply_stale_guard(row, bar_age_min(bars.get(t)), MAX_BAR_AGE_MIN)
+    _apply_one_conflict(row, bars, daily, live, bar_prov, quote_meta)
     payload = build_chart_from_row(row)
     payload["cached"] = False
     if row.get("error"):
