@@ -35,7 +35,7 @@ ET = ZoneInfo("America/New_York")
 
 # Bump with any change to what a bar sequence grades as; engine.js exports the same VERSION
 # (tests/test_engine_parity.py), the desk reports it and the forward ledger records it per signal.
-ENGINE_VERSION = "1.6.0"
+ENGINE_VERSION = "1.7.0"
 
 RTH_OPEN_M = 9 * 60 + 30   # 09:30
 RTH_CLOSE_M = 16 * 60      # 16:00
@@ -64,6 +64,7 @@ DEFAULT_KER_CHOP = 0.30    # ER ≤ this → chop regime (widen bands, favor fad
 DEFAULT_RVOL_MIN_N = 2     # thin RVOL sample demotes A → B
 DEFAULT_MD_TARGET = "nearest"   # mdrev target rule (_md_target); v1.5.x used "stretch"
 DEFAULT_RVOL_MISSING = "pass"   # "thin": a row with no RVOL cannot grade A
+DEFAULT_FADE_MAX_GRADE = "B"    # v1.7.0: a gap fade (gap, both) never grades A; "A" lifts the cap
 
 
 def _is_crypto(ticker: str) -> bool:
@@ -911,6 +912,11 @@ def _grade(S: Dict[str, Any], opts: Dict[str, Any]) -> str:
         # Chop + both agreement: slight quality keep
         if S.get("regime") == "chop" and mode == "both" and g == "B" and gR and gV and not thin:
             g = "A"
+    # v1.7.0: grade A means a multi-day reclaim. On 59 replayed sessions the gap fade's direction call did
+    # worse than its mirror (-0.21R vs -0.09R) and the reclaim's was the only one with a positive hint
+    # (+0.33R +/- 0.19 against its mirror), so a fade, alone or with a reclaim, is capped at B.
+    if mode in ("gap", "both") and g == "A" and opts.get("fade_max_grade", DEFAULT_FADE_MAX_GRADE) == "B":
+        g = "B"
     if st["late"]:
         g = "L" + g
     return g
@@ -1141,6 +1147,7 @@ def analyze_bars(
         "rvol_min_n": DEFAULT_RVOL_MIN_N,
         "md_target": DEFAULT_MD_TARGET,
         "rvol_missing": DEFAULT_RVOL_MISSING,
+        "fade_max_grade": DEFAULT_FADE_MAX_GRADE,
         "regime_gate": True,  # suppress pure gap-fades in trend regime
     }
     if opts:

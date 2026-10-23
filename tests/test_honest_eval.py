@@ -195,6 +195,22 @@ class TestLedger(unittest.TestCase):
         self.assertAlmostEqual(rep["net_r"]["mean"], nxt["r_net"])
         self.assertEqual(ledger.resolve(after, fetch=lambda *a, **k: ({"AAPL": self.df},), base=self.dir)["pending_closed"], 0)
 
+    def test_capped_fades_are_recorded_at_grade_b_and_reported_beside_a(self):
+        """v1.7.0: a grade-B actionable TRIGGER while the session is open is recorded; the report keeps A as its headline."""
+        rows = {"AAPL": self._row(),                                                             # grade A, live
+                "MSFT": self._row(ticker="MSFT", live_actionable=False, actionable=True, grade="B", session_label="rth"),
+                "NVDA": self._row(ticker="NVDA", live_actionable=False, actionable=True, grade="B", session_label="afterhours"),
+                "AMD": self._row(ticker="AMD", live_actionable=False, actionable=False, grade="B", session_label="rth")}
+        self.assertEqual(ledger.record(rows, "t", base=self.dir), 2)                           # A and the open-session B
+        sig = {r["ticker"]: r["grade"] for r in ledger._read(self.dir / "signals.jsonl")}
+        self.assertEqual(sig, {"AAPL": "A", "MSFT": "B"})
+        after = datetime(2026, 9, 16, 9, 0, tzinfo=ET)
+        ledger.resolve(after, fetch=lambda *a, **k: ({"AAPL": self.df, "MSFT": self.df},), base=self.dir)
+        rep = ledger.report(base=self.dir)
+        self.assertEqual((rep["resolved"], rep["grade_b"]["resolved"]), (1, 1))             # the headline counts A only
+        self.assertEqual(rep["net_r"]["n"], 1)
+        self.assertEqual(rep["grade_b"]["net_r"]["n"], 1)
+
     def test_equity_outcome_ends_at_the_close(self):
         """After-hours prints fill nothing: a stop first traded at 16:30 leaves the trade to the 15:55 close."""
         late = pd.DataFrame({"Open": [102.0, 98.0], "High": [102.0, 98.2], "Low": [97.6, 97.0], "Close": [98.0, 97.5],

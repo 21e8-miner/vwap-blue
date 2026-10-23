@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VWAP Blue · dual VWAP desk (v1.6.0)</title>
+  <title>VWAP Blue · dual VWAP desk (v1.7.0)</title>
   <meta name="description" content="Research scanner: blue day VWAP + orange prior-day anchor, KER regime gate, grade A desk. Same engine as the local desk; replayed out of sample with no demonstrated edge." />
   <meta property="og:title" content="VWAP Blue — dual VWAP desk (research scanner)" />
   <meta property="og:description" content="Blue day VWAP ± volume-weighted σ · orange prior-day anchor · KER regime · honest replay: no demonstrated edge" />
@@ -144,6 +144,7 @@
     .src { font-size: 0.68rem; color: var(--muted); }
     .note { font-family: var(--serif); font-style: italic; font-size: 0.86rem; color: var(--ink2); max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
     .cost { font-size: 0.9em; color: var(--muted); margin-left: 4px; }
+    .record { font-size: 0.7rem; }
 
     /* ── chart pane ── */
     .ch-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 18px 8px; gap: 12px; flex-shrink: 0; }
@@ -181,7 +182,7 @@
 </head>
 <body>
   <header>
-    <h1><span class="live-dot" id="dot"></span><span class="word">VWAP Blue</span><em>v1.6.0 · same engine as the desk · research only</em></h1>
+    <h1><span class="live-dot" id="dot"></span><span class="word">VWAP Blue</span><em>v1.7.0 · same engine as the desk · research only</em></h1>
     <input id="tickers" type="text" placeholder="blank = universe" aria-label="tickers" />
     <input id="max" type="number" value="16" min="1" max="200" title="show top N after rank" aria-label="show top N" />
     <select id="mode" title="data mode">
@@ -190,8 +191,8 @@
       <option value="yfinance">yfinance</option>
     </select>
     <select id="gradeMin" title="min grade">
-      <option value="A" selected>grade ≥ A</option>
-      <option value="B">grade ≥ B</option>
+      <option value="A">grade ≥ A</option>
+      <option value="B" selected>grade ≥ B</option>
       <option value="C">grade ≥ C</option>
     </select>
     <input id="minDvol" type="number" value="2" min="0" max="500" step="0.5" title="min session $vol ($M). 0=off" style="width:72px" aria-label="minimum session dollar volume in millions" />
@@ -205,15 +206,16 @@
     <input id="myproxy" type="text" placeholder="https://….workers.dev/?url=" title="CORS proxy (optional)" aria-label="CORS proxy" />
   </header>
   <div id="honest" role="note">
-    <b>No demonstrated edge.</b> Replayed on Jul 28 – Oct 19, graded bar by bar as the desk showed them and closed
-    by 16:00, this engine's grade-A triggers on US equities lost <b>−0.16R</b> per trade after costs (± 0.08 ·
-    654 trades · 59 sessions · t −2.1); the losses come from gap fades, not multi-day reclaims.
-    On crypto, replayed over a year of Binance bars (Oct 23 – Oct 22, 2025–26) on its 24h session, they lost
-    <b>−0.14R</b> (± 0.06 · 661 trades · 244 sessions · t −2.3); one-month windows had looked flat or positive.
+    <b>No demonstrated edge.</b> Since v1.7.0 grade A means a multi-day reclaim; gap fades show at B.
+    Replayed on Jul 28 – Oct 19, graded bar by bar as the desk showed them and closed by 16:00, those grade-A
+    triggers on US equities made <b>+0.05R</b> per trade after costs (± 0.13 · 174 trades · 54 sessions · t 0.4):
+    inconclusive, though +0.33R better than the same bracket the other way. The fades now at B lost −0.21R on the
+    same bars, worse than their mirror. On crypto, replayed over a year of Binance bars (Oct 23 – Oct 22, 2025–26)
+    on its 24h session, the reclaims lost <b>−0.14R</b> (± 0.06 · 661 trades · 244 sessions · t −2.3).
     A research scanner, not trade advice ·
     <a href="https://github.com/21e8-miner/vwap-blue#honest-results" target="_blank" rel="noopener">how it was tested</a> ·
-    raw trades: <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_2026-10-19_v1.6.0.json" target="_blank" rel="noopener">equities</a>,
-    <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_crypto_2026-10-22_365d_binance_v1.6.0.json" target="_blank" rel="noopener">crypto</a>
+    raw trades: <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_2026-10-19_v1.7.0.json" target="_blank" rel="noopener">equities</a>,
+    <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_crypto_2026-10-22_365d_binance_v1.7.0.json" target="_blank" rel="noopener">crypto</a>
   </div>
   <div id="meta">Click a row for the dual-VWAP chart · ◆ live grade A · ● actionable · dimmed = stale bars</div>
   <div id="provBox"></div>
@@ -236,6 +238,7 @@
             <th data-k="signal">Signal</th>
             <th data-k="regime" title="KER regime / setup mode">Reg</th>
             <th data-k="state">State</th>
+            <th title="This setup class on the banner's replayed sessions: trades · net R per trade after costs · what the direction call added over its mirror (same bracket, other side)">Record</th>
             <th data-k="price">Price</th>
             <th data-k="blue">Blue</th>
             <th data-k="orange">Orange</th>
@@ -250,7 +253,7 @@
             <th data-k="provider">Feed</th>
           </tr>
         </thead>
-        <tbody id="tb"><tr><td colspan="18" class="m" style="padding:28px;text-align:center">Press Scan</td></tr></tbody>
+        <tbody id="tb"><tr><td colspan="19" class="m" style="padding:28px;text-align:center">Press Scan</td></tr></tbody>
       </table>
     </div>
     <div class="pane pane-chart" id="chartPane">
@@ -294,6 +297,8 @@
 const E = window.VWAPBlue;
 // universe.txt, in order (tests/test_engine_parity.py keeps the two identical)
 const UNIVERSE = ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","TSLA","NFLX","AVGO","ORCL","CRM","ADBE","NOW","INTU","IBM","CSCO","AMD","SMCI","ARM","TSM","ASML","MU","INTC","QCOM","AMAT","LRCX","KLAC","MRVL","ADI","NXPI","ON","SWKS","MPWR","ENTG","GFS","STM","UMC","ASX","TER","COHR","TXN","CDNS","SNPS","ANET","PLTR","SNOW","PANW","CRWD","DDOG","NET","MDB","SHOP","UBER","ABNB","COIN","HOOD","RBLX","U","PATH","ZS","FTNT","OKTA","TEAM","WDAY","VEEV","TTD","ROKU","PINS","SNAP","TWLO","ZM","DOCU","BILL","AFRM","SOFI","UPST","AI","APP","TOST","DUOL","CELH","HIMS","OSCR","IONQ","RGTI","QUBT","F","GM","RIVN","LCID","RKLB","LUNR","ASTS","JOBY","ACHR","RDW","COST","WMT","TGT","HD","LOW","NKE","SBUX","MCD","DIS","CMCSA","TJX","ROST","DG","DLTR","BBY","ETSY","EBAY","BKNG","MAR","HLT","DASH","LYFT","EXPE","YUM","CMG","DPZ","WING","LULU","DECK","ULTA","EL","CL","PG","KO","PEP","PM","MO","CAVA","JPM","BAC","GS","MS","V","MA","BRK-B","SCHW","C","WFC","AXP","BLK","USB","PNC","TFC","COF","SYF","ALLY","KEY","CFG","RF","MTB","FITB","HBAN","NTRS","STT","TROW","SPGI","MCO","ICE","CME","NDAQ","CBOE","MSCI","FICO","PYPL","XOM","CVX","COP","OXY","SLB","EOG","MPC","VLO","PSX","DVN","FANG","HAL","BKR","XLE","XOP","OIH","USO","BNO","NEE","DUK","SO","D","AEP","SRE","EXC","XEL","PCG","CEG","AMT","PLD","CCI","EQIX","DLR","PSA","O","SPG","WELL","VICI","XLU","XLRE","IYR","VNQ","LLY","UNH","JNJ","ABBV","MRK","PFE","AMGN","ISRG","VRTX","MRNA","TMO","DHR","ABT","MDT","BSX","SYK","ZTS","REGN","GILD","BIIB","BMY","CVS","CI","ELV","HUM","CNC","HCA","DXCM","PODD","ALGN","IDXX","IQV","ILMN","CRSP","NTRA","XBI","IBB","CAT","BA","GE","HON","RTX","LMT","DE","UNP","MMM","EMR","ETN","PH","ITW","ROK","CMI","PCAR","URI","CSX","NSC","FDX","UPS","DAL","UAL","AAL","LUV","ODFL","XLI","JETS","FCX","NEM","LIN","APD","SHW","ECL","DD","DOW","PPG","NUE","STLD","CLF","AA","VALE","RIO","BHP","SCCO","TECK","MP","ALB","MOS","CF","NTR","ADM","BG","CTVA","GLD","SLV","GDX","GDXJ","COPX","URA","LIT","T","VZ","TMUS","CHTR","WBD","PARA","FOX","FOXA","SPOT","TTWO","MSGS","LYV","XLC","BABA","JD","PDD","NIO","LI","XPEV","NU","SE","MELI","FXI","KWEB","EEM","EWZ","INDA","EPI","EWY","EWT","EWH","EWJ","SPY","QQQ","IWM","DIA","IVV","VOO","VTI","VEA","VWO","IWF","IWD","IJH","IJR","MDY","RSP","MTUM","VLUE","QUAL","USMV","SPLV","XLK","XLF","XLV","XLP","XLY","XLB","XHB","ITB","XRT","ARKK","ARKW","ARKF","ARKG","BOTZ","ROBO","HACK","CIBR","SKYY","TQQQ","SQQQ","SOXL","SOXS","TNA","TZA","UPRO","SPXU","LABU","LABD","FAS","FAZ","UVXY","VIXY","BOIL","KOLD","UNG","TLT","IEF","SHY","TIP","LQD","HYG","JNK","EMB","BND","AGG","BIL","SGOV","JPST","EFA","IEFA","EWG","EWU","EWI","EWP","EWL","EWN","EWD","EWS","EWA","EWC","TM","SONY","HMC","NVO","AZN","GSK","SAP","UL","DEO","BP","SHEL","TTE","BUD","HSBC","BTC-USD","ETH-USD","SOL-USD","XRP-USD","DOGE-USD","ADA-USD","AVAX-USD","LINK-USD","BNB-USD","DOT-USD","POL-USD","ATOM-USD","NEAR-USD","SUI-USD","APT-USD","ARB-USD","OP-USD","INJ-USD","TIA-USD","SEI-USD","LTC-USD","BCH-USD","UNI-USD","AAVE-USD","FIL-USD","ICP-USD","HBAR-USD","ALGO-USD","XLM-USD","ETC-USD","TRX-USD","TON-USD","PEPE-USD","SHIB-USD","WIF-USD","BONK-USD","RENDER-USD","FET-USD","TAO-USD","IMX-USD","GRT-USD","STX-USD","RUNE-USD","JUP-USD","WLD-USD","PYTH-USD","MKR-USD","CRV-USD"];
+// what each setup class did on the banner's replayed sessions (evidence.py writes this from the linked files)
+const EVIDENCE = {"engine_version":"1.7.0","sources":{"equity":{"file":"research/replay_2026-10-19_v1.7.0.json","window":["2026-07-28","2026-10-19"],"sessions":59,"grade":"decision-time ≥ A","paired":"research/replay_2026-10-19_v1.6.0.json"},"crypto":{"file":"research/replay_crypto_2026-10-22_365d_binance_v1.7.0.json","window":["2025-10-23","2026-10-22"],"sessions":365,"grade":"decision-time ≥ A","paired":"research/replay_crypto_2026-10-22_365d_binance_v1.6.0.json"}},"segments":{"equity|mdrev|all":{"n":174,"sessions":54,"as_graded":"A","net":{"mean":0.0509,"se":0.1275,"t":0.4,"verdict":"inconclusive"},"mirror":{"mean":-0.2797,"se":0.0798,"t":-3.51,"verdict":"negative"},"direction":{"mean":0.3306,"se":0.1901,"t":1.74,"verdict":"inconclusive"},"stopped":74,"target":49},"equity|mdrev|long":{"n":89,"sessions":37,"as_graded":"A","net":{"mean":-0.0053,"se":0.167,"t":-0.03,"verdict":"inconclusive"},"mirror":{"mean":-0.1656,"se":0.1345,"t":-1.23,"verdict":"inconclusive"},"direction":{"mean":0.1603,"se":0.2721,"t":0.59,"verdict":"inconclusive"},"stopped":39,"target":27},"equity|mdrev|short":{"n":85,"sessions":40,"as_graded":"A","net":{"mean":0.1097,"se":0.1605,"t":0.68,"verdict":"inconclusive"},"mirror":{"mean":-0.3992,"se":0.1209,"t":-3.3,"verdict":"negative"},"direction":{"mean":0.5088,"se":0.243,"t":2.09,"verdict":"positive"},"stopped":35,"target":22},"equity|any|all":{"n":174,"sessions":54,"as_graded":"A","net":{"mean":0.0509,"se":0.1275,"t":0.4,"verdict":"inconclusive"},"mirror":{"mean":-0.2797,"se":0.0798,"t":-3.51,"verdict":"negative"},"direction":{"mean":0.3306,"se":0.1901,"t":1.74,"verdict":"inconclusive"},"stopped":74,"target":49},"equity|any|long":{"n":89,"sessions":37,"as_graded":"A","net":{"mean":-0.0053,"se":0.167,"t":-0.03,"verdict":"inconclusive"},"mirror":{"mean":-0.1656,"se":0.1345,"t":-1.23,"verdict":"inconclusive"},"direction":{"mean":0.1603,"se":0.2721,"t":0.59,"verdict":"inconclusive"},"stopped":39,"target":27},"equity|any|short":{"n":85,"sessions":40,"as_graded":"A","net":{"mean":0.1097,"se":0.1605,"t":0.68,"verdict":"inconclusive"},"mirror":{"mean":-0.3992,"se":0.1209,"t":-3.3,"verdict":"negative"},"direction":{"mean":0.5088,"se":0.243,"t":2.09,"verdict":"positive"},"stopped":35,"target":22},"equity|both|all":{"n":92,"sessions":43,"as_graded":"A before v1.7.0, B since","net":{"mean":-0.3364,"se":0.1386,"t":-2.43,"verdict":"negative"},"mirror":null,"direction":null,"stopped":60,"target":24},"equity|both|long":{"n":54,"sessions":30,"as_graded":"A before v1.7.0, B since","net":{"mean":-0.3354,"se":0.2081,"t":-1.61,"verdict":"inconclusive"},"mirror":null,"direction":null,"stopped":37,"target":13},"equity|both|short":{"n":38,"sessions":22,"as_graded":"A before v1.7.0, B since","net":{"mean":-0.338,"se":0.1673,"t":-2.02,"verdict":"inconclusive"},"mirror":null,"direction":null,"stopped":23,"target":11},"equity|gap|all":{"n":388,"sessions":59,"as_graded":"A before v1.7.0, B since","net":{"mean":-0.2066,"se":0.11,"t":-1.88,"verdict":"inconclusive"},"mirror":null,"direction":null,"stopped":253,"target":87},"equity|gap|long":{"n":200,"sessions":44,"as_graded":"A before v1.7.0, B since","net":{"mean":-0.2259,"se":0.1611,"t":-1.4,"verdict":"inconclusive"},"mirror":null,"direction":null,"stopped":130,"target":45},"equity|gap|short":{"n":188,"sessions":50,"as_graded":"A before v1.7.0, B since","net":{"mean":-0.1861,"se":0.1439,"t":-1.29,"verdict":"inconclusive"},"mirror":null,"direction":null,"stopped":123,"target":42},"crypto|mdrev|all":{"n":661,"sessions":244,"as_graded":"A","net":{"mean":-0.1378,"se":0.0611,"t":-2.26,"verdict":"negative"},"mirror":{"mean":-0.0639,"se":0.0652,"t":-0.98,"verdict":"inconclusive"},"direction":{"mean":-0.074,"se":0.1209,"t":-0.61,"verdict":"inconclusive"},"stopped":269,"target":113},"crypto|mdrev|long":{"n":299,"sessions":137,"as_graded":"A","net":{"mean":-0.265,"se":0.0935,"t":-2.84,"verdict":"negative"},"mirror":{"mean":0.0345,"se":0.1215,"t":0.28,"verdict":"inconclusive"},"direction":{"mean":-0.2995,"se":0.2059,"t":-1.45,"verdict":"inconclusive"},"stopped":146,"target":46},"crypto|mdrev|short":{"n":362,"sessions":163,"as_graded":"A","net":{"mean":-0.0328,"se":0.0756,"t":-0.43,"verdict":"inconclusive"},"mirror":{"mean":-0.1451,"se":0.0737,"t":-1.97,"verdict":"inconclusive"},"direction":{"mean":0.1123,"se":0.1423,"t":0.79,"verdict":"inconclusive"},"stopped":123,"target":67},"crypto|any|all":{"n":661,"sessions":244,"as_graded":"A","net":{"mean":-0.1378,"se":0.0611,"t":-2.26,"verdict":"negative"},"mirror":{"mean":-0.0639,"se":0.0652,"t":-0.98,"verdict":"inconclusive"},"direction":{"mean":-0.074,"se":0.1209,"t":-0.61,"verdict":"inconclusive"},"stopped":269,"target":113},"crypto|any|long":{"n":299,"sessions":137,"as_graded":"A","net":{"mean":-0.265,"se":0.0935,"t":-2.84,"verdict":"negative"},"mirror":{"mean":0.0345,"se":0.1215,"t":0.28,"verdict":"inconclusive"},"direction":{"mean":-0.2995,"se":0.2059,"t":-1.45,"verdict":"inconclusive"},"stopped":146,"target":46},"crypto|any|short":{"n":362,"sessions":163,"as_graded":"A","net":{"mean":-0.0328,"se":0.0756,"t":-0.43,"verdict":"inconclusive"},"mirror":{"mean":-0.1451,"se":0.0737,"t":-1.97,"verdict":"inconclusive"},"direction":{"mean":0.1123,"se":0.1423,"t":0.79,"verdict":"inconclusive"},"stopped":123,"target":67}},"capped":{"equity":{"n":480,"what":"the v1.6.0 grade-A trades v1.7.0 grades B (gap fades, alone or with a reclaim)","net":{"n":480,"clusters":59,"mean":-0.2315,"se":0.0948,"t":-2.44,"ci90":[-0.39,-0.073]},"direction":{"n":480,"clusters":59,"mean":-0.1129,"se":0.1501,"t":-0.75,"ci90":[-0.3639,0.1381]},"verdict":"negative"}}};
 const HISTORY_DAYS = 14;   // ≥ 8 sessions: RVOL uses at most 7 priors, ATR/KER ≤ 40 bars, orange 1 prior
 
 const $ = id => document.getElementById(id);
@@ -432,7 +437,8 @@ const CRITIQUE = {
   strawman: [
     "No demonstrated edge: grade-A triggers lost money after costs on the out-of-sample replay (numbers in the banner), and August's in-sample gain was inside the noise too.",
     "A quarter of the replayed equity trades (160 of 654) trigger before the 09:30 open and fill on the next premarket bar at +2 bps; thin premarket tape can cost more.",
-    "Gap fades carry the losses: on the same 59 sessions they lost 0.21R per trade (t −1.9) and gap + reclaim setups 0.34R (t −2.4), while multi-day reclaims were flat.",
+    "Gap fades carry the losses: on the same 59 sessions they lost 0.21R per trade (t −1.9) and gap + reclaim setups 0.34R (t −2.4), worse than the same bracket the other way; since v1.7.0 they grade B and only multi-day reclaims grade A.",
+    "Grade A's record is thin: 174 reclaims over 54 sessions at +0.05R ± 0.13, and +0.33R ± 0.19 over their mirror (t 1.7); a hint, not a demonstrated edge. The Record column shows each class's replayed numbers next to the row.",
     "Crypto has no edge either. Through v1.4.1 it ran the equity clock and its grade-A fades, fired just after the midnight-ET VWAP reset, lost 0.91R per trade; the 24h session looked flat or positive a month at a time, and over a year of Binance bars lost 0.14R per trade (t −2.3), the longs doing the damage; it also loses if the day starts at UTC midnight.",
     "Crypto bars here are Yahoo's, which report zero volume on about half of the 5m bars; the local desk grades crypto on exchange candles (OKX first), so the two can disagree.",
     "Segments flip sign month to month (mdrev in mixed regimes was August's best and September's worst); a grade is a ranking, not a forecast.",
@@ -516,12 +522,12 @@ function sorted() {
 function render() {
   const list = sorted();
   if (!list.length) {
-    $("tb").innerHTML = `<tr><td colspan="18" class="m" style="padding:24px;text-align:center">${emptyHint || "No rows"}</td></tr>`;
+    $("tb").innerHTML = `<tr><td colspan="19" class="m" style="padding:24px;text-align:center">${emptyHint || "No rows"}</td></tr>`;
     return;
   }
   $("tb").innerHTML = list.map(r => {
     const tk = esc(r.ticker);
-    if (r.error) return `<tr data-tk="${tk}"><td></td><td class="tk">${tk}</td><td colspan="16" class="note">${esc(r.error)}</td></tr>`;
+    if (r.error) return `<tr data-tk="${tk}"><td></td><td class="tk">${tk}</td><td colspan="17" class="note">${esc(r.error)}</td></tr>`;
     const cls = [r.actionable?"act":"", r.stale_bars?"stale":"", selected===r.ticker?"sel":""].filter(Boolean).join(" ");
     const mark = r.live_actionable ? " ◆" : (r.actionable ? " ●" : "");
     const d = r.dist_std;
@@ -535,6 +541,7 @@ function render() {
       <td><span class="badge ${esc(r.signal||"FLAT")}">${esc(r.signal||"FLAT")}</span></td>
       <td class="${regCls}" title="KER ${r.ker??"—"} · adapt ${r.adapt_mult??"—"}">${esc(reg)}${r.setup_mode?"/"+esc(r.setup_mode):""}</td>
       <td class="note">${esc(r.note||"")}</td>
+      <td class="record">${recordCell(r)}</td>
       <td>${n(r.price)}</td>
       <td class="bluec">${n(r.blue)}</td>
       <td class="orangec">${n(r.orange)}</td>
@@ -550,6 +557,29 @@ function render() {
     </tr>`;
   }).join("");
   $("tb").querySelectorAll("tr[data-tk]").forEach(tr => tr.onclick = () => selectTicker(tr.dataset.tk));
+}
+
+// the replayed record of a row's class: asset × setup mode × side, falling back to the side-less class
+function evidenceFor(r) {
+  const seg = EVIDENCE.segments || {};
+  const asset = r.is_crypto ? "crypto" : "equity", mode = r.setup_mode || "any";
+  return seg[`${asset}|${mode}|${r.side || "all"}`] || seg[`${asset}|${mode}|all`] || null;
+}
+const fmtR = x => x == null ? "—" : (x >= 0 ? "+" : "") + Number(x).toFixed(2) + "R";
+function recordCell(r) {
+  const e = evidenceFor(r);
+  if (!e) return `<span class="m">—</span>`;
+  const net = e.net, dir = e.direction, capped = !!e.as_graded && e.as_graded !== "A";
+  const tone = v => v == null ? "m" : v > 0 ? "pos" : "neg";
+  const union = capped ? (EVIDENCE.capped || {})[r.is_crypto ? "crypto" : "equity"] : null;
+  const title = `${e.n} replayed trades of this class over ${e.sessions} sessions` + (capped ? `, graded ${e.as_graded}` : "") +
+    ` · net ${fmtR(net && net.mean)} ± ${net ? net.se.toFixed(2) : "—"} per trade after costs (${net ? net.verdict : "—"})` +
+    (dir ? ` · direction over mirror ${fmtR(dir.mean)} ± ${dir.se.toFixed(2)} (t ${dir.t})` : "") +
+    (union && union.direction ? ` · all ${union.n} capped fades together: direction over mirror ${fmtR(union.direction.mean)} ± ${union.direction.se.toFixed(2)} (t ${union.direction.t})` : "") +
+    ` · ${e.stopped} stopped, ${e.target} hit target`;
+  return `<span title="${esc(title)}"><span class="m">${e.n}</span> <span class="${tone(net && net.mean)}">${fmtR(net && net.mean)}</span>` +
+    (dir ? ` <span class="m">dir</span> <span class="${tone(dir.mean)}">${fmtR(dir.mean)}</span>` : "") +
+    (capped ? ` <span class="m">A→B</span>` : "") + `</span>`;
 }
 
 function analyzeRow(sym, bars, provider, nowMs) {
@@ -624,7 +654,7 @@ function present() {
   if (!lastScan) return;
   const { all, list, liquid, volDrop, minDvol, secs, nowMs } = lastScan;
   const max = +$("max").value || 16;
-  const floor = $("gradeMin")?.value || "A";
+  const floor = $("gradeMin")?.value || "B";
   let shown = all;
   if ($("actOnly").checked) shown = shown.filter(r => r.actionable || r.live_actionable);
   if (!["", "C", "–", "-"].includes(floor.toUpperCase())) shown = shown.filter(r => E.gradeOk(r.grade || "–", floor));
@@ -725,8 +755,23 @@ function paintChart(d) {
     ["Gap", d.gap_pct==null?"—":((d.gap_pct>0?"+":"")+n(d.gap_pct)+"%")],
     ["Entry", money(d.entry)], ["Stop", money(d.stop)], ["Target", money(d.target)],
     [d.cost_r!=null ? `R:R · cost ${n(d.cost_r)}R` : "R:R", d.rr==null?"—":n(d.rr)],
-  ].map(([k,v]) => `<div class="ch-stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("");
+  ].map(([k,v]) => `<div class="ch-stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("") + recordStat(d);
   drawChart(d);
+}
+
+// the chart pane's record cell: the class's replayed trades, net R and what direction added
+function recordStat(d) {
+  const row = rows.find(r => r.ticker === (d.ticker || selected)) || { setup_mode: d.setup_mode, side: d.side, is_crypto: E.isCrypto(d.ticker || selected || "") };
+  const e = evidenceFor(row);
+  if (!e) return "";
+  const asset = row.is_crypto ? "crypto" : "equity", capped = !!e.as_graded && e.as_graded !== "A";
+  const src = (EVIDENCE.sources || {})[asset] || {}, union = capped ? (EVIDENCE.capped || {})[asset] : null;
+  const win = src.window ? `${src.window[0]} → ${src.window[1]}` : "";
+  return `<div class="ch-stat" style="grid-column:1 / -1"><div class="k">Record of ${esc(row.setup_mode || "this")}${row.side ? " " + esc(row.side) : ""}s · ${e.n} trades · ${e.sessions} sessions ${esc(win)}${capped ? " · graded " + esc(e.as_graded) : ""}</div>` +
+    `<div class="v" style="font-size:.95rem;white-space:normal;line-height:1.35">net ${esc(fmtR(e.net && e.net.mean))} ± ${e.net ? e.net.se.toFixed(2) : "—"} <span class="m">(${esc(e.net ? e.net.verdict : "—")})</span>` +
+    (e.direction ? ` · direction over mirror ${esc(fmtR(e.direction.mean))} ± ${e.direction.se.toFixed(2)}` : "") +
+    (union && union.direction ? ` · <span class="m">all ${union.n} capped fades: direction ${esc(fmtR(union.direction.mean))} ± ${union.direction.se.toFixed(2)}</span>` : "") +
+    ` · <span class="m">${e.stopped} stopped · ${e.target} hit target</span></div></div>`;
 }
 
 function drawChart(d) {

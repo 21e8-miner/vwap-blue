@@ -16,7 +16,7 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
-  const VERSION = "1.6.0";   // engine.ENGINE_VERSION
+  const VERSION = "1.7.0";   // engine.ENGINE_VERSION
   const RTH_OPEN_M = 9 * 60 + 30;
   const RTH_CLOSE_M = 16 * 60;
   const DEFAULT_ANCHOR_M = 4 * 60;
@@ -38,6 +38,7 @@
   const DEFAULT_RVOL_MIN_N = 2;
   const DEFAULT_MD_TARGET = "nearest";      // engine.DEFAULT_MD_TARGET (v1.5.x: "stretch")
   const DEFAULT_RVOL_MISSING = "pass";      // engine.DEFAULT_RVOL_MISSING
+  const DEFAULT_FADE_MAX_GRADE = "B";       // engine.DEFAULT_FADE_MAX_GRADE (v1.7.0: a gap fade never grades A)
   const RVOL_MAX_PRIORS = 7;
   const RVOL_MIN_PRIORS = 2;
   const DEFAULT_MAX_BAR_AGE_MIN = 15.0;
@@ -554,6 +555,8 @@
       if (S.regime === "trend" && mode === "gap" && g === "A") g = "B";
       if (S.regime === "chop" && mode === "both" && g === "B" && gR && gV && !thin) g = "A";
     }
+    // v1.7.0: grade A means a multi-day reclaim; a fade, alone or with a reclaim, is capped at B
+    if ((mode === "gap" || mode === "both") && g === "A" && (o.fade_max_grade || DEFAULT_FADE_MAX_GRADE) === "B") g = "B";
     if (st.late) g = "L" + g;
     return g;
   }
@@ -667,7 +670,7 @@
     late_cut: LATE_CUT_M, md_min_ext: DEFAULT_MD_MIN_EXT, md_min_dist: DEFAULT_MD_MIN_DIST,
     sigma_mult: DEFAULT_SIGMA_MULT, ker_lookback: DEFAULT_KER_LOOKBACK, ker_trend: DEFAULT_KER_TREND,
     ker_chop: DEFAULT_KER_CHOP, rvol_min_n: DEFAULT_RVOL_MIN_N, regime_gate: true,
-    md_target: DEFAULT_MD_TARGET, rvol_missing: DEFAULT_RVOL_MISSING,
+    md_target: DEFAULT_MD_TARGET, rvol_missing: DEFAULT_RVOL_MISSING, fade_max_grade: DEFAULT_FADE_MAX_GRADE,
   };
 
   /**

@@ -48,6 +48,8 @@ WINDOW_DAYS = 35                    # free 5m history reaches back ~1 month; old
 
 DECISION_FIELDS = ("side", "entry", "stop", "target", "rr", "grade", "regime", "setup_mode", "ker", "rvol", "rvol_n",
                    "gap_pct", "edge", "dollar_vol", "bar_provider", "quote_provider", "bar_age_min", "one_agree")
+LIVE_SESSIONS = ("rth", "premarket", "24/7 crypto")      # engine.live_actionable's session test
+TIER_A, TIER_B = ("A", "LA"), ("B", "LB")
 
 
 def _paths(base: Optional[Path] = None) -> Dict[str, Path]:
@@ -78,14 +80,21 @@ def _append(path: Path, rows: List[Dict[str, Any]]) -> None:
 
 def record(by_ticker: Dict[str, Dict[str, Any]], version: str = "", now_s: Optional[float] = None,
            base: Optional[Path] = None) -> int:
-    """Append every new live-actionable TRIGGER in a scan. Returns how many were new."""
+    """
+    Append every new live TRIGGER in a scan: grade A (live_actionable) and, since v1.7.0, the capped gap fades
+    at grade B while the session is open, so the forward record compares the two. Returns how many were new.
+    """
     p = _paths(base)
     now_s = time.time() if now_s is None else now_s
     new: List[Dict[str, Any]] = []
     with _lock:
         seen = _seen.setdefault(str(p["signals"]), {r["key"] for r in _read(p["signals"])})
         for t, row in by_ticker.items():
-            if row.get("signal") != "TRIGGER" or not row.get("live_actionable"):
+            if row.get("signal") != "TRIGGER":
+                continue
+            live_b = (row.get("actionable") and row.get("grade") in ("B", "LB")
+                      and row.get("session_label") in LIVE_SESSIONS)
+            if not (row.get("live_actionable") or live_b):
                 continue
             ch = row.get("_chart") or {}
             trig = (ch.get("markers") or {}).get("trig")
@@ -227,10 +236,14 @@ def report(base: Optional[Path] = None, model: str = "classic", entry_mode: str 
             seen.add(k)
             outcomes.append(o)
     resolved_keys = {o["key"] for o in outcomes}
-    rows = [{**signals[o["key"]], **o} for o in outcomes
-            if o.get("status") == "resolved" and o.get("model") == model and o.get("entry_mode") == entry_mode
-            and o["key"] in signals]
+    every = [{**signals[o["key"]], **o} for o in outcomes
+             if o.get("status") == "resolved" and o.get("model") == model and o.get("entry_mode") == entry_mode
+             and o["key"] in signals]
+    # the headline is the desk's grade A; the capped fades (grade B, recorded since v1.7.0) are reported beside it
+    rows = [r for r in every if r.get("grade") in TIER_A]
+    b_rows = [r for r in every if r.get("grade") in TIER_B]
     stat = clustered([r["r_net"] for r in rows], [r["session"] for r in rows])
+    b_stat = clustered([r["r_net"] for r in b_rows], [r["session"] for r in b_rows])
     lags = sorted(s["observed_lag_min"] for s in signals.values() if s.get("observed_lag_min") is not None)
     return {
         "signals": len(signals), "resolved": len(rows), "pending": len([k for k in signals if k not in resolved_keys]),
@@ -239,6 +252,8 @@ def report(base: Optional[Path] = None, model: str = "classic", entry_mode: str 
                        and o.get("entry_mode") == entry_mode),
         "model": model, "entry_mode": entry_mode,
         "net_r": stat, "verdict": verdict(stat),
+        "grade_b": {"resolved": len(b_rows), "net_r": b_stat, "verdict": verdict(b_stat),
+                    "segments": segments(b_rows, ("setup_mode", "regime"), min_n=3)},
         "gross_r": clustered([r["r"] for r in rows], [r["session"] for r in rows]),
         "win_rate": round(sum(1 for r in rows if r["r_net"] > 0) / len(rows), 3) if rows else None,
         "segments": segments(rows, ("setup_mode", "regime"), min_n=3),
@@ -261,6 +276,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"Forward record ({rep['model']}, {rep['entry_mode']}): {rep['signals']} signals, {rep['resolved']} resolved, "
           f"{rep['pending']} pending, {rep['skipped']} skipped fills, {rep['unresolvable']} unresolvable")
     print(f"  net R: {fmt_stat(rep['net_r'])}")
+    if rep["grade_b"]["resolved"]:
+        print(f"  grade B (capped gap fades), {rep['grade_b']['resolved']} resolved: {fmt_stat(rep['grade_b']['net_r'])}")
     if len(rep["versions"]) > 1:
         print(f"  mixed engine versions {rep['versions']}: compare them before pooling")
     if rep["median_observed_lag_min"] is not None:
