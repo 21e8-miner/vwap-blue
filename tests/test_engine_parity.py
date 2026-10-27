@@ -298,7 +298,8 @@ class TestEngineParity(unittest.TestCase):
         """The mdrev target rules and the missing-RVOL gate that are not the default, on every 4th case."""
         cases = make_cases(random.Random(SEED), N_SERIES)[::4]
         variants = [{"md_target": m} for m in ("stretch", "blue_only", "day", "prior", "nearest", "mirror")]
-        variants += [{"rvol_missing": "thin"}, {"rvol_missing": "pass"}, {"fade_max_grade": "A"}]
+        variants += [{"rvol_missing": "thin"}, {"rvol_missing": "pass"}, {"fade_max_grade": "A"},
+                     {"md_target_min_r": 1.0}, {"rearm_after_stop": True}, {"rearm_after_stop": True, "md_target_min_r": 0.5}]
         jcases, py = [], []
         for v in variants:
             for c in cases:

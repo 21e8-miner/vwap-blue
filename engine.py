@@ -65,6 +65,8 @@ DEFAULT_RVOL_MIN_N = 2     # thin RVOL sample demotes A → B
 DEFAULT_MD_TARGET = "nearest"   # mdrev target rule (_md_target); v1.5.x used "stretch"
 DEFAULT_RVOL_MISSING = "pass"   # "thin": a row with no RVOL cannot grade A
 DEFAULT_FADE_MAX_GRADE = "B"    # v1.7.0: a gap fade (gap, both) never grades A; "A" lifts the cap
+DEFAULT_MD_TARGET_MIN_R = 0.0   # mdrev: a level closer than this x risk is not a target (0 = any level beyond entry)
+DEFAULT_REARM_AFTER_STOP = False  # gap fade: after a stop-out, a fresh break of blue may trigger again that session
 
 
 def _is_crypto(ticker: str) -> bool:
@@ -588,6 +590,20 @@ def _step_bar(
     if (direction > 0 and b["c"] > st["blue"]) or (direction < 0 and b["c"] < st["blue"]):
         acc["trapV"] += b["v"]
 
+    # re-arm: a stopped gap fade goes back to watching for a fresh break (counted as a fakeout) instead of
+    # showing STOPPED for the rest of the session; off by default (research option)
+    if (st["stopped"] is not None and st["trig"] is not None and i > st["stopped"]
+            and opts.get("rearm_after_stop", DEFAULT_REARM_AFTER_STOP)):
+        for k in ("trig", "stopped", "stopPx", "entry", "target", "riskPct", "runwayPct", "R", "firstBreak",
+                  "_ker_at_trig", "_adapt_at_trig"):
+            st[k] = None
+        st["noRunway"] = False
+        st["late"] = False
+        st["phase"] = "SIDE"
+        st["run"] = 0
+        st["fake"] += 1
+        st["rearmed"] = (st.get("rearmed") or 0) + 1
+
     if st["trig"] is None:
         # Adaptive beyond-threshold using volume-weighted σ (already on st["sigma"])
         # and Kaufman ER: chop → wider band (harder confirm), trend → tighter.
@@ -691,7 +707,8 @@ def _md_target(bars: List[Dict[str, Any]], i: int, st: Dict[str, Any], opts: Dic
              "nearest": ["blue", "day", "prior", "prior_close"]}.get(rule)
     if picks is None:
         raise ValueError(f"unknown md_target {rule!r}")
-    cands = [lv[k] for k in picks if beyond(lv[k])]
+    min_dist = float(opts.get("md_target_min_r", DEFAULT_MD_TARGET_MIN_R) or 0.0) * abs(entry - stop)
+    cands = [lv[k] for k in picks if beyond(lv[k]) and abs(lv[k] - entry) >= min_dist]
     if not cands:
         return None
     return min(cands) if long else max(cands)
@@ -1148,6 +1165,8 @@ def analyze_bars(
         "md_target": DEFAULT_MD_TARGET,
         "rvol_missing": DEFAULT_RVOL_MISSING,
         "fade_max_grade": DEFAULT_FADE_MAX_GRADE,
+        "md_target_min_r": DEFAULT_MD_TARGET_MIN_R,
+        "rearm_after_stop": DEFAULT_REARM_AFTER_STOP,
         "regime_gate": True,  # suppress pure gap-fades in trend regime
     }
     if opts:
@@ -1286,7 +1305,10 @@ def analyze_bars(
             st["bad_geom"] = True
             st["noRunway"] = True
     trend_block = False
-    if st.get("setup_mode") in ("gap", "both", None) and st.get("trig") is not None:
+    # a resolved plan (TAGGED / STOPPED) keeps its state: before v1.7.0 the trend-day check re-ran on every
+    # bar after a stop-out and the row flapped between STOPPED and TREND BLOCK for the rest of the session
+    open_plan = st.get("tagged") is None and st.get("stopped") is None
+    if st.get("setup_mode") in ("gap", "both", None) and st.get("trig") is not None and open_plan:
         if _day_trend_blocks_fade(bars, i0, iN, resolved["gap_pct"], side, open_m=o["open_mins"]):
             trend_block = True
 
@@ -1305,7 +1327,7 @@ def analyze_bars(
             st["regime_block"] = True
 
     # recompute state/grade/signal after scrub
-    if regime_block:
+    if regime_block and open_plan:
         state = {"txt": f"REGIME BLOCK · trend tape no gap-fade", "cls": "none"}
         grade = "–"
         signal = _signal_badge(grade, state["cls"], st)
