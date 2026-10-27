@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 import logging
 import os
 import threading
@@ -59,7 +60,7 @@ _live_cfg: Dict[str, Any] = {
     "tickers": None,
     "actionable_only": False,
     "mode": "hybrid",
-    "grade_min": "A",  # desk default: Grade A floor (was C)
+    "grade_min": "B",  # desk default since v1.7.0: B shows the capped gap fades, A marks the reclaims
     "min_dvol": _DEFAULT_MIN_DVOL,
 }
 _live_thread: Optional[threading.Thread] = None
@@ -105,7 +106,7 @@ class ScanBody(BaseModel):
     actionable_only: bool = False
     force: bool = False
     mode: str = Field(default="hybrid")
-    grade_min: str = Field(default="A")
+    grade_min: str = Field(default="B")
     min_dvol: Optional[float] = Field(
         default=None,
         description="Equity $ volume floor (0=off), on the larger of today so far and the prior session; "
@@ -120,7 +121,7 @@ class LiveBody(BaseModel):
     tickers: Optional[List[str]] = None
     actionable_only: bool = False
     mode: str = "hybrid"
-    grade_min: str = "A"
+    grade_min: str = "B"
     min_dvol: Optional[float] = None
 
 
@@ -208,7 +209,7 @@ def run_scan(
     actionable_only: bool = False,
     force: bool = False,
     mode: str = "hybrid",
-    grade_min: str = "A",
+    grade_min: str = "B",
     min_dvol: Optional[float] = None,
     publish: bool = True,
 ) -> Dict[str, Any]:
@@ -427,7 +428,7 @@ def _live_loop() -> None:
             tickers = _live_cfg.get("tickers")
             actionable_only = bool(_live_cfg.get("actionable_only"))
             mode = str(_live_cfg.get("mode") or "hybrid")
-            grade_min = str(_live_cfg.get("grade_min") or "A")
+            grade_min = str(_live_cfg.get("grade_min") or "B")
             min_dvol = _live_cfg.get("min_dvol", _DEFAULT_MIN_DVOL)
         try:
             run_scan(
@@ -460,7 +461,7 @@ def _boot_live_party() -> None:
     interval = int(os.environ.get("VWAP_BLUE_LIVE_SEC", "45"))
     max_n = int(os.environ.get("VWAP_BLUE_LIVE_MAX", "16"))
     mode = os.environ.get("VWAP_BLUE_MODE", "hybrid")
-    grade_min = os.environ.get("VWAP_BLUE_GRADE_MIN", "A").strip().upper() or "A"
+    grade_min = os.environ.get("VWAP_BLUE_GRADE_MIN", "B").strip().upper() or "B"
     with _live_lock:
         _live_cfg["enabled"] = True
         _live_cfg["interval_sec"] = max(15, min(300, interval))
@@ -599,6 +600,18 @@ def chart(ticker: str, mode: str = Query("hybrid"), force: bool = Query(False)):
     if row.get("error"):
         payload["error"] = row["error"]
     return payload
+
+
+@app.get("/api/evidence")
+def evidence():
+    """What each setup class did on the replays the page cites (evidence.py); {} until one has been written."""
+    p = ROOT / "research" / f"evidence_v{ENGINE_VERSION}.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except (OSError, ValueError):
+        return {}
 
 
 @app.get("/api/critique")

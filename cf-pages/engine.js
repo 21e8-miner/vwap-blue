@@ -16,7 +16,7 @@
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
 
-  const VERSION = "1.6.0";   // engine.ENGINE_VERSION
+  const VERSION = "1.7.0";   // engine.ENGINE_VERSION
   const RTH_OPEN_M = 9 * 60 + 30;
   const RTH_CLOSE_M = 16 * 60;
   const DEFAULT_ANCHOR_M = 4 * 60;
@@ -38,6 +38,9 @@
   const DEFAULT_RVOL_MIN_N = 2;
   const DEFAULT_MD_TARGET = "nearest";      // engine.DEFAULT_MD_TARGET (v1.5.x: "stretch")
   const DEFAULT_RVOL_MISSING = "pass";      // engine.DEFAULT_RVOL_MISSING
+  const DEFAULT_FADE_MAX_GRADE = "B";       // engine.DEFAULT_FADE_MAX_GRADE (v1.7.0: a gap fade never grades A)
+  const DEFAULT_MD_TARGET_MIN_R = 0.0;      // engine.DEFAULT_MD_TARGET_MIN_R (mdrev: levels closer than this x risk are not targets)
+  const DEFAULT_REARM_AFTER_STOP = false;   // engine.DEFAULT_REARM_AFTER_STOP (gap fade may trigger again after a stop-out)
   const RVOL_MAX_PRIORS = 7;
   const RVOL_MIN_PRIORS = 2;
   const DEFAULT_MAX_BAR_AGE_MIN = 15.0;
@@ -173,6 +176,32 @@
   }
 
   /** Kaufman Efficiency Ratio on closes: |net move| / Σ|bar moves|. */
+  const DEV_HALF_LIFE_BARS = 60;            // engine.DEV_HALF_LIFE_BARS
+
+  /** engine._dev_half_life: OU half-life (minutes) of close - blue over the session's last n bars; 999 = no reversion. */
+  function devHalfLife(bars, i0, iN, blueTrail, barMin = 5.0, n = DEV_HALF_LIFE_BARS) {
+    const lo = Math.max(i0, iN - n + 1);
+    const xs = [];
+    for (let k = lo; k <= iN; k++) {
+      const b = k - i0 < blueTrail.length ? blueTrail[k - i0] : null;
+      const c = bars[k].c;
+      if (b != null && c != null && c > 0) xs.push(c - b);
+    }
+    if (xs.length < 20) return null;
+    const x = xs.slice(0, -1), y = xs.slice(1);
+    let mx = 0, my = 0;
+    for (const v of x) mx += v;
+    mx /= x.length;
+    for (const v of y) my += v;
+    my /= y.length;
+    let sxx = 0, sxy = 0;
+    for (let i = 0; i < x.length; i++) { sxx += (x[i] - mx) * (x[i] - mx); sxy += (x[i] - mx) * (y[i] - my); }
+    if (sxx <= 0) return null;
+    const beta = sxy / sxx;
+    if (beta >= 0.999 || beta <= 0) return 999.0;
+    return pyRound(Math.log(2) / -Math.log(beta) * barMin, 1);
+  }
+
   function ker(bars, end, lookback = DEFAULT_KER_LOOKBACK) {
     if (end < 1 || lookback < 3) return null;
     const start = Math.max(0, end - lookback + 1);
@@ -299,6 +328,14 @@
 
     if ((direction > 0 && b.c > st.blue) || (direction < 0 && b.c < st.blue)) acc.trapV += b.v;
 
+    // engine._step_bar re-arm: a stopped gap fade goes back to watching for a fresh break (research option)
+    if (st.stopped != null && st.trig != null && i > st.stopped && (o.rearm_after_stop ?? DEFAULT_REARM_AFTER_STOP)) {
+      for (const k of ["trig", "stopped", "stopPx", "entry", "target", "riskPct", "runwayPct", "R", "firstBreak",
+                       "_ker_at_trig", "_adapt_at_trig"]) st[k] = null;
+      st.noRunway = false; st.late = false; st.phase = "SIDE"; st.run = 0; st.fake += 1;
+      st.rearmed = (st.rearmed || 0) + 1;
+    }
+
     if (st.trig == null) {
       // adaptive beyond-threshold: volume-weighted σ × KER multiplier (chop wider, trend tighter)
       const kerNow = ker(bars, i, Math.trunc(o.ker_lookback));
@@ -387,7 +424,8 @@
                     nearest: ["blue", "day", "prior", "prior_close"] }[rule];
     if (!picks) throw new Error(`unknown md_target ${rule}`);
     const lv = mdLevels(bars, i, st, o, long);
-    const c = picks.map(k => lv[k]).filter(beyond);
+    const minDist = Number(o.md_target_min_r ?? DEFAULT_MD_TARGET_MIN_R) * Math.abs(entry - stop);
+    const c = picks.map(k => lv[k]).filter(px => beyond(px) && Math.abs(px - entry) >= minDist);
     if (!c.length) return null;
     return long ? Math.min(...c) : Math.max(...c);
   }
@@ -554,6 +592,8 @@
       if (S.regime === "trend" && mode === "gap" && g === "A") g = "B";
       if (S.regime === "chop" && mode === "both" && g === "B" && gR && gV && !thin) g = "A";
     }
+    // v1.7.0: grade A means a multi-day reclaim; a fade, alone or with a reclaim, is capped at B
+    if ((mode === "gap" || mode === "both") && g === "A" && (o.fade_max_grade || DEFAULT_FADE_MAX_GRADE) === "B") g = "B";
     if (st.late) g = "L" + g;
     return g;
   }
@@ -667,7 +707,8 @@
     late_cut: LATE_CUT_M, md_min_ext: DEFAULT_MD_MIN_EXT, md_min_dist: DEFAULT_MD_MIN_DIST,
     sigma_mult: DEFAULT_SIGMA_MULT, ker_lookback: DEFAULT_KER_LOOKBACK, ker_trend: DEFAULT_KER_TREND,
     ker_chop: DEFAULT_KER_CHOP, rvol_min_n: DEFAULT_RVOL_MIN_N, regime_gate: true,
-    md_target: DEFAULT_MD_TARGET, rvol_missing: DEFAULT_RVOL_MISSING,
+    md_target: DEFAULT_MD_TARGET, rvol_missing: DEFAULT_RVOL_MISSING, fade_max_grade: DEFAULT_FADE_MAX_GRADE,
+    md_target_min_r: DEFAULT_MD_TARGET_MIN_R, rearm_after_stop: DEFAULT_REARM_AFTER_STOP,
   };
 
   /**
@@ -771,7 +812,8 @@
       st.noRunway = true;
     }
     let trendBlock = false;
-    if ((st.setup_mode === "gap" || st.setup_mode === "both" || st.setup_mode == null) && st.trig != null) {
+    // a resolved plan (TAGGED / STOPPED) keeps its state (engine.py open_plan)
+    if ((st.setup_mode === "gap" || st.setup_mode === "both" || st.setup_mode == null) && st.trig != null && openPlan) {
       if (dayTrendBlocksFade(bars, i0, iN, resolved.gap_pct, side, 0.6, o.open_mins)) trendBlock = true;
     }
 
@@ -783,7 +825,7 @@
       if (regimeBlock) st.regime_block = true;
     }
 
-    if (regimeBlock) {
+    if (regimeBlock && openPlan) {
       state = { txt: "REGIME BLOCK · trend tape no gap-fade", cls: "none" };
       grade = "–";
       signal = signalBadge(grade, state.cls, st);
@@ -872,6 +914,7 @@
       md_max_dist: st.md_max_dist ? pyRound(st.md_max_dist, 3) : null,
       ker: kerVal != null ? pyRound(kerVal, 3) : null,
       regime,
+      half_life_min: devHalfLife(bars, i0, iN, st.blueTrail),
       adapt_mult: pyRound(adaptNow, 3),
       conflict: false,
       _chart: {

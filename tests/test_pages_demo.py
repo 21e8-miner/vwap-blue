@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 from data import load_universe          # noqa: E402
 from engine import ENGINE_VERSION       # noqa: E402
 from providers import YAHOO_CRYPTO_SYMBOLS, looks_crypto      # noqa: E402
+import evidence                         # noqa: E402
 
 HTML = (ROOT / "index.html").read_text(encoding="utf-8")
 
@@ -63,6 +64,14 @@ class TestPagesDemo(unittest.TestCase):
             for needle in (f"{net['mean']:.2f}R", f"± {net['se']:.2f}", f"{net['n']} trades",
                            f"{net['clusters']} sessions", f"t {net['t']:.1f}"):
                 self.assertIn(needle, sentence, path)
+
+    def test_record_column_is_the_linked_replays(self):
+        """The page's embedded EVIDENCE table recomputes from the banner's replay files (evidence.py)."""
+        embedded = json.loads(re.search(r"const EVIDENCE = (\{.*?\});\n", HTML, re.S).group(1))
+        self.assertEqual(embedded, evidence.build(evidence.banner_files(HTML)))
+        self.assertEqual(embedded["engine_version"], ENGINE_VERSION)
+        self.assertIn("equity|mdrev|all", embedded["segments"])
+        self.assertIn("crypto|mdrev|all", embedded["segments"])
 
 
 if __name__ == "__main__":

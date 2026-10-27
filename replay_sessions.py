@@ -130,6 +130,7 @@ class Trade:
     entry_plan: float = 0.0     # the engine's printed entry (trigger-bar close)
     trigger_time: str = ""      # the trigger bar, ET "MM-DD HH:MM"
     mirror_r_net: Optional[float] = None   # the same bracket the other way from the same bar (_mirror)
+    nth: int = 1                # 1 = the session's first trade; 2 = a re-armed trigger after a stop-out
 
 
 def _is_crypto(t: str) -> bool:
@@ -535,6 +536,7 @@ def trades_at(
 
 
 LOOKBACK_SESSIONS = 8   # prior sessions each decision-time grade sees (engine needs 7 for RVOL)
+MAX_TRADES_PER_SESSION = 1   # >1: after a stop-out, a later trigger bar may trade again (engine rearm_after_stop)
 
 
 def replay(
@@ -588,8 +590,10 @@ def replay(
             day = parsed[i0: first[days[j + 1]] if j + 1 < len(days) else len(parsed)]
             session = session_bars(t, day)
             kw_day = {**kw, "memo": {}} if resumable else kw
+            taken = 0
+            resume_after = -1          # a second trade may only trigger after the first one has exited
             for k in range(len(session)):
-                if i0 + k + 1 < 30:
+                if i0 + k + 1 < 30 or k <= resume_after:
                     continue
                 n_graded += 1
                 try:
@@ -609,7 +613,14 @@ def replay(
                 new, fill = trades_at(t, row, day, k, models, entry_mode, slip_bps, dvol, grade_eod)
                 if new:
                     n_take += 1
+                    taken += 1
+                    for tr in new:
+                        tr.nth = taken
                     trades += new
+                    classic = next((x for x in new if x.model == "classic"), new[0])
+                    if taken < MAX_TRADES_PER_SESSION and classic.exit_reason == "stop":
+                        resume_after = k + classic.bars_held
+                        continue
                 else:
                     skips[fill] = skips.get(fill, 0) + 1
                 break
