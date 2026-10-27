@@ -341,6 +341,43 @@ def _atr_trail(bars: List[Dict[str, Any]], i0: int, iN: int, period: int = 14) -
     return out
 
 
+DEV_HALF_LIFE_BARS = 60   # bars of (close - blue) the AR(1) half-life reads; 999.0 = no reversion in them
+
+
+def _dev_half_life(bars: List[Dict[str, Any]], i0: int, iN: int, blue_trail: List[Optional[float]],
+                   bar_min: float = 5.0, n: int = DEV_HALF_LIFE_BARS) -> Optional[float]:
+    """
+    Ornstein-Uhlenbeck half-life, in minutes, of the close's deviation from blue over the session's last n
+    bars: dev_t = beta * dev_{t-1} + e by least squares, half-life = ln 2 / -ln beta bars. None with fewer
+    than 20 deviations; 999.0 when beta >= 0.999 or <= 0 (no reversion to read). A half-life under about
+    5 minutes on 5m bars is bar-to-bar noise around blue (beta <= 0.5), the tercile that lost on every
+    sample (half_life_check.py): the row carries it as a reading, not a gate.
+    """
+    lo = max(i0, iN - n + 1)
+    xs = []
+    for k in range(lo, iN + 1):
+        b = blue_trail[k - i0] if k - i0 < len(blue_trail) else None
+        c = bars[k]["c"]
+        if b is not None and c is not None and c > 0:
+            xs.append(c - b)
+    if len(xs) < 20:
+        return None
+    x, y = xs[:-1], xs[1:]
+    mx = sum(x) / len(x)
+    my = sum(y) / len(y)
+    sxx = 0.0
+    sxy = 0.0
+    for a, b in zip(x, y):
+        sxx += (a - mx) * (a - mx)
+        sxy += (a - mx) * (b - my)
+    if sxx <= 0:
+        return None
+    beta = sxy / sxx
+    if beta >= 0.999 or beta <= 0:
+        return 999.0
+    return round(math.log(2) / -math.log(beta) * bar_min, 1)
+
+
 def _ker(bars: List[Dict[str, Any]], end: int, lookback: int = DEFAULT_KER_LOOKBACK) -> Optional[float]:
     """
     Kaufman Efficiency Ratio on closes: |net move| / sum(|bar moves|).
@@ -1448,6 +1485,7 @@ def analyze_bars(
         "md_max_dist": round(st["md_max_dist"], 3) if st.get("md_max_dist") else None,
         "ker": round(ker_val, 3) if ker_val is not None else None,
         "regime": regime,
+        "half_life_min": _dev_half_life(bars, i0, iN, st["blueTrail"]),
         "adapt_mult": round(adapt_now, 3),
         "sigma_vw": round(sigma, 6) if sigma is not None else None,  # volume-weighted σ
         "conflict": False,

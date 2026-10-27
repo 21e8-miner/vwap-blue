@@ -556,7 +556,7 @@
           <td class="tk">${r.ticker}${mark}${pmark}${cmark}</td>
           <td><span class="grade ${gradeCls(r.grade)}">${r.grade||'–'}</span></td>
           <td><span class="badge ${r.signal||'FLAT'}">${r.signal||'FLAT'}</span></td>
-          <td class="${regCls}" title="KER ${r.ker??'—'} · adapt ${r.adapt_mult??'—'}">${reg}${r.setup_mode?`/${r.setup_mode}`:''}</td>
+          <td class="${regCls}" title="KER ${r.ker??'—'} · adapt ${r.adapt_mult??'—'} · dev t½ ${r.half_life_min==null?'—':r.half_life_min>=999?'none':r.half_life_min+'m'}">${reg}${r.setup_mode?`/${r.setup_mode}`:''}</td>
           <td class="note">${r.state||''}</td>
           <td class="record">${recordCell(r)}</td>
           <td>${n(r.price)}</td>

@@ -176,6 +176,32 @@
   }
 
   /** Kaufman Efficiency Ratio on closes: |net move| / Σ|bar moves|. */
+  const DEV_HALF_LIFE_BARS = 60;            // engine.DEV_HALF_LIFE_BARS
+
+  /** engine._dev_half_life: OU half-life (minutes) of close - blue over the session's last n bars; 999 = no reversion. */
+  function devHalfLife(bars, i0, iN, blueTrail, barMin = 5.0, n = DEV_HALF_LIFE_BARS) {
+    const lo = Math.max(i0, iN - n + 1);
+    const xs = [];
+    for (let k = lo; k <= iN; k++) {
+      const b = k - i0 < blueTrail.length ? blueTrail[k - i0] : null;
+      const c = bars[k].c;
+      if (b != null && c != null && c > 0) xs.push(c - b);
+    }
+    if (xs.length < 20) return null;
+    const x = xs.slice(0, -1), y = xs.slice(1);
+    let mx = 0, my = 0;
+    for (const v of x) mx += v;
+    mx /= x.length;
+    for (const v of y) my += v;
+    my /= y.length;
+    let sxx = 0, sxy = 0;
+    for (let i = 0; i < x.length; i++) { sxx += (x[i] - mx) * (x[i] - mx); sxy += (x[i] - mx) * (y[i] - my); }
+    if (sxx <= 0) return null;
+    const beta = sxy / sxx;
+    if (beta >= 0.999 || beta <= 0) return 999.0;
+    return pyRound(Math.log(2) / -Math.log(beta) * barMin, 1);
+  }
+
   function ker(bars, end, lookback = DEFAULT_KER_LOOKBACK) {
     if (end < 1 || lookback < 3) return null;
     const start = Math.max(0, end - lookback + 1);
@@ -888,6 +914,7 @@
       md_max_dist: st.md_max_dist ? pyRound(st.md_max_dist, 3) : null,
       ker: kerVal != null ? pyRound(kerVal, 3) : null,
       regime,
+      half_life_min: devHalfLife(bars, i0, iN, st.blueTrail),
       adapt_mult: pyRound(adaptNow, 3),
       conflict: false,
       _chart: {

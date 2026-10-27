@@ -539,7 +539,7 @@ function render() {
       <td class="tk">${tk}${mark}</td>
       <td><span class="grade ${gradeCls(r.grade)}">${esc(r.grade||"–")}</span></td>
       <td><span class="badge ${esc(r.signal||"FLAT")}">${esc(r.signal||"FLAT")}</span></td>
-      <td class="${regCls}" title="KER ${r.ker??"—"} · adapt ${r.adapt_mult??"—"}">${esc(reg)}${r.setup_mode?"/"+esc(r.setup_mode):""}</td>
+      <td class="${regCls}" title="KER ${r.ker??"—"} · adapt ${r.adapt_mult??"—"} · dev t½ ${r.half_life_min==null?"—":r.half_life_min>=999?"none":r.half_life_min+"m"}">${esc(reg)}${r.setup_mode?"/"+esc(r.setup_mode):""}</td>
       <td class="note">${esc(r.note||"")}</td>
       <td class="record">${recordCell(r)}</td>
       <td>${n(r.price)}</td>
