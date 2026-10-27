@@ -220,6 +220,9 @@ def _tradeable(row: Dict[str, Any], grade_min: str) -> bool:
     return g not in {"–", "✕"}
 
 
+ENTRY_LAG = {"next_open": 1, "late_open": 2}   # late_open: a trader one bar behind the alert (stress test)
+
+
 def _fill_entry(
     side: str,
     entry_plan: float,
@@ -237,9 +240,10 @@ def _fill_entry(
     """
     if entry_mode == "trigger_close":
         return entry_plan, "filled"
-    if trig_rel + 1 >= len(day_bars):
+    lag = ENTRY_LAG.get(entry_mode, 1)                 # bars after the trigger the fill waits for
+    if trig_rel + lag >= len(day_bars):
         return None, "no_next_bar"
-    nb = day_bars[trig_rel + 1]
+    nb = day_bars[trig_rel + lag]
     px = float(nb.get("o") or nb["c"])
     px *= (1 + slip_bps / 1e4) if side == "long" else (1 - slip_bps / 1e4)
     if (side == "long" and px <= stop) or (side == "short" and px >= stop):
@@ -458,7 +462,7 @@ def _mirror(side: str, entry: float, stop: float, target: float, entry_mode: str
     """
     mside = "short" if side == "long" else "long"
     m_entry = entry
-    if entry_mode == "next_open" and slip_bps:
+    if entry_mode in ENTRY_LAG and slip_bps:
         raw = entry / (1 + slip_bps / 1e4) if side == "long" else entry / (1 - slip_bps / 1e4)
         m_entry = raw * (1 + slip_bps / 1e4) if mside == "long" else raw * (1 - slip_bps / 1e4)
     d_stop, d_tgt = abs(entry - stop), abs(target - entry)
@@ -492,10 +496,11 @@ def trades_at(
     risk_pct = abs(entry - stop) / entry * 100.0 if entry else 0.0
     mside, m_entry, m_stop, m_target = _mirror(side, entry, stop, target, entry_mode, slip_bps)
     out: List[Trade] = []
+    k_fill = k + ENTRY_LAG.get(entry_mode, 1) - 1   # the bar before the fill bar: _simulate starts after it
     for model in models:
         bars = day if model.after_hours else session
-        exit_px, reason, r, mfe_r, mae_r, held = _simulate(side, entry, stop, target, bars, k, model, t)
-        m_r = _simulate(mside, m_entry, m_stop, m_target, bars, k, model, t)[2]
+        exit_px, reason, r, mfe_r, mae_r, held = _simulate(side, entry, stop, target, bars, k_fill, model, t)
+        m_r = _simulate(mside, m_entry, m_stop, m_target, bars, k_fill, model, t)[2]
         out.append(
             Trade(
                 ticker=t,
