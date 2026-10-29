@@ -348,6 +348,41 @@ for the forward ledger, not a rule. Raw numbers:
 Same-day leftover-bar scans (`backtest_today_scans.py`) print results on a handful of trades
 from one session; they are not expectancy.
 
+#### Does the band keep its meaning through the day? (`band_scaling_check.py`, Jul 28 – Oct 19 equities, a year of Binance crypto)
+
+The confirm band is 0.15 × σ × adapt(KER) and the stop buffer 0.35 × σ × adapt, with σ the running
+volume-weighted spread of the typical price about blue since 04:00. How far price actually sits from
+blue by time since the open, against two shuffles of the same bars: each day's returns permuted in
+time (which also flattens the open's volatility), and each slot's returns permuted across days (which
+keeps the day's volatility curve and removes only the order within the day, the fair random-walk twin).
+
+- **Equities.** rms |close − blue| is 0.91% in the first hour and 1.07% in the last: a log-log slope of
+  0.06 (90% CI 0.05–0.07) against the random walk's 0.5. The cross-day shuffle gives 0.09, so the flat
+  shape is the open's volatility, not reversion to blue. σ keeps growing (slope 0.16, the shuffle's
+  too), so the band shrinks in units of the real distance through the day: median |close − blue|/σ
+  is 1.20 in the first hour and 0.86 after noon, and the stop buffer sits inside the typical distance
+  on 83% of first-hour bars vs 70% later. The shuffle does the same (1.27 → 0.97): it is what a
+  running σ does under a U-shaped day. The confirm band is crossed by 88–93% of bars at every hour:
+  a dead zone around blue, not a filter.
+- **Crypto.** The distance grows like t^0.53 over the ET day (shuffle 0.55) with the US-hours hump,
+  but runs 14–23% below the cross-day shuffle while σ matches it exactly. With an equal-weight blue
+  the gap is 9%, and the variance ratio of 2–4 h returns to 5 m returns is 0.90 against the shuffle's
+  1.02: about half of "price stays near blue" is the volume weighting (blue follows the heavy-volume
+  moves) and the rest is mild reversion worth about 5% of the distance.
+- **Regular-hours equity returns are a random walk with a volatility curve** to within 3%: the variance
+  ratio reads 0.74 at 1 h and 0.65 at 2 h, and the cross-day shuffle reads 0.75 and 0.68 (the drop is
+  the open's volatility under overlapping windows, not reversion). The 04:00–09:30 bars bounce
+  (variance ratio 0.86 at two bars in the anchored window vs 0.95 in regular hours), so the premarket
+  part of blue and σ is noise.
+
+Nothing changes in the engine. Two readings for later: a stop buffer from the slot's own deviation
+profile instead of the running σ is a fair experiment for the bracket-geometry queue, and the
+fade's tailwind toward blue is a few percent of the distance on crypto and about zero on equities,
+under the round trip's cost. Raw numbers:
+[`research/band_scaling_equity_2026-10-28.json`](research/band_scaling_equity_2026-10-28.json),
+[`research/band_scaling_crypto_2026-10-28.json`](research/band_scaling_crypto_2026-10-28.json).
+
+
 ## History / RVOL
 
 - Free Yahoo **1m** hard-cap is **8 calendar days** per request (`10d` rejects). Default fetch is **`8d`** (was `5d`).
@@ -384,6 +419,7 @@ causal_check.py     # the replay's old end-of-day trigger search, against its ba
 evidence.py         # per-class record (n, net R, direction over mirror) from the banner's replays → page + /api/evidence
 md_target_check.py  # mdrev target rules + missing-RVOL gate, same bars and a 60-day holdout
 direction_check.py  # breakout vs fade at the gap states (first break, fakeout), paired, net of costs
+band_scaling_check.py  # |close - blue| and sigma by time since the open vs shuffled twins; variance ratios
 honest.py           # cost-in-R and session-clustered standard errors (replay + ledger)
 ledger.py           # forward signal ledger: record → resolve → report (data/signals/, gitignored)
 tests/              # python3 -m unittest discover -s tests (engine parity needs node)
