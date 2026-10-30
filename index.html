@@ -168,6 +168,9 @@
     .ch-stat { background: var(--paper2); border: 1px solid var(--stroke2); border-radius: 12px; padding: 8px 10px; }
     .ch-stat .k { font-family: var(--serif); font-style: italic; font-size: 0.9rem; color: var(--muted); text-transform: none; }
     .ch-stat .v { font-family: var(--display); font-weight: 700; font-size: 1.15rem; letter-spacing: 0; margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
+    .ch-stat .v.wrap { font-size: .95rem; white-space: normal; line-height: 1.35; }
+    .ch-stat button.quote { font: inherit; font-size: .8rem; background: var(--paper2); border: 1px solid var(--stroke2); border-radius: 999px; padding: 2px 10px; color: var(--ink2); cursor: pointer; }
+    .ch-stat button.quote:hover { border-color: var(--ink); color: var(--ink); }
     #chartWrap { flex: 1; min-height: 240px; position: relative; margin: 0 12px; background: var(--paper2); border: 1px solid var(--stroke2); border-radius: 12px; overflow: hidden; }
     #chartCanvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
     #chartTip { position: absolute; pointer-events: none; display: none; background: rgba(246,241,225,0.96); border: 1px solid var(--stroke2); border-radius: 10px; padding: 8px 10px; font-size: 11.5px; font-family: var(--mono); color: var(--ink2); line-height: 1.5; }
@@ -314,6 +317,7 @@
   </footer>
 
 <script src="engine.js"></script>
+<script src="contract.js"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════
    VWAP Blue — static demo (GitHub Pages / Cloudflare Pages)
@@ -942,8 +946,55 @@ function paintChart(d) {
     ["Gap", d.gap_pct==null?"—":((d.gap_pct>0?"+":"")+n(d.gap_pct)+"%")],
     ["Entry", money(d.entry)], ["Stop", money(d.stop)], ["Target", money(d.target)],
     [d.cost_r!=null ? `R:R · cost ${n(d.cost_r)}R` : "R:R", d.rr==null?"—":n(d.rr)],
-  ].map(([k,v]) => `<div class="ch-stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("") + recordStat(d);
+  ].map(([k,v]) => `<div class="ch-stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("") + recordStat(d) + contractStat(d);
   drawChart(d);
+}
+
+/* ── the bracket as a contract (contract.js on a Moontower chain) ──────────────────────────────
+   One chain per clicked name, on request (2 credits), trimmed and cached for the ET day. The chain
+   is end of day: today's lands ~16:15 ET, so a premarket or RTH plan is priced off the prior close. */
+const chains = { date: null, by: {}, pending: {}, err: {} };
+function chainLoad() {
+  try { const c = JSON.parse(localStorage.getItem("mtw_chain_v1") || "null"); if (c && c.date === etDate(Date.now())) Object.assign(chains, { date: c.date, by: c.by || {} }); } catch {}
+}
+function chainSave() { try { localStorage.setItem("mtw_chain_v1", JSON.stringify({ date: chains.date, by: chains.by })); } catch {} }
+async function quoteContract(tk) {
+  const today = etDate(Date.now());
+  if (chains.date !== today) Object.assign(chains, { date: today, by: {}, err: {} });
+  if (chains.pending[tk]) return;
+  chains.pending[tk] = true; delete chains.err[tk];
+  if (selected === tk) { const c = chartCache.get(tk); if (c) paintChart(c); }
+  try {
+    const rows = (await mtwGet("optionchain", { ticker: tk })).data || [];
+    chains.by[tk] = VWAPContract.trimChain(rows, today);
+    if (!chains.by[tk].length) chains.err[tk] = rows.length ? "no expiry after today in the chain" : "no chain on Moontower";
+    chainSave();
+  } catch (e) { chains.err[tk] = String(e && e.message || e); }
+  delete chains.pending[tk];
+  if (selected === tk) { const c = chartCache.get(tk); if (c) paintChart(c); }
+}
+function contractStat(d) {
+  const tk = d.ticker || selected;
+  const plan = d.entry != null && d.target != null && d.side ? { side: d.side, entry: d.entry, stop: d.stop, target: d.target } : null;
+  const head = (k, v) => `<div class="ch-stat" style="grid-column:1 / -1"><div class="k">${k}</div><div class="v wrap">${v}</div></div>`;
+  if (!plan) return "";
+  if (!mtwKey()) return head("Contract · Moontower", `<span class="m">Paste a Moontower key (header) to quote this bracket as a vertical, from last night's chain.</span>`);
+  if (chains.pending[tk]) return head("Contract · Moontower", `<span class="m">fetching ${esc(tk)}'s chain…</span>`);
+  const chain = chains.date === etDate(Date.now()) ? chains.by[tk] : null;
+  if (!chain) return head("Contract · Moontower", (chains.err[tk] ? `<span class="neg">${esc(chains.err[tk])}</span> · ` : "") +
+    `<button class="quote" type="button" onclick="quoteContract('${esc(tk)}')">Quote the bracket as a vertical · 2 credits</button>`);
+  const c = VWAPContract.bracketContract(chain, plan, etDate(Date.now()));
+  if (c.error) return head("Contract · Moontower", `<span class="neg">${esc(c.error)}</span>`);
+  const px = x => x == null ? "—" : "$" + Number(x).toFixed(2);
+  const r = mtwReading(tk);
+  const ivNote = r && r.iv_30d != null ? ` · IV30 at that close ${Math.round(r.iv_30d * 100)}%${r.iv_30d_weekly_change != null ? ` (${r.iv_30d_weekly_change >= 0 ? "+" : ""}${Math.round(r.iv_30d_weekly_change * 100)} on the week)` : ""}` : "";
+  const legs = c.same_strike
+    ? `entry and target land on the same strike (${c.long.strike}) · single ${c.kind.split(" ")[0]} ${c.long.strike}: ask ${px(c.long.ask)} · mid ${px(c.long.mid)} · Δ ${c.long.delta ?? "—"}`
+    : `buy the ${c.long.strike} ${c.kind.split(" ")[0]} (Δ ${c.long.delta ?? "—"}, ask ${px(c.long.ask)}) · sell the ${c.short.strike} (bid ${px(c.short.bid)}) · ` +
+      `<b>debit ${px(c.debit_ask)}</b> at the quotes, ${px(c.debit_mid)} at mid · worth ${px(c.width)} at the target · ` +
+      `reward:risk <b>${c.rr_ask ?? "—"}</b> (${c.rr_mid ?? "—"} at mid) vs the stock bracket's ${c.stock_rr ?? "—"}`;
+  return head(`Contract · ${esc(c.kind)} · ${esc(c.expiry)} (${c.dte ?? "—"} dte) · end-of-day chain of ${esc(c.trade_date || "?")}, spot then ${px(c.spot)}`,
+    `${legs}<span class="m">${esc(ivNote)} · per contract ×100 · liquidity: long leg vol ${c.long.volume ?? "—"} / OI ${c.long.open_interest ?? "—"} · a quote, not advice</span>`);
 }
 
 // the chart pane's record cell: the class's replayed trades, net R and what direction added
@@ -1101,6 +1152,7 @@ document.addEventListener("keydown", e => {
   $("mtwKey").addEventListener("change", () => { try { localStorage.setItem("mtw_key", mtwKey()); } catch {} mtw.failedAt = 0; mtw.err = ""; present(); });
   $("mtw").addEventListener("change", lensChanged);
   mtwLoadCache();
+  chainLoad();
   for (const id of ["mode", "tickers", "minDvol"]) $(id).addEventListener("change", () => scan());  // need new bars
   $("interval").addEventListener("change", () => {                  // a running Live timer picks up the new interval
     if (!liveOn) return;
