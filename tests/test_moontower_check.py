@@ -61,6 +61,38 @@ class TestLenses(unittest.TestCase):
         self.assertIsNone(mc.earnings_distance({"prior_earnings_date": None, "next_earnings_date": None}, "2026-10-29"))
 
 
+class TestSizing(unittest.TestCase):
+
+    def test_bracket_in_implied_move_units(self):
+        # IV30 = 32% → one-day move ≈ 2.0%; a 1% stop is half a move, a 3% target is 1.5 moves
+        ck = row(iv_30d=0.32, iv_10d=0.48)
+        z = mc.sizing(ck, {"entry": 100.0, "stop": 99.0, "target": 103.0, "setup_mode": "gap", "gap_pct": -3.0})
+        self.assertAlmostEqual(z["stop_moves"], 0.01 / (0.32 / 252 ** 0.5), places=3)
+        self.assertAlmostEqual(z["target_moves"], 0.03 / (0.32 / 252 ** 0.5), places=3)
+        self.assertAlmostEqual(z["gap_moves"], 3.0 / (0.48 / 252 ** 0.5 * 100), places=3)
+        self.assertIsNone(mc.sizing(ck, {"entry": 100.0, "stop": 99.0, "target": 103.0, "setup_mode": "mdrev", "gap_pct": -3.0})["gap_moves"],
+                          "gap_moves is a gap-trade reading")
+        self.assertEqual(mc.sizing(None, {"entry": 1}), {"stop_moves": None, "target_moves": None, "gap_moves": None})
+        self.assertIsNone(mc.sizing(row(iv_30d=None), {"entry": 100.0, "stop": 99.0})["stop_moves"])
+
+    def test_sizing_lenses(self):
+        l = mc.lenses(row(term_structure_30d_10d=-0.06), 5, {}, size={"stop_moves": 0.5, "target_moves": 1.0, "gap_moves": 0.99},
+                      skew={"put_rank": 0.75, "call_rank": 0.74})
+        self.assertTrue(l["stop_wide"]); self.assertTrue(l["target_near"]); self.assertFalse(l["gap_overshoot"])
+        self.assertTrue(l["term_inverted"]); self.assertTrue(l["put_skew_high"]); self.assertFalse(l["call_skew_high"])
+        l = mc.lenses(row(), 5, {})
+        self.assertIsNone(l["stop_wide"]); self.assertIsNone(l["gap_overshoot"]); self.assertIsNone(l["put_skew_high"])
+
+    def test_skew_rank_uses_only_earlier_days(self):
+        days = [f"2026-10-{d:02d}" for d in range(1, 15)]
+        hist = {d: i / 10 for i, d in enumerate(days)}          # rising skew: the latest prior day tops every earlier one
+        self.assertEqual(mc.skew_rank(hist, "2026-10-15", 10), 1.0)
+        self.assertIsNone(mc.skew_rank(hist, "2026-10-08", 10), "too few prior days")
+        hist["2026-10-14"] = -1.0
+        self.assertEqual(mc.skew_rank(hist, "2026-10-15", 10), 0.0)
+        self.assertEqual(mc.skew_rank({**hist, "2026-10-20": 9.0}, "2026-10-15", 10), 0.0, "later days never count")
+
+
 class TestDecisionTime(unittest.TestCase):
 
     def test_prior_cockpit_is_the_last_row_before_the_session(self):
@@ -97,12 +129,16 @@ class FakeCache:
     def cockpit(self, tickers, start, end):
         out = []
         for d in ("2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"):
-            out.append({"ticker": "AAA", "date": d, "iv_30d": 0.6 if d < "2026-10-06" else 0.3,
+            out.append({"ticker": "AAA", "date": d, "iv_30d": 0.6 if d < "2026-10-06" else 0.3, "iv_10d": 0.5, "term_structure_30d_10d": -0.1,
                         "iv_30d_weekly_change": 0.0, "vrp_monthly": 0.2, "monthly_return_zscore": 0.0, "rv_30d": 30.0})
         return out
 
     def earnings(self, tickers):
         return {"AAA": {"prior_earnings_date": "2026-10-07", "next_earnings_date": None}}
+
+    def skew(self, tickers, start, end):
+        return [{"ticker": "AAA", "date": d, "maturity": 30, "skew_25d_put": 0.05, "skew_25d_call": -0.01}
+                for d in ("2026-10-01", "2026-10-02", "2026-10-05")]
 
     def ideas(self, trade_date):
         if trade_date >= "2026-10-06":
@@ -114,7 +150,7 @@ class FakeCache:
 
 def trade(session, ticker, r_net, grade="A", mode="mdrev"):
     return {"model": "classic", "session": session, "ticker": ticker, "setup_mode": mode, "side": "long",
-            "grade": grade, "r_net": r_net}
+            "grade": grade, "r_net": r_net, "entry": 100.0, "stop": 99.0, "target": 102.0, "gap_pct": -2.5}
 
 
 class TestRun(unittest.TestCase):
@@ -158,6 +194,12 @@ class TestRun(unittest.TestCase):
         e = self.res["grades"]["A"]["lenses"]["earnings_clear"]
         self.assertEqual(e["fail"]["n"], 2)      # Oct 7 (reports) and Oct 8 (day after)
         self.assertEqual(e["pass"]["n"], 3)
+
+    def test_sized_buckets_partition_the_sized_trades(self):
+        sized = self.res["grades"]["A+B"]["sized"]
+        self.assertEqual(sum(b["n"] for b in sized["stop_moves"].values()), 10, "every covered trade has IV30")
+        self.assertEqual(sum(b["n"] for b in sized["gap_moves"].values()), 5, "gap trades only")
+        self.assertEqual(self.res["grades"]["A"]["lenses"]["put_skew_high"]["unknown"], 5, "three skew days rank nothing")
 
     def test_compact_keeps_what_the_page_shows(self):
         c = mc.compact(self.res)

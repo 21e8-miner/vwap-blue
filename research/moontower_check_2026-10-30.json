@@ -621,7 +621,13 @@
   "vol_rich_vrp": 0.1,
   "stretched_z": 1.5,
   "idea_score": 20.0,
-  "earnings_clear_post_days": 1
+  "earnings_clear_post_days": 1,
+  "stop_wide_moves": 0.5,
+  "target_near_moves": 1.0,
+  "gap_overshoot_moves": 1.0,
+  "term_inverted": -0.05,
+  "skew_high_rank": 0.75,
+  "skew_min_prior_days": 10
  },
  "lens_text": {
   "earnings_clear": "did not report earnings today or yesterday",
@@ -631,7 +637,13 @@
   "vol_rich": "implied well above realized (VRP \u2265 0.10)",
   "stretched": "|monthly return z| \u2265 1.5",
   "buy_vol_idea": "on Moontower's Buy Vol list",
-  "sell_vol_idea": "on Moontower's Sell Vol list"
+  "sell_vol_idea": "on Moontower's Sell Vol list",
+  "stop_wide": "stop \u2265 \u00bd implied daily move",
+  "target_near": "target within 1 implied daily move",
+  "gap_overshoot": "gap \u2265 the implied daily move (IV10)",
+  "term_inverted": "IV10 above IV30 by \u2265 5 pts",
+  "put_skew_high": "25\u0394 put skew in its top quarter",
+  "call_skew_high": "25\u0394 call skew in its top quarter"
  },
  "decision_time": "cockpit = last row before the session; ideas = snapshot after the prior session's close",
  "grades": {
@@ -1165,7 +1177,446 @@
       "se": 0.4143,
       "t": -0.66
      }
+    },
+    "stop_wide": {
+     "pass": {
+      "n": 14,
+      "clusters": 9,
+      "mean": 0.1434,
+      "se": 0.1911,
+      "t": 0.75,
+      "ci90": [
+       -0.212,
+       0.4988
+      ],
+      "verdict": "insufficient",
+      "wins": 8
+     },
+     "fail": {
+      "n": 31,
+      "clusters": 16,
+      "mean": 0.1,
+      "se": 0.2328,
+      "t": 0.43,
+      "ci90": [
+       -0.3082,
+       0.5082
+      ],
+      "verdict": "inconclusive",
+      "wins": 13
+     },
+     "unknown": 0,
+     "by_mode": {
+      "mdrev": {
+       "pass": {
+        "n": 14,
+        "clusters": 9,
+        "mean": 0.1434,
+        "se": 0.1911,
+        "t": 0.75,
+        "ci90": [
+         -0.212,
+         0.4988
+        ],
+        "verdict": "insufficient",
+        "wins": 8
+       },
+       "fail": {
+        "n": 31,
+        "clusters": 16,
+        "mean": 0.1,
+        "se": 0.2328,
+        "t": 0.43,
+        "ci90": [
+         -0.3082,
+         0.5082
+        ],
+        "verdict": "inconclusive",
+        "wins": 13
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": 0.0434,
+      "se": 0.3012,
+      "t": 0.14
+     }
+    },
+    "target_near": {
+     "pass": {
+      "n": 40,
+      "clusters": 19,
+      "mean": 0.0047,
+      "se": 0.1367,
+      "t": 0.03,
+      "ci90": [
+       -0.2324,
+       0.2417
+      ],
+      "verdict": "inconclusive",
+      "wins": 17
+     },
+     "fail": {
+      "n": 5,
+      "clusters": 3,
+      "mean": 0.9844,
+      "se": 0.7165,
+      "t": 1.37,
+      "ci90": [
+       -1.1079,
+       3.0767
+      ],
+      "verdict": "insufficient",
+      "wins": 4
+     },
+     "unknown": 0,
+     "by_mode": {
+      "mdrev": {
+       "pass": {
+        "n": 40,
+        "clusters": 19,
+        "mean": 0.0047,
+        "se": 0.1367,
+        "t": 0.03,
+        "ci90": [
+         -0.2324,
+         0.2417
+        ],
+        "verdict": "inconclusive",
+        "wins": 17
+       },
+       "fail": {
+        "n": 5,
+        "clusters": 3,
+        "mean": 0.9844,
+        "se": 0.7165,
+        "t": 1.37,
+        "ci90": [
+         -1.1079,
+         3.0767
+        ],
+        "verdict": "insufficient",
+        "wins": 4
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": -0.9797,
+      "se": 0.7294,
+      "t": -1.34
+     }
+    },
+    "gap_overshoot": {
+     "pass": {
+      "n": 0,
+      "clusters": 0,
+      "mean": null,
+      "se": null,
+      "t": null,
+      "ci90": null,
+      "verdict": "insufficient",
+      "wins": 0
+     },
+     "fail": {
+      "n": 0,
+      "clusters": 0,
+      "mean": null,
+      "se": null,
+      "t": null,
+      "ci90": null,
+      "verdict": "insufficient",
+      "wins": 0
+     },
+     "unknown": 45,
+     "by_mode": {}
+    },
+    "term_inverted": {
+     "pass": {
+      "n": 10,
+      "clusters": 7,
+      "mean": 0.8485,
+      "se": 0.4731,
+      "t": 1.79,
+      "ci90": [
+       -0.0707,
+       1.7677
+      ],
+      "verdict": "insufficient",
+      "wins": 7
+     },
+     "fail": {
+      "n": 35,
+      "clusters": 18,
+      "mean": -0.0965,
+      "se": 0.1567,
+      "t": -0.62,
+      "ci90": [
+       -0.3691,
+       0.1762
+      ],
+      "verdict": "inconclusive",
+      "wins": 14
+     },
+     "unknown": 0,
+     "by_mode": {
+      "mdrev": {
+       "pass": {
+        "n": 10,
+        "clusters": 7,
+        "mean": 0.8485,
+        "se": 0.4731,
+        "t": 1.79,
+        "ci90": [
+         -0.0707,
+         1.7677
+        ],
+        "verdict": "insufficient",
+        "wins": 7
+       },
+       "fail": {
+        "n": 35,
+        "clusters": 18,
+        "mean": -0.0965,
+        "se": 0.1567,
+        "t": -0.62,
+        "ci90": [
+         -0.3691,
+         0.1762
+        ],
+        "verdict": "inconclusive",
+        "wins": 14
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": 0.945,
+      "se": 0.4984,
+      "t": 1.9
+     }
+    },
+    "put_skew_high": {
+     "pass": {
+      "n": 12,
+      "clusters": 8,
+      "mean": 0.1323,
+      "se": 0.3792,
+      "t": 0.35,
+      "ci90": [
+       -0.5862,
+       0.8509
+      ],
+      "verdict": "insufficient",
+      "wins": 4
+     },
+     "fail": {
+      "n": 7,
+      "clusters": 3,
+      "mean": 1.1334,
+      "se": 0.555,
+      "t": 2.04,
+      "ci90": [
+       -0.4872,
+       2.754
+      ],
+      "verdict": "insufficient",
+      "wins": 6
+     },
+     "unknown": 26,
+     "by_mode": {
+      "mdrev": {
+       "pass": {
+        "n": 12,
+        "clusters": 8,
+        "mean": 0.1323,
+        "se": 0.3792,
+        "t": 0.35,
+        "ci90": [
+         -0.5862,
+         0.8509
+        ],
+        "verdict": "insufficient",
+        "wins": 4
+       },
+       "fail": {
+        "n": 7,
+        "clusters": 3,
+        "mean": 1.1334,
+        "se": 0.555,
+        "t": 2.04,
+        "ci90": [
+         -0.4872,
+         2.754
+        ],
+        "verdict": "insufficient",
+        "wins": 6
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": -1.0011,
+      "se": 0.6722,
+      "t": -1.49
+     }
+    },
+    "call_skew_high": {
+     "pass": {
+      "n": 4,
+      "clusters": 3,
+      "mean": -0.7993,
+      "se": 0.2611,
+      "t": -3.06,
+      "ci90": [
+       -1.5618,
+       -0.0367
+      ],
+      "verdict": "insufficient",
+      "wins": 0
+     },
+     "fail": {
+      "n": 15,
+      "clusters": 8,
+      "mean": 0.8479,
+      "se": 0.4282,
+      "t": 1.98,
+      "ci90": [
+       0.0364,
+       1.6595
+      ],
+      "verdict": "insufficient",
+      "wins": 10
+     },
+     "unknown": 26,
+     "by_mode": {
+      "mdrev": {
+       "pass": {
+        "n": 4,
+        "clusters": 3,
+        "mean": -0.7993,
+        "se": 0.2611,
+        "t": -3.06,
+        "ci90": [
+         -1.5618,
+         -0.0367
+        ],
+        "verdict": "insufficient",
+        "wins": 0
+       },
+       "fail": {
+        "n": 15,
+        "clusters": 8,
+        "mean": 0.8479,
+        "se": 0.4282,
+        "t": 1.98,
+        "ci90": [
+         0.0364,
+         1.6595
+        ],
+        "verdict": "insufficient",
+        "wins": 10
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": -1.6472,
+      "se": 0.5015,
+      "t": -3.28
+     }
     }
+   },
+   "sized": {
+    "stop_moves": {
+     "0\u20130.25": {
+      "n": 5,
+      "clusters": 4,
+      "mean": 0.7338,
+      "se": 0.5212,
+      "t": 1.41,
+      "ci90": [
+       -0.4925,
+       1.9601
+      ],
+      "verdict": "insufficient",
+      "wins": 3
+     },
+     "0.25\u20130.5": {
+      "n": 26,
+      "clusters": 15,
+      "mean": -0.0219,
+      "se": 0.2521,
+      "t": -0.09,
+      "ci90": [
+       -0.4658,
+       0.4221
+      ],
+      "verdict": "inconclusive",
+      "wins": 10
+     },
+     "0.5\u20131": {
+      "n": 13,
+      "clusters": 8,
+      "mean": 0.1683,
+      "se": 0.2028,
+      "t": 0.83,
+      "ci90": [
+       -0.216,
+       0.5526
+      ],
+      "verdict": "insufficient",
+      "wins": 8
+     },
+     "\u2265 1": {
+      "n": 1,
+      "clusters": 1,
+      "mean": -0.18,
+      "se": null,
+      "t": null,
+      "ci90": null,
+      "verdict": "insufficient",
+      "wins": 0
+     }
+    },
+    "target_moves": {
+     "0\u20130.5": {
+      "n": 11,
+      "clusters": 9,
+      "mean": 0.4939,
+      "se": 0.361,
+      "t": 1.37,
+      "ci90": [
+       -0.1776,
+       1.1654
+      ],
+      "verdict": "insufficient",
+      "wins": 7
+     },
+     "0.5\u20131": {
+      "n": 29,
+      "clusters": 17,
+      "mean": -0.1809,
+      "se": 0.1827,
+      "t": -0.99,
+      "ci90": [
+       -0.4999,
+       0.1381
+      ],
+      "verdict": "inconclusive",
+      "wins": 10
+     },
+     "1\u20132": {
+      "n": 5,
+      "clusters": 3,
+      "mean": 0.9844,
+      "se": 0.7165,
+      "t": 1.37,
+      "ci90": [
+       -1.1079,
+       3.0767
+      ],
+      "verdict": "insufficient",
+      "wins": 4
+     }
+    },
+    "gap_moves": {}
    },
    "variants": {
     "earnings_clear_within_1d_either_way": {
@@ -1975,6 +2426,694 @@
       "mean": 0.0628,
       "se": 0.0897,
       "t": 0.7
+     }
+    },
+    "stop_wide": {
+     "pass": {
+      "n": 367,
+      "clusters": 23,
+      "mean": 0.013,
+      "se": 0.067,
+      "t": 0.19,
+      "ci90": [
+       -0.1021,
+       0.1281
+      ],
+      "verdict": "inconclusive",
+      "wins": 220
+     },
+     "fail": {
+      "n": 976,
+      "clusters": 23,
+      "mean": -0.1462,
+      "se": 0.0637,
+      "t": -2.29,
+      "ci90": [
+       -0.2557,
+       -0.0368
+      ],
+      "verdict": "negative",
+      "wins": 450
+     },
+     "unknown": 42,
+     "by_mode": {
+      "mdrev": {
+       "pass": {
+        "n": 339,
+        "clusters": 23,
+        "mean": 0.0085,
+        "se": 0.0688,
+        "t": 0.12,
+        "ci90": [
+         -0.1097,
+         0.1267
+        ],
+        "verdict": "inconclusive",
+        "wins": 199
+       },
+       "fail": {
+        "n": 402,
+        "clusters": 23,
+        "mean": -0.0184,
+        "se": 0.0698,
+        "t": -0.26,
+        "ci90": [
+         -0.1383,
+         0.1015
+        ],
+        "verdict": "inconclusive",
+        "wins": 225
+       }
+      },
+      "gap": {
+       "pass": {
+        "n": 27,
+        "clusters": 9,
+        "mean": 0.0605,
+        "se": 0.1461,
+        "t": 0.41,
+        "ci90": [
+         -0.2113,
+         0.3323
+        ],
+        "verdict": "insufficient",
+        "wins": 20
+       },
+       "fail": {
+        "n": 574,
+        "clusters": 23,
+        "mean": -0.2358,
+        "se": 0.0988,
+        "t": -2.39,
+        "ci90": [
+         -0.4055,
+         -0.0661
+        ],
+        "verdict": "negative",
+        "wins": 225
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": 0.1592,
+      "se": 0.0924,
+      "t": 1.72
+     }
+    },
+    "target_near": {
+     "pass": {
+      "n": 1284,
+      "clusters": 23,
+      "mean": -0.0889,
+      "se": 0.0518,
+      "t": -1.72,
+      "ci90": [
+       -0.1778,
+       -0.0001
+      ],
+      "verdict": "inconclusive",
+      "wins": 651
+     },
+     "fail": {
+      "n": 59,
+      "clusters": 18,
+      "mean": -0.4027,
+      "se": 0.2022,
+      "t": -1.99,
+      "ci90": [
+       -0.7545,
+       -0.051
+      ],
+      "verdict": "inconclusive",
+      "wins": 19
+     },
+     "unknown": 42,
+     "by_mode": {
+      "mdrev": {
+       "pass": {
+        "n": 712,
+        "clusters": 23,
+        "mean": -0.0039,
+        "se": 0.0526,
+        "t": -0.07,
+        "ci90": [
+         -0.0942,
+         0.0865
+        ],
+        "verdict": "inconclusive",
+        "wins": 409
+       },
+       "fail": {
+        "n": 29,
+        "clusters": 13,
+        "mean": -0.0599,
+        "se": 0.2762,
+        "t": -0.22,
+        "ci90": [
+         -0.5521,
+         0.4322
+        ],
+        "verdict": "inconclusive",
+        "wins": 15
+       }
+      },
+      "gap": {
+       "pass": {
+        "n": 571,
+        "clusters": 23,
+        "mean": -0.1956,
+        "se": 0.0939,
+        "t": -2.08,
+        "ci90": [
+         -0.3569,
+         -0.0343
+        ],
+        "verdict": "negative",
+        "wins": 241
+       },
+       "fail": {
+        "n": 30,
+        "clusters": 8,
+        "mean": -0.7341,
+        "se": 0.3016,
+        "t": -2.43,
+        "ci90": [
+         -1.3056,
+         -0.1626
+        ],
+        "verdict": "insufficient",
+        "wins": 4
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": 0.3138,
+      "se": 0.2087,
+      "t": 1.5
+     }
+    },
+    "gap_overshoot": {
+     "pass": {
+      "n": 78,
+      "clusters": 18,
+      "mean": -0.288,
+      "se": 0.2183,
+      "t": -1.32,
+      "ci90": [
+       -0.6679,
+       0.0919
+      ],
+      "verdict": "inconclusive",
+      "wins": 27
+     },
+     "fail": {
+      "n": 523,
+      "clusters": 23,
+      "mean": -0.2127,
+      "se": 0.0997,
+      "t": -2.13,
+      "ci90": [
+       -0.384,
+       -0.0415
+      ],
+      "verdict": "negative",
+      "wins": 218
+     },
+     "unknown": 784,
+     "by_mode": {
+      "gap": {
+       "pass": {
+        "n": 78,
+        "clusters": 18,
+        "mean": -0.288,
+        "se": 0.2183,
+        "t": -1.32,
+        "ci90": [
+         -0.6679,
+         0.0919
+        ],
+        "verdict": "inconclusive",
+        "wins": 27
+       },
+       "fail": {
+        "n": 523,
+        "clusters": 23,
+        "mean": -0.2127,
+        "se": 0.0997,
+        "t": -2.13,
+        "ci90": [
+         -0.384,
+         -0.0415
+        ],
+        "verdict": "negative",
+        "wins": 218
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": -0.0753,
+      "se": 0.24,
+      "t": -0.31
+     }
+    },
+    "term_inverted": {
+     "pass": {
+      "n": 343,
+      "clusters": 23,
+      "mean": -0.1477,
+      "se": 0.0645,
+      "t": -2.29,
+      "ci90": [
+       -0.2584,
+       -0.0371
+      ],
+      "verdict": "negative",
+      "wins": 178
+     },
+     "fail": {
+      "n": 1000,
+      "clusters": 23,
+      "mean": -0.0873,
+      "se": 0.0574,
+      "t": -1.52,
+      "ci90": [
+       -0.1859,
+       0.0113
+      ],
+      "verdict": "inconclusive",
+      "wins": 492
+     },
+     "unknown": 42,
+     "by_mode": {
+      "mdrev": {
+       "pass": {
+        "n": 177,
+        "clusters": 23,
+        "mean": 0.0275,
+        "se": 0.0698,
+        "t": 0.39,
+        "ci90": [
+         -0.0923,
+         0.1474
+        ],
+        "verdict": "inconclusive",
+        "wins": 109
+       },
+       "fail": {
+        "n": 564,
+        "clusters": 23,
+        "mean": -0.0166,
+        "se": 0.0667,
+        "t": -0.25,
+        "ci90": [
+         -0.1311,
+         0.0979
+        ],
+        "verdict": "inconclusive",
+        "wins": 315
+       }
+      },
+      "gap": {
+       "pass": {
+        "n": 166,
+        "clusters": 20,
+        "mean": -0.3346,
+        "se": 0.1214,
+        "t": -2.76,
+        "ci90": [
+         -0.5445,
+         -0.1246
+        ],
+        "verdict": "negative",
+        "wins": 69
+       },
+       "fail": {
+        "n": 435,
+        "clusters": 23,
+        "mean": -0.1797,
+        "se": 0.0969,
+        "t": -1.85,
+        "ci90": [
+         -0.3461,
+         -0.0133
+        ],
+        "verdict": "inconclusive",
+        "wins": 176
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": -0.0604,
+      "se": 0.0863,
+      "t": -0.7
+     }
+    },
+    "put_skew_high": {
+     "pass": {
+      "n": 346,
+      "clusters": 12,
+      "mean": -0.1137,
+      "se": 0.132,
+      "t": -0.86,
+      "ci90": [
+       -0.3509,
+       0.1234
+      ],
+      "verdict": "inconclusive",
+      "wins": 171
+     },
+     "fail": {
+      "n": 333,
+      "clusters": 12,
+      "mean": -0.0456,
+      "se": 0.0789,
+      "t": -0.58,
+      "ci90": [
+       -0.1873,
+       0.0962
+      ],
+      "verdict": "inconclusive",
+      "wins": 180
+     },
+     "unknown": 706,
+     "by_mode": {
+      "mdrev": {
+       "pass": {
+        "n": 167,
+        "clusters": 12,
+        "mean": 0.037,
+        "se": 0.1035,
+        "t": 0.36,
+        "ci90": [
+         -0.1489,
+         0.2229
+        ],
+        "verdict": "inconclusive",
+        "wins": 101
+       },
+       "fail": {
+        "n": 171,
+        "clusters": 12,
+        "mean": 0.1907,
+        "se": 0.1147,
+        "t": 1.66,
+        "ci90": [
+         -0.0153,
+         0.3968
+        ],
+        "verdict": "inconclusive",
+        "wins": 118
+       }
+      },
+      "gap": {
+       "pass": {
+        "n": 178,
+        "clusters": 12,
+        "mean": -0.2571,
+        "se": 0.2166,
+        "t": -1.19,
+        "ci90": [
+         -0.6462,
+         0.1319
+        ],
+        "verdict": "inconclusive",
+        "wins": 69
+       },
+       "fail": {
+        "n": 162,
+        "clusters": 12,
+        "mean": -0.295,
+        "se": 0.1182,
+        "t": -2.5,
+        "ci90": [
+         -0.5073,
+         -0.0827
+        ],
+        "verdict": "negative",
+        "wins": 62
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": -0.0681,
+      "se": 0.1538,
+      "t": -0.44
+     }
+    },
+    "call_skew_high": {
+     "pass": {
+      "n": 78,
+      "clusters": 12,
+      "mean": -0.0755,
+      "se": 0.1338,
+      "t": -0.56,
+      "ci90": [
+       -0.3158,
+       0.1649
+      ],
+      "verdict": "inconclusive",
+      "wins": 39
+     },
+     "fail": {
+      "n": 605,
+      "clusters": 12,
+      "mean": -0.0821,
+      "se": 0.0961,
+      "t": -0.85,
+      "ci90": [
+       -0.2547,
+       0.0905
+      ],
+      "verdict": "inconclusive",
+      "wins": 314
+     },
+     "unknown": 702,
+     "by_mode": {
+      "mdrev": {
+       "pass": {
+        "n": 38,
+        "clusters": 10,
+        "mean": 0.1838,
+        "se": 0.169,
+        "t": 1.09,
+        "ci90": [
+         -0.1259,
+         0.4935
+        ],
+        "verdict": "inconclusive",
+        "wins": 23
+       },
+       "fail": {
+        "n": 301,
+        "clusters": 12,
+        "mean": 0.1065,
+        "se": 0.0937,
+        "t": 1.14,
+        "ci90": [
+         -0.0618,
+         0.2749
+        ],
+        "verdict": "inconclusive",
+        "wins": 197
+       }
+      },
+      "gap": {
+       "pass": {
+        "n": 40,
+        "clusters": 10,
+        "mean": -0.3217,
+        "se": 0.162,
+        "t": -1.99,
+        "ci90": [
+         -0.6188,
+         -0.0247
+        ],
+        "verdict": "inconclusive",
+        "wins": 16
+       },
+       "fail": {
+        "n": 303,
+        "clusters": 12,
+        "mean": -0.2706,
+        "se": 0.1655,
+        "t": -1.64,
+        "ci90": [
+         -0.5677,
+         0.0266
+        ],
+        "verdict": "inconclusive",
+        "wins": 116
+       }
+      }
+     },
+     "pass_minus_fail": {
+      "mean": 0.0066,
+      "se": 0.1647,
+      "t": 0.04
+     }
+    }
+   },
+   "sized": {
+    "stop_moves": {
+     "0\u20130.25": {
+      "n": 496,
+      "clusters": 23,
+      "mean": -0.1981,
+      "se": 0.0777,
+      "t": -2.55,
+      "ci90": [
+       -0.3316,
+       -0.0647
+      ],
+      "verdict": "negative",
+      "wins": 198
+     },
+     "0.25\u20130.5": {
+      "n": 480,
+      "clusters": 23,
+      "mean": -0.0926,
+      "se": 0.0623,
+      "t": -1.49,
+      "ci90": [
+       -0.1996,
+       0.0143
+      ],
+      "verdict": "inconclusive",
+      "wins": 252
+     },
+     "0.5\u20131": {
+      "n": 320,
+      "clusters": 23,
+      "mean": 0.0011,
+      "se": 0.0667,
+      "t": 0.02,
+      "ci90": [
+       -0.1135,
+       0.1157
+      ],
+      "verdict": "inconclusive",
+      "wins": 187
+     },
+     "\u2265 1": {
+      "n": 47,
+      "clusters": 17,
+      "mean": 0.094,
+      "se": 0.0969,
+      "t": 0.97,
+      "ci90": [
+       -0.0752,
+       0.2631
+      ],
+      "verdict": "inconclusive",
+      "wins": 33
+     }
+    },
+    "target_moves": {
+     "0\u20130.5": {
+      "n": 985,
+      "clusters": 23,
+      "mean": -0.1221,
+      "se": 0.0408,
+      "t": -2.99,
+      "ci90": [
+       -0.1922,
+       -0.052
+      ],
+      "verdict": "negative",
+      "wins": 529
+     },
+     "0.5\u20131": {
+      "n": 299,
+      "clusters": 23,
+      "mean": 0.0203,
+      "se": 0.1327,
+      "t": 0.15,
+      "ci90": [
+       -0.2076,
+       0.2482
+      ],
+      "verdict": "inconclusive",
+      "wins": 122
+     },
+     "1\u20132": {
+      "n": 56,
+      "clusters": 18,
+      "mean": -0.4302,
+      "se": 0.2011,
+      "t": -2.14,
+      "ci90": [
+       -0.7801,
+       -0.0804
+      ],
+      "verdict": "negative",
+      "wins": 18
+     },
+     "\u2265 2": {
+      "n": 3,
+      "clusters": 2,
+      "mean": 0.1107,
+      "se": 0.7691,
+      "t": 0.14,
+      "ci90": [
+       -4.7455,
+       4.9668
+      ],
+      "verdict": "insufficient",
+      "wins": 1
+     }
+    },
+    "gap_moves": {
+     "0\u20130.5": {
+      "n": 317,
+      "clusters": 23,
+      "mean": -0.1934,
+      "se": 0.0992,
+      "t": -1.95,
+      "ci90": [
+       -0.3638,
+       -0.0231
+      ],
+      "verdict": "inconclusive",
+      "wins": 142
+     },
+     "0.5\u20131": {
+      "n": 206,
+      "clusters": 23,
+      "mean": -0.2424,
+      "se": 0.137,
+      "t": -1.77,
+      "ci90": [
+       -0.4775,
+       -0.0072
+      ],
+      "verdict": "inconclusive",
+      "wins": 76
+     },
+     "1\u20132": {
+      "n": 70,
+      "clusters": 18,
+      "mean": -0.3813,
+      "se": 0.1956,
+      "t": -1.95,
+      "ci90": [
+       -0.7217,
+       -0.041
+      ],
+      "verdict": "inconclusive",
+      "wins": 22
+     },
+     "\u2265 2": {
+      "n": 8,
+      "clusters": 4,
+      "mean": 0.5288,
+      "se": 0.2648,
+      "t": 2.0,
+      "ci90": [
+       -0.0943,
+       1.1518
+      ],
+      "verdict": "insufficient",
+      "wins": 5
      }
     }
    },

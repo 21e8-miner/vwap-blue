@@ -51,6 +51,18 @@
     a { color: var(--green-hot); text-decoration: none; border-bottom: 1px dotted rgba(63,106,42,0.5); }
     a:hover { color: var(--brick); }
     button, select, input { font: inherit; color: inherit; }
+    details.gear { position: relative; }
+    details.gear > summary { list-style: none; cursor: pointer; color: var(--muted); font-size: 1.1rem; padding: 0 6px; user-select: none; }
+    details.gear > summary::-webkit-details-marker { display: none; }
+    details.gear[open] > summary { color: var(--ink); }
+    .gear-row { position: absolute; right: 0; top: 30px; z-index: 5; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      background: var(--panel); border: 1px solid var(--stroke2); border-radius: 12px; padding: 8px 10px; box-shadow: 0 6px 18px rgba(58,42,28,0.12); min-width: 320px; }
+    .gear-row label { display: flex; gap: 5px; align-items: center; color: var(--muted); font-size: .82rem; white-space: nowrap; }
+    .gear-row #interval { width: 56px; } .gear-row #myproxy { width: 100%; }
+    #honest details > summary { cursor: pointer; list-style: none; font-weight: 700; }
+    #honest details > summary::-webkit-details-marker { display: none; }
+    #honest details > summary u { font-weight: 400; text-decoration: underline dotted; }
+    #honest details[open] > summary { margin-bottom: 4px; }
     td.mtw { font-family: var(--mono); font-size: .72rem; white-space: nowrap; color: var(--muted); }
     td.mtw b { font-weight: 600; color: var(--ink2); }
     td.mtw .yes { color: var(--green-hot); } td.mtw .no { color: var(--brick); }
@@ -201,11 +213,6 @@
     <h1><span class="live-dot" id="dot"></span><span class="word">VWAP Blue</span><em>v1.7.0 · same engine as the desk · research only</em></h1>
     <input id="tickers" type="text" placeholder="blank = universe" aria-label="tickers" />
     <input id="max" type="number" value="16" min="1" max="200" title="show top N after rank" aria-label="show top N" />
-    <select id="mode" title="data mode">
-      <option value="hybrid" selected>hybrid</option>
-      <option value="rotate">rotate only</option>
-      <option value="yfinance">yfinance</option>
-    </select>
     <select id="gradeMin" title="min grade">
       <option value="A">grade ≥ A</option>
       <option value="B" selected>grade ≥ B</option>
@@ -222,6 +229,12 @@
       <option value="stretched">stretched |z| ≥ 1.5</option>
       <option value="buy_vol_idea">on Moontower Buy Vol list</option>
       <option value="sell_vol_idea">on Moontower Sell Vol list</option>
+      <option value="stop_wide">stop ≥ ½ implied daily move</option>
+      <option value="target_near">target within 1 implied move</option>
+      <option value="gap_overshoot">gap ≥ the implied move (IV10)</option>
+      <option value="term_inverted">IV10 above IV30 by ≥ 5 pts</option>
+      <option value="put_skew_high">25Δ put skew in its top quarter</option>
+      <option value="call_skew_high">25Δ call skew in its top quarter</option>
     </select>
     <input id="mtwKey" type="password" placeholder="Moontower key" autocomplete="off" style="width:118px"
       title="Your api.moontower.ai key (mtw_…). Kept in this browser only and sent only to api.moontower.ai. Each call costs 2 credits: a 16-row board is about 3 calls a day (directory, cockpit, earnings) plus 1 for the idea lists; readings are cached for the day." aria-label="Moontower API key" />
@@ -230,13 +243,22 @@
     <label class="chk"><input type="checkbox" id="actOnly" /> actionable</label>
     <button id="btn" onclick="scan()">Scan</button>
     <button class="live" id="liveBtn" type="button" onclick="toggleLive()">Live off</button>
-    <input id="interval" type="number" value="45" min="15" max="300" title="live sec" aria-label="live interval seconds" />
-    <button class="ghost" type="button" onclick="loadProviders()">Providers</button>
-    <button class="ghost" type="button" onclick="loadCritique()">Method</button>
-    <input id="myproxy" type="text" placeholder="https://….workers.dev/?url=" title="CORS proxy (optional)" aria-label="CORS proxy" />
+    <details class="gear" title="data plumbing">
+      <summary aria-label="settings">⚙</summary>
+      <div class="gear-row">
+        <label>live every <input id="interval" type="number" value="45" min="15" max="300" title="live sec" aria-label="live interval seconds" /> s</label>
+        <label>feed <select id="mode" title="data mode">
+          <option value="hybrid" selected>hybrid</option>
+          <option value="rotate">rotate only</option>
+          <option value="yfinance">yfinance</option>
+        </select></label>
+        <input id="myproxy" type="text" placeholder="https://….workers.dev/?url=" title="CORS proxy (optional)" aria-label="CORS proxy" />
+        <button class="ghost" type="button" onclick="loadProviders()">feeds</button>
+      </div>
+    </details>
   </header>
-  <div id="honest" role="note">
-    <b>No demonstrated edge.</b> Since v1.7.0 grade A means a multi-day reclaim; gap fades show at B.
+  <div id="honest" role="note"><details><summary>No demonstrated edge · research scanner, not advice · <u>the numbers</u></summary><span class="body">
+     Since v1.7.0 grade A means a multi-day reclaim; gap fades show at B.
     Replayed on Jul 28 – Oct 19, graded bar by bar as the desk showed them and closed by 16:00, those grade-A
     triggers on US equities made <b>+0.05R</b> per trade after costs (± 0.13 · 174 trades · 54 sessions · t 0.4):
     inconclusive, though +0.33R better than the same bracket the other way. The fades now at B lost −0.21R on the
@@ -246,17 +268,9 @@
     <a href="https://github.com/21e8-miner/vwap-blue#honest-results" target="_blank" rel="noopener">how it was tested</a> ·
     raw trades: <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_2026-10-19_v1.7.0.json" target="_blank" rel="noopener">equities</a>,
     <a href="https://github.com/21e8-miner/vwap-blue/blob/main/research/replay_crypto_2026-10-22_365d_binance_v1.7.0.json" target="_blank" rel="noopener">crypto</a>
-  </div>
+  </span></details></div>
   <div id="meta">Click a row for the dual-VWAP chart · ◆ live grade A · ● actionable · dimmed = stale bars</div>
   <div id="provBox"></div>
-  <details id="critBox" style="display:none">
-    <summary>Method · steelman / strawman</summary>
-    <div class="crit">
-      <div class="s"><h3>Steelman</h3><ul id="steel"></ul></div>
-      <div class="w"><h3>Strawman</h3><ul id="straw"></ul></div>
-    </div>
-    <div style="padding:0 14px 12px;color:var(--m)" id="from"></div>
-  </details>
   <div id="desk">
     <div class="pane pane-list">
       <table>
@@ -281,10 +295,10 @@
             <th data-k="rr" title="Reward : risk to target; grey = round-trip cost in R">R:R</th>
             <th data-k="rvol" title="Relative volume vs same-minute priors; n = baseline sessions">RVol (n)</th>
             <th data-k="bar_age_min" title="Minutes since the newest bar opened">Age</th>
-            <th data-k="provider">Feed</th>
+
           </tr>
         </thead>
-        <tbody id="tb"><tr><td colspan="20" class="m" style="padding:28px;text-align:center">Press Scan</td></tr></tbody>
+        <tbody id="tb"><tr><td colspan="19" class="m" style="padding:28px;text-align:center">Press Scan</td></tr></tbody>
       </table>
     </div>
     <div class="pane pane-chart" id="chartPane">
@@ -313,7 +327,6 @@
   <footer>
     <span>Engine v<span id="engVer"></span> (engine.js, a parity-tested port of engine.py) · 5m free feeds, delayed ·
     signals pre + RTH only · not financial advice · <span id="footProv"></span></span>
-    <span class="inspire">Storybook paper idiom · cream sky, sage meadow, walnut ink</span>
   </footer>
 
 <script src="engine.js"></script>
@@ -347,20 +360,22 @@ let selected = null, chartCache = new Map(), lastScan = null, emptyHint = "";
    embedded by `python3 moontower_check.py --embed index.html cf-pages/index.html`.
    The key never leaves the browser except to api.moontower.ai (it sends CORS headers); readings are
    cached in localStorage for the ET day. Lens off = no calls. */
-const MOONTOWER = {"window":["2026-09-29","2026-10-29"],"sessions":23,"covered":1398,"trades":1556,"thresholds":{"iv_rising_weekly_change":0.03,"iv_high":0.5,"vol_cheap_vrp":0.0,"vol_rich_vrp":0.1,"stretched_z":1.5,"idea_score":20.0,"earnings_clear_post_days":1},"lens_text":{"earnings_clear":"did not report earnings today or yesterday","iv_rising":"IV30 up ≥ 3 pts on the week","iv_high":"IV30 ≥ 50%","vol_cheap":"realized above implied (VRP < 0)","vol_rich":"implied well above realized (VRP ≥ 0.10)","stretched":"|monthly return z| ≥ 1.5","buy_vol_idea":"on Moontower's Buy Vol list","sell_vol_idea":"on Moontower's Sell Vol list"},"grades":{"A":{"all":{"n":45,"mean":0.1135,"se":0.1678,"t":0.68,"verdict":"inconclusive"},"lenses":{"earnings_clear":{"pass":{"n":44,"mean":0.1418,"se":0.1736,"t":0.82,"verdict":"inconclusive"},"fail":{"n":0,"mean":null,"se":null,"t":null,"verdict":"insufficient"},"delta":null},"iv_rising":{"pass":{"n":12,"mean":0.2848,"se":0.3956,"t":0.72,"verdict":"insufficient"},"fail":{"n":33,"mean":0.0512,"se":0.1739,"t":0.29,"verdict":"inconclusive"},"delta":{"mean":0.2336,"se":0.4321,"t":0.54}},"iv_high":{"pass":{"n":25,"mean":0.158,"se":0.2309,"t":0.68,"verdict":"inconclusive"},"fail":{"n":20,"mean":0.058,"se":0.2299,"t":0.25,"verdict":"inconclusive"},"delta":{"mean":0.1,"se":0.3258,"t":0.31}},"vol_cheap":{"pass":{"n":4,"mean":1.1408,"se":0.7963,"t":1.43,"verdict":"insufficient"},"fail":{"n":41,"mean":0.0133,"se":0.1659,"t":0.08,"verdict":"inconclusive"},"delta":{"mean":1.1275,"se":0.8134,"t":1.39}},"vol_rich":{"pass":{"n":35,"mean":-0.0657,"se":0.1838,"t":-0.36,"verdict":"inconclusive"},"fail":{"n":10,"mean":0.7406,"se":0.4236,"t":1.75,"verdict":"insufficient"},"delta":{"mean":-0.8063,"se":0.4618,"t":-1.75}},"stretched":{"pass":{"n":3,"mean":0.8047,"se":0.4878,"t":1.65,"verdict":"insufficient"},"fail":{"n":41,"mean":0.0438,"se":0.1819,"t":0.24,"verdict":"inconclusive"},"delta":{"mean":0.7609,"se":0.5206,"t":1.46}},"buy_vol_idea":{"pass":{"n":19,"mean":-0.0502,"se":0.2415,"t":-0.21,"verdict":"inconclusive"},"fail":{"n":19,"mean":0.1691,"se":0.2919,"t":0.58,"verdict":"inconclusive"},"delta":{"mean":-0.2193,"se":0.3789,"t":-0.58}},"sell_vol_idea":{"pass":{"n":14,"mean":-0.1121,"se":0.3307,"t":-0.34,"verdict":"inconclusive"},"fail":{"n":24,"mean":0.1595,"se":0.2496,"t":0.64,"verdict":"inconclusive"},"delta":{"mean":-0.2716,"se":0.4143,"t":-0.66}}}},"A+B":{"all":{"n":1385,"mean":-0.1092,"se":0.0514,"t":-2.12,"verdict":"negative"},"lenses":{"earnings_clear":{"pass":{"n":1277,"mean":-0.0914,"se":0.0547,"t":-1.67,"verdict":"inconclusive"},"fail":{"n":32,"mean":-0.383,"se":0.1468,"t":-2.61,"verdict":"negative"},"delta":{"mean":0.2916,"se":0.1567,"t":1.86}},"iv_rising":{"pass":{"n":436,"mean":0.0058,"se":0.1037,"t":0.06,"verdict":"inconclusive"},"fail":{"n":907,"mean":-0.1549,"se":0.0462,"t":-3.35,"verdict":"negative"},"delta":{"mean":0.1607,"se":0.1135,"t":1.42}},"iv_high":{"pass":{"n":882,"mean":-0.0523,"se":0.0535,"t":-0.98,"verdict":"inconclusive"},"fail":{"n":461,"mean":-0.1993,"se":0.0658,"t":-3.03,"verdict":"negative"},"delta":{"mean":0.147,"se":0.0848,"t":1.73}},"vol_cheap":{"pass":{"n":188,"mean":-0.1037,"se":0.0755,"t":-1.37,"verdict":"inconclusive"},"fail":{"n":1155,"mean":-0.1026,"se":0.0552,"t":-1.86,"verdict":"inconclusive"},"delta":{"mean":-0.0011,"se":0.0935,"t":-0.01}},"vol_rich":{"pass":{"n":979,"mean":-0.1121,"se":0.0553,"t":-2.03,"verdict":"inconclusive"},"fail":{"n":364,"mean":-0.0776,"se":0.0724,"t":-1.07,"verdict":"inconclusive"},"delta":{"mean":-0.0345,"se":0.0911,"t":-0.38}},"stretched":{"pass":{"n":135,"mean":-0.0336,"se":0.0997,"t":-0.34,"verdict":"inconclusive"},"fail":{"n":1204,"mean":-0.1108,"se":0.0553,"t":-2.0,"verdict":"inconclusive"},"delta":{"mean":0.0772,"se":0.114,"t":0.68}},"buy_vol_idea":{"pass":{"n":558,"mean":-0.115,"se":0.0675,"t":-1.7,"verdict":"inconclusive"},"fail":{"n":694,"mean":-0.0956,"se":0.0549,"t":-1.74,"verdict":"inconclusive"},"delta":{"mean":-0.0194,"se":0.087,"t":-0.22}},"sell_vol_idea":{"pass":{"n":474,"mean":-0.0652,"se":0.0646,"t":-1.01,"verdict":"inconclusive"},"fail":{"n":778,"mean":-0.128,"se":0.0623,"t":-2.05,"verdict":"inconclusive"},"delta":{"mean":0.0628,"se":0.0897,"t":0.7}}}}}};
+const MOONTOWER = {"window":["2026-09-29","2026-10-29"],"sessions":23,"covered":1398,"trades":1556,"thresholds":{"iv_rising_weekly_change":0.03,"iv_high":0.5,"vol_cheap_vrp":0.0,"vol_rich_vrp":0.1,"stretched_z":1.5,"idea_score":20.0,"earnings_clear_post_days":1,"stop_wide_moves":0.5,"target_near_moves":1.0,"gap_overshoot_moves":1.0,"term_inverted":-0.05,"skew_high_rank":0.75,"skew_min_prior_days":10},"lens_text":{"earnings_clear":"did not report earnings today or yesterday","iv_rising":"IV30 up ≥ 3 pts on the week","iv_high":"IV30 ≥ 50%","vol_cheap":"realized above implied (VRP < 0)","vol_rich":"implied well above realized (VRP ≥ 0.10)","stretched":"|monthly return z| ≥ 1.5","buy_vol_idea":"on Moontower's Buy Vol list","sell_vol_idea":"on Moontower's Sell Vol list","stop_wide":"stop ≥ ½ implied daily move","target_near":"target within 1 implied daily move","gap_overshoot":"gap ≥ the implied daily move (IV10)","term_inverted":"IV10 above IV30 by ≥ 5 pts","put_skew_high":"25Δ put skew in its top quarter","call_skew_high":"25Δ call skew in its top quarter"},"grades":{"A":{"all":{"n":45,"mean":0.1135,"se":0.1678,"t":0.68,"verdict":"inconclusive"},"lenses":{"earnings_clear":{"pass":{"n":44,"mean":0.1418,"se":0.1736,"t":0.82,"verdict":"inconclusive"},"fail":{"n":0,"mean":null,"se":null,"t":null,"verdict":"insufficient"},"delta":null},"iv_rising":{"pass":{"n":12,"mean":0.2848,"se":0.3956,"t":0.72,"verdict":"insufficient"},"fail":{"n":33,"mean":0.0512,"se":0.1739,"t":0.29,"verdict":"inconclusive"},"delta":{"mean":0.2336,"se":0.4321,"t":0.54}},"iv_high":{"pass":{"n":25,"mean":0.158,"se":0.2309,"t":0.68,"verdict":"inconclusive"},"fail":{"n":20,"mean":0.058,"se":0.2299,"t":0.25,"verdict":"inconclusive"},"delta":{"mean":0.1,"se":0.3258,"t":0.31}},"vol_cheap":{"pass":{"n":4,"mean":1.1408,"se":0.7963,"t":1.43,"verdict":"insufficient"},"fail":{"n":41,"mean":0.0133,"se":0.1659,"t":0.08,"verdict":"inconclusive"},"delta":{"mean":1.1275,"se":0.8134,"t":1.39}},"vol_rich":{"pass":{"n":35,"mean":-0.0657,"se":0.1838,"t":-0.36,"verdict":"inconclusive"},"fail":{"n":10,"mean":0.7406,"se":0.4236,"t":1.75,"verdict":"insufficient"},"delta":{"mean":-0.8063,"se":0.4618,"t":-1.75}},"stretched":{"pass":{"n":3,"mean":0.8047,"se":0.4878,"t":1.65,"verdict":"insufficient"},"fail":{"n":41,"mean":0.0438,"se":0.1819,"t":0.24,"verdict":"inconclusive"},"delta":{"mean":0.7609,"se":0.5206,"t":1.46}},"buy_vol_idea":{"pass":{"n":19,"mean":-0.0502,"se":0.2415,"t":-0.21,"verdict":"inconclusive"},"fail":{"n":19,"mean":0.1691,"se":0.2919,"t":0.58,"verdict":"inconclusive"},"delta":{"mean":-0.2193,"se":0.3789,"t":-0.58}},"sell_vol_idea":{"pass":{"n":14,"mean":-0.1121,"se":0.3307,"t":-0.34,"verdict":"inconclusive"},"fail":{"n":24,"mean":0.1595,"se":0.2496,"t":0.64,"verdict":"inconclusive"},"delta":{"mean":-0.2716,"se":0.4143,"t":-0.66}},"stop_wide":{"pass":{"n":14,"mean":0.1434,"se":0.1911,"t":0.75,"verdict":"insufficient"},"fail":{"n":31,"mean":0.1,"se":0.2328,"t":0.43,"verdict":"inconclusive"},"delta":{"mean":0.0434,"se":0.3012,"t":0.14}},"target_near":{"pass":{"n":40,"mean":0.0047,"se":0.1367,"t":0.03,"verdict":"inconclusive"},"fail":{"n":5,"mean":0.9844,"se":0.7165,"t":1.37,"verdict":"insufficient"},"delta":{"mean":-0.9797,"se":0.7294,"t":-1.34}},"gap_overshoot":{"pass":{"n":0,"mean":null,"se":null,"t":null,"verdict":"insufficient"},"fail":{"n":0,"mean":null,"se":null,"t":null,"verdict":"insufficient"},"delta":null},"term_inverted":{"pass":{"n":10,"mean":0.8485,"se":0.4731,"t":1.79,"verdict":"insufficient"},"fail":{"n":35,"mean":-0.0965,"se":0.1567,"t":-0.62,"verdict":"inconclusive"},"delta":{"mean":0.945,"se":0.4984,"t":1.9}},"put_skew_high":{"pass":{"n":12,"mean":0.1323,"se":0.3792,"t":0.35,"verdict":"insufficient"},"fail":{"n":7,"mean":1.1334,"se":0.555,"t":2.04,"verdict":"insufficient"},"delta":{"mean":-1.0011,"se":0.6722,"t":-1.49}},"call_skew_high":{"pass":{"n":4,"mean":-0.7993,"se":0.2611,"t":-3.06,"verdict":"insufficient"},"fail":{"n":15,"mean":0.8479,"se":0.4282,"t":1.98,"verdict":"insufficient"},"delta":{"mean":-1.6472,"se":0.5015,"t":-3.28}}}},"A+B":{"all":{"n":1385,"mean":-0.1092,"se":0.0514,"t":-2.12,"verdict":"negative"},"lenses":{"earnings_clear":{"pass":{"n":1277,"mean":-0.0914,"se":0.0547,"t":-1.67,"verdict":"inconclusive"},"fail":{"n":32,"mean":-0.383,"se":0.1468,"t":-2.61,"verdict":"negative"},"delta":{"mean":0.2916,"se":0.1567,"t":1.86}},"iv_rising":{"pass":{"n":436,"mean":0.0058,"se":0.1037,"t":0.06,"verdict":"inconclusive"},"fail":{"n":907,"mean":-0.1549,"se":0.0462,"t":-3.35,"verdict":"negative"},"delta":{"mean":0.1607,"se":0.1135,"t":1.42}},"iv_high":{"pass":{"n":882,"mean":-0.0523,"se":0.0535,"t":-0.98,"verdict":"inconclusive"},"fail":{"n":461,"mean":-0.1993,"se":0.0658,"t":-3.03,"verdict":"negative"},"delta":{"mean":0.147,"se":0.0848,"t":1.73}},"vol_cheap":{"pass":{"n":188,"mean":-0.1037,"se":0.0755,"t":-1.37,"verdict":"inconclusive"},"fail":{"n":1155,"mean":-0.1026,"se":0.0552,"t":-1.86,"verdict":"inconclusive"},"delta":{"mean":-0.0011,"se":0.0935,"t":-0.01}},"vol_rich":{"pass":{"n":979,"mean":-0.1121,"se":0.0553,"t":-2.03,"verdict":"inconclusive"},"fail":{"n":364,"mean":-0.0776,"se":0.0724,"t":-1.07,"verdict":"inconclusive"},"delta":{"mean":-0.0345,"se":0.0911,"t":-0.38}},"stretched":{"pass":{"n":135,"mean":-0.0336,"se":0.0997,"t":-0.34,"verdict":"inconclusive"},"fail":{"n":1204,"mean":-0.1108,"se":0.0553,"t":-2.0,"verdict":"inconclusive"},"delta":{"mean":0.0772,"se":0.114,"t":0.68}},"buy_vol_idea":{"pass":{"n":558,"mean":-0.115,"se":0.0675,"t":-1.7,"verdict":"inconclusive"},"fail":{"n":694,"mean":-0.0956,"se":0.0549,"t":-1.74,"verdict":"inconclusive"},"delta":{"mean":-0.0194,"se":0.087,"t":-0.22}},"sell_vol_idea":{"pass":{"n":474,"mean":-0.0652,"se":0.0646,"t":-1.01,"verdict":"inconclusive"},"fail":{"n":778,"mean":-0.128,"se":0.0623,"t":-2.05,"verdict":"inconclusive"},"delta":{"mean":0.0628,"se":0.0897,"t":0.7}},"stop_wide":{"pass":{"n":367,"mean":0.013,"se":0.067,"t":0.19,"verdict":"inconclusive"},"fail":{"n":976,"mean":-0.1462,"se":0.0637,"t":-2.29,"verdict":"negative"},"delta":{"mean":0.1592,"se":0.0924,"t":1.72}},"target_near":{"pass":{"n":1284,"mean":-0.0889,"se":0.0518,"t":-1.72,"verdict":"inconclusive"},"fail":{"n":59,"mean":-0.4027,"se":0.2022,"t":-1.99,"verdict":"inconclusive"},"delta":{"mean":0.3138,"se":0.2087,"t":1.5}},"gap_overshoot":{"pass":{"n":78,"mean":-0.288,"se":0.2183,"t":-1.32,"verdict":"inconclusive"},"fail":{"n":523,"mean":-0.2127,"se":0.0997,"t":-2.13,"verdict":"negative"},"delta":{"mean":-0.0753,"se":0.24,"t":-0.31}},"term_inverted":{"pass":{"n":343,"mean":-0.1477,"se":0.0645,"t":-2.29,"verdict":"negative"},"fail":{"n":1000,"mean":-0.0873,"se":0.0574,"t":-1.52,"verdict":"inconclusive"},"delta":{"mean":-0.0604,"se":0.0863,"t":-0.7}},"put_skew_high":{"pass":{"n":346,"mean":-0.1137,"se":0.132,"t":-0.86,"verdict":"inconclusive"},"fail":{"n":333,"mean":-0.0456,"se":0.0789,"t":-0.58,"verdict":"inconclusive"},"delta":{"mean":-0.0681,"se":0.1538,"t":-0.44}},"call_skew_high":{"pass":{"n":78,"mean":-0.0755,"se":0.1338,"t":-0.56,"verdict":"inconclusive"},"fail":{"n":605,"mean":-0.0821,"se":0.0961,"t":-0.85,"verdict":"inconclusive"},"delta":{"mean":0.0066,"se":0.1647,"t":0.04}}}}}};
 const MTW_API = "https://api.moontower.ai/v1";
-const mtw = { date: null, dir: null, cockpit: {}, earnings: {}, ideas: null, pending: null, err: "", failedAt: 0 };
+const mtw = { date: null, dir: null, cockpit: {}, earnings: {}, skew: {}, ideas: null, pending: null, err: "", failedAt: 0 };
+const TRADING_DAYS = 252;
+const impliedDailyMove = iv => (iv == null || iv <= 0 ? null : iv / Math.sqrt(TRADING_DAYS));   // mirrors moontower_check.implied_daily_move
 const mtwKey = () => ($("mtwKey").value || "").trim();
 const mtwLens = () => $("mtw").value;
 const etDate = ms => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });   // YYYY-MM-DD
 function mtwLoadCache() {
   try {
     const c = JSON.parse(localStorage.getItem("mtw_cache_v1") || "null");
-    if (c && c.date === etDate(Date.now())) Object.assign(mtw, { date: c.date, dir: c.dir, cockpit: c.cockpit || {}, earnings: c.earnings || {}, ideas: c.ideas || null });
+    if (c && c.date === etDate(Date.now())) Object.assign(mtw, { date: c.date, dir: c.dir, cockpit: c.cockpit || {}, earnings: c.earnings || {}, skew: c.skew || {}, ideas: c.ideas || null });
   } catch {}
 }
 function mtwSaveCache() {
-  try { localStorage.setItem("mtw_cache_v1", JSON.stringify({ date: mtw.date, dir: mtw.dir, cockpit: mtw.cockpit, earnings: mtw.earnings, ideas: mtw.ideas })); } catch {}
+  try { localStorage.setItem("mtw_cache_v1", JSON.stringify({ date: mtw.date, dir: mtw.dir, cockpit: mtw.cockpit, earnings: mtw.earnings, skew: mtw.skew, ideas: mtw.ideas })); } catch {}
 }
 async function mtwGet(path, params) {
   const q = new URLSearchParams();
@@ -374,7 +389,7 @@ async function mtwGet(path, params) {
 // fetch what the board lacks: directory and idea lists once a day, cockpit + earnings per new name (≤100 a call)
 async function ensureMoontower(tickers) {
   const today = etDate(Date.now());
-  if (mtw.date !== today) Object.assign(mtw, { date: today, dir: null, cockpit: {}, earnings: {}, ideas: null });
+  if (mtw.date !== today) Object.assign(mtw, { date: today, dir: null, cockpit: {}, earnings: {}, skew: {}, ideas: null });
   if (!mtw.dir) mtw.dir = (await mtwGet("tickers", {})).data.map(r => r.ticker);
   const dir = new Set(mtw.dir);
   const need = [...new Set(tickers)].filter(t => !(t in mtw.cockpit));
@@ -389,6 +404,19 @@ async function ensureMoontower(tickers) {
     }
     const ea = (await mtwGet("earnings", { ticker: chunk })).data;
     for (const r of ea) mtw.earnings[r.ticker] = r;
+    // a month of 25Δ skew at the expiry nearest 30 days, to rank the prior close against its own earlier days
+    const start = new Date(Date.parse(today + "T12:00:00Z") - 30 * 864e5).toISOString().slice(0, 10);
+    const sk = (await mtwGet("skew", { ticker: chunk, start_date: start, end_date: today })).data;
+    const best = {};
+    for (const r of sk) {
+      const k = r.ticker + "|" + r.date, m = r.maturity || 0;
+      if (!best[k] || Math.abs(m - 30) < Math.abs((best[k].maturity || 0) - 30)) best[k] = r;
+    }
+    for (const t of chunk) mtw.skew[t] = { put: {}, call: {} };
+    for (const r of Object.values(best)) {
+      if (r.date >= today || !mtw.skew[r.ticker]) continue;                                // prior closes only
+      mtw.skew[r.ticker].put[r.date] = r.skew_25d_put; mtw.skew[r.ticker].call[r.date] = r.skew_25d_call;
+    }
   }
   if (!mtw.ideas) {
     const d = await mtwGet("trade-ideas", { universe: "all" });
@@ -413,14 +441,41 @@ function mtwReading(t) {
     }
   }
   const ideas = mtw.ideas ? (mtw.ideas[t] || {}) : null;
-  return { date: ck?.date ?? null, iv_30d: ck?.iv_30d ?? null, iv_30d_weekly_change: ck?.iv_30d_weekly_change ?? null,
+  const h = mtw.skew[t];
+  return { date: ck?.date ?? null, iv_30d: ck?.iv_30d ?? null, iv_10d: ck?.iv_10d ?? null, iv_30d_weekly_change: ck?.iv_30d_weekly_change ?? null,
            vrp_monthly: ck?.vrp_monthly ?? null, monthly_return_zscore: ck?.monthly_return_zscore ?? null,
-           earnings_days: days, buy_vol: ideas ? (ideas["Buy Vol"] ?? null) : null, sell_vol: ideas ? (ideas["Sell Vol"] ?? null) : null };
+           term_structure_30d_10d: ck?.term_structure_30d_10d ?? null,
+           earnings_days: days, buy_vol: ideas ? (ideas["Buy Vol"] ?? null) : null, sell_vol: ideas ? (ideas["Sell Vol"] ?? null) : null,
+           put_rank: h ? skewRank(h.put) : null, call_rank: h ? skewRank(h.call) : null };
+}
+// rank of the latest prior close among the earlier days (mirrors moontower_check.skew_rank)
+function skewRank(hist) {
+  const th = MOONTOWER.thresholds || {};
+  const days = Object.keys(hist).sort();
+  if (days.length < (th.skew_min_prior_days || 10) + 1) return null;
+  const today = hist[days[days.length - 1]];
+  const earlier = days.slice(0, -1).map(d => hist[d]).filter(v => v != null);
+  if (today == null || !earlier.length) return null;
+  return earlier.filter(v => v < today).length / earlier.length;
+}
+// the bracket in implied-move units (mirrors moontower_check.sizing)
+function mtwSizing(x, r) {
+  const out = { stop_moves: null, target_moves: null, gap_moves: null };
+  if (!x || !r) return out;
+  const m30 = impliedDailyMove(x.iv_30d);
+  if (m30 && r.entry) {
+    if (r.stop != null) out.stop_moves = Math.abs(r.entry - r.stop) / (r.entry * m30);
+    if (r.target != null) out.target_moves = Math.abs(r.target - r.entry) / (r.entry * m30);
+  }
+  const m10 = impliedDailyMove(x.iv_10d);
+  if (m10 && r.setup_mode === "gap" && r.gap_pct != null) out.gap_moves = Math.abs(r.gap_pct) / (m10 * 100);
+  return out;
 }
 // yes / no / null (reading missing), mirroring moontower_check.lenses()
-function mtwLenses(x) {
+function mtwLenses(x, r) {
   const th = MOONTOWER.thresholds || {};
   const cmp = (v, f) => (v == null ? null : !!f(v));
+  const z = mtwSizing(x, r);
   return {
     "earnings_clear": x.earnings_days == null ? null : !(x.earnings_days >= 0 && x.earnings_days <= th.earnings_clear_post_days),
     "iv_rising": cmp(x.iv_30d_weekly_change, v => v >= th.iv_rising_weekly_change),
@@ -430,11 +485,17 @@ function mtwLenses(x) {
     "stretched": cmp(x.monthly_return_zscore, v => Math.abs(v) >= th.stretched_z),
     "buy_vol_idea": mtw.ideas ? (x.buy_vol ?? 0) > th.idea_score : null,
     "sell_vol_idea": mtw.ideas ? (x.sell_vol ?? 0) > th.idea_score : null,
+    "stop_wide": cmp(z.stop_moves, v => v >= th.stop_wide_moves),
+    "target_near": cmp(z.target_moves, v => v <= th.target_near_moves),
+    "gap_overshoot": cmp(z.gap_moves, v => v >= th.gap_overshoot_moves),
+    "term_inverted": cmp(x.term_structure_30d_10d, v => v <= th.term_inverted),
+    "put_skew_high": cmp(x.put_rank, v => v >= th.skew_high_rank),
+    "call_skew_high": cmp(x.call_rank, v => v >= th.skew_high_rank),
   };
 }
 function mtwPass(r, lens) {
   const x = mtwReading(r.ticker);
-  return x === undefined ? undefined : mtwLenses(x)[lens];
+  return x === undefined ? undefined : mtwLenses(x, r)[lens];
 }
 // the replayed record of a lens, for the selector's tooltip and the meta line
 function mtwRecord(lens, grades = "A+B") {
@@ -452,19 +513,27 @@ function mtwCell(r) {
   const x = mtwReading(r.ticker);
   if (x === undefined) return `<span class="m">…</span>`;
   if (x.date == null && x.earnings_days == null) return `<span class="m" title="Not on Moontower">n/a</span>`;
-  const L = mtwLenses(x);
+  const L = mtwLenses(x, r);
+  const z = mtwSizing(x, r);
+  const mv = v => v == null ? "—" : v.toFixed(1);
   const pct = v => v == null ? "—" : Math.round(v * 100);
   const sg = v => v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2);
   const ivChg = x.iv_30d_weekly_change == null ? "" : ` <span class="${x.iv_30d_weekly_change >= 0 ? "pos" : "neg"}">${x.iv_30d_weekly_change >= 0 ? "↑" : "↓"}${Math.abs(Math.round(x.iv_30d_weekly_change * 100))}</span>`;
   const eTxt = x.earnings_days == null ? "E—" : `E${x.earnings_days >= 0 ? "+" : "−"}${Math.abs(x.earnings_days)}`;
   const idea = L.buy_vol_idea ? " BV" : L.sell_vol_idea ? " SV" : "";
+  const moves = z.stop_moves == null ? "" : ` <b class="${z.stop_moves >= (MOONTOWER.thresholds || {}).stop_wide_moves ? "yes" : "no"}">s${mv(z.stop_moves)}</b>t${mv(z.target_moves)}`;
+  const term = L.term_inverted ? ` <span class="no" title="IV10 above IV30: an event inside the week">⊼</span>` : "";
   const mark = lens !== "show" ? (L[lens] === true ? `<span class="yes">✓</span> ` : L[lens] === false ? `<span class="no">✗</span> ` : `<span class="m">?</span> `) : "";
   const title = `Moontower ${x.date || ""} (prior close) · earnings ${x.earnings_days == null ? "unknown" : x.earnings_days + "d"} · IV30 ${pct(x.iv_30d)}%` +
     (x.iv_30d_weekly_change == null ? "" : ` (${x.iv_30d_weekly_change >= 0 ? "+" : ""}${Math.round(x.iv_30d_weekly_change * 100)} on the week)`) +
     ` · VRP ${sg(x.vrp_monthly)} · monthly z ${sg(x.monthly_return_zscore)}` +
+    (z.stop_moves == null ? "" : ` · stop ${mv(z.stop_moves)} and target ${mv(z.target_moves)} implied daily moves (IV30/√252 = ${(impliedDailyMove(x.iv_30d) * 100).toFixed(2)}%)`) +
+    (z.gap_moves == null ? "" : ` · gap ${mv(z.gap_moves)} implied moves (IV10)`) +
+    (x.term_structure_30d_10d == null ? "" : ` · term IV30−IV10 ${(x.term_structure_30d_10d * 100).toFixed(1)} pts`) +
+    (x.put_rank == null ? "" : ` · 25Δ put skew rank ${Math.round(x.put_rank * 100)} / call ${x.call_rank == null ? "—" : Math.round(x.call_rank * 100)}`) +
     ` · Buy Vol ${x.buy_vol == null ? "—" : Math.round(x.buy_vol)} · Sell Vol ${x.sell_vol == null ? "—" : Math.round(x.sell_vol)}` +
     ` · passes: ${Object.entries(L).filter(([, v]) => v === true).map(([k]) => k).join(", ") || "none"}`;
-  return `<span title="${esc(title)}">${mark}<b>${eTxt}</b> IV${pct(x.iv_30d)}${ivChg} VRP${sg(x.vrp_monthly)} z${sg(x.monthly_return_zscore)}${idea}</span>`;
+  return `<span title="${esc(title)}">${mark}${moves.trim()} <b>${eTxt}</b> IV${pct(x.iv_30d)}${ivChg}${term} VRP${sg(x.vrp_monthly)}${idea}</span>`;
 }
 function lensChanged() {
   const lens = mtwLens();
@@ -633,18 +702,6 @@ const CRITIQUE = {
   ],
 };
 
-function loadCritique() {
-  const box = $("critBox");
-  if (box.style.display !== "none" && box.open) { box.open = false; return; }
-  $("steel").innerHTML = CRITIQUE.steelman.map(x => `<li>${esc(x)}</li>`).join("");
-  $("straw").innerHTML = CRITIQUE.strawman.map(x => `<li>${esc(x)}</li>`).join("");
-  $("from").innerHTML =
-    '<b style="color:var(--blue)">From Blueline:</b> ' + esc(CRITIQUE.from_blueline.join(" · ")) +
-    '<br><b style="color:var(--orange)">From VWAP One:</b> ' + esc(CRITIQUE.from_vwap_one.join(" · ")) +
-    '<br><b style="color:var(--m)">Providers:</b> ' + esc(CRITIQUE.providers.join(" · "));
-  box.style.display = "block";
-  box.open = true;
-}
 
 function loadProviders() {
   const box = $("provBox");
@@ -690,12 +747,12 @@ function sorted() {
 function render() {
   const list = sorted();
   if (!list.length) {
-    $("tb").innerHTML = `<tr><td colspan="20" class="m" style="padding:24px;text-align:center">${emptyHint || "No rows"}</td></tr>`;
+    $("tb").innerHTML = `<tr><td colspan="19" class="m" style="padding:24px;text-align:center">${emptyHint || "No rows"}</td></tr>`;
     return;
   }
   $("tb").innerHTML = list.map(r => {
     const tk = esc(r.ticker);
-    if (r.error) return `<tr data-tk="${tk}"><td></td><td class="tk">${tk}</td><td colspan="18" class="note">${esc(r.error)}</td></tr>`;
+    if (r.error) return `<tr data-tk="${tk}"><td></td><td class="tk">${tk}</td><td colspan="17" class="note">${esc(r.error)}</td></tr>`;
     const cls = [r.actionable?"act":"", r.stale_bars?"stale":"", selected===r.ticker?"sel":""].filter(Boolean).join(" ");
     const mark = r.live_actionable ? " ◆" : (r.actionable ? " ●" : "");
     const d = r.dist_std;
@@ -721,8 +778,7 @@ function render() {
       <td class="orangec">${n(r.target)}</td>
       <td class="${(r.rr!=null&&r.rr>=1)?"pos":(r.rr!=null?"neg":"m")}">${n(r.rr)}${r.cost_r!=null?`<span class="cost">−${n(r.cost_r)}</span>`:""}</td>
       <td class="m">${r.rvol==null?"—":n(r.rvol,2)}${r.rvol_n!=null?` <span style="opacity:.55">n=${r.rvol_n}</span>`:""}</td>
-      <td class="${r.stale_bars?"neg":"m"}">${age==null?"—":(age<100?n(age,0)+"m":">99m")}</td>
-      <td class="src">${esc(r.provider||"—")}</td>
+      <td class="${r.stale_bars?"neg":"m"}" title="feed ${esc(r.provider||"—")}">${age==null?"—":(age<100?n(age,0)+"m":">99m")}</td>
     </tr>`;
   }).join("");
   $("tb").querySelectorAll("tr[data-tk]").forEach(tr => tr.onclick = () => selectTicker(tr.dataset.tk));
@@ -847,7 +903,13 @@ function present() {
         shown = shown.filter(r => mtwPass(r, lens) === true);
         lensDrop = before - shown.length;
       }
+      const read = shown.slice(0, max).map(r => mtwReading(r.ticker)).filter(x => x && x.term_structure_30d_10d != null);
+      const inv = read.filter(x => x.term_structure_30d_10d <= (MOONTOWER.thresholds || {}).term_inverted).length;
+      const stops = shown.slice(0, max).map(r => mtwSizing(mtwReading(r.ticker), r).stop_moves).filter(v => v != null);
+      const tight = stops.filter(v => v < (MOONTOWER.thresholds || {}).stop_wide_moves).length;
       lensNote = ` · Moontower <b>${esc((MOONTOWER.lens_text || {})[lens] || "readings")}</b>` +
+        (read.length ? ` · <span title="IV10 above IV30 by 5 pts or more at the prior close: an event priced inside the week">event priced <b>${inv}</b>/${read.length}</span>` : "") +
+        (stops.length ? ` · <span title="stops narrower than half the implied daily move (IV30/√252); the replay's worst bucket">tight stops <b>${tight}</b>/${stops.length}</span>` : "") +
         (mtw.pending ? " <span class=\"m\">loading…</span>" : "") + (lensDrop ? ` · lens dropped <b>${lensDrop}</b>` : "") +
         (mtw.err ? ` · <span class="neg">${esc(mtw.err)}</span>` : "");
     }
@@ -988,13 +1050,50 @@ function contractStat(d) {
   const px = x => x == null ? "—" : "$" + Number(x).toFixed(2);
   const r = mtwReading(tk);
   const ivNote = r && r.iv_30d != null ? ` · IV30 at that close ${Math.round(r.iv_30d * 100)}%${r.iv_30d_weekly_change != null ? ` (${r.iv_30d_weekly_change >= 0 ? "+" : ""}${Math.round(r.iv_30d_weekly_change * 100)} on the week)` : ""}` : "";
+  const fill = c.fill && c.fill.ok === false ? ` · <span class="neg" title="long leg bid–ask ${c.fill.spread} = ${Math.round(c.fill.share * 100)}% of the cost">hard to fill: ${esc(c.fill.why)}</span>` :
+               c.fill && c.fill.ok ? ` · <span class="pos" title="long leg bid–ask ${c.fill.spread} = ${Math.round(c.fill.share * 100)}% of the cost">fillable</span>` : "";
   const legs = c.same_strike
     ? `entry and target land on the same strike (${c.long.strike}) · single ${c.kind.split(" ")[0]} ${c.long.strike}: ask ${px(c.long.ask)} · mid ${px(c.long.mid)} · Δ ${c.long.delta ?? "—"}`
     : `buy the ${c.long.strike} ${c.kind.split(" ")[0]} (Δ ${c.long.delta ?? "—"}, ask ${px(c.long.ask)}) · sell the ${c.short.strike} (bid ${px(c.short.bid)}) · ` +
       `<b>debit ${px(c.debit_ask)}</b> at the quotes, ${px(c.debit_mid)} at mid · worth ${px(c.width)} at the target · ` +
       `reward:risk <b>${c.rr_ask ?? "—"}</b> (${c.rr_mid ?? "—"} at mid) vs the stock bracket's ${c.stock_rr ?? "—"}`;
   return head(`Contract · ${esc(c.kind)} · ${esc(c.expiry)} (${c.dte ?? "—"} dte) · end-of-day chain of ${esc(c.trade_date || "?")}, spot then ${px(c.spot)}`,
-    `${legs}<span class="m">${esc(ivNote)} · per contract ×100 · liquidity: long leg vol ${c.long.volume ?? "—"} / OI ${c.long.open_interest ?? "—"} · a quote, not advice</span>`);
+    `${legs}${fill}<span class="m">${esc(ivNote)} · per contract ×100 · long leg vol ${c.long.volume ?? "—"} / OI ${c.long.open_interest ?? "—"} · a quote, not advice</span>` +
+    hedgeLine(tk, plan));
+}
+
+/* ── the stock position's index hedge (/v1/hedge-ratios, beta-weighted vs SPY), on request ── */
+const hedges = { date: null, by: {}, pending: {}, err: {} };
+async function quoteHedge(tk, entry) {
+  const today = etDate(Date.now());
+  if (hedges.date !== today) Object.assign(hedges, { date: today, by: {}, err: {} });
+  if (hedges.pending[tk]) return;
+  hedges.pending[tk] = true; delete hedges.err[tk];
+  const repaint = () => { if (selected === tk) { const c = chartCache.get(tk); if (c) paintChart(c); } };
+  repaint();
+  try {
+    const shares = 100;
+    const [hr, spy] = await Promise.all([
+      mtwGet("hedge-ratios", { ticker_a: tk, ticker_b: "SPY", notional_position: Math.round(entry * shares) }),
+      fetchBars("SPY").then(f => f.bars[f.bars.length - 1].c).catch(() => null),
+    ]);
+    if (!spy) throw new Error("no SPY price");
+    hedges.by[tk] = { hr, spy, shares };
+  } catch (e) { hedges.err[tk] = String(e && e.message || e); }
+  delete hedges.pending[tk];
+  repaint();
+}
+function hedgeLine(tk, plan) {
+  if (hedges.pending[tk]) return `<div class="m" style="margin-top:4px">computing the SPY hedge…</div>`;
+  const h = hedges.date === etDate(Date.now()) ? hedges.by[tk] : null;
+  if (!h) return `<div style="margin-top:4px">${hedges.err[tk] ? `<span class="neg">${esc(hedges.err[tk])}</span> · ` : ""}` +
+    `<button class="quote" type="button" onclick="quoteHedge('${esc(tk)}', ${+plan.entry})">Hedge 100 shares vs SPY · 2 credits</button></div>`;
+  const x = VWAPContract.indexHedge(h.hr, h.shares, plan.entry, h.spy);
+  if (!x) return `<div class="neg" style="margin-top:4px">no hedge ratio</div>`;
+  const sideWord = plan.side === "short" ? "buy" : "sell";
+  return `<div style="margin-top:4px">Index hedge for ${h.shares} shares ($${x.notional.toLocaleString()}): β ${x.beta} vs SPY (ρ ${x.correlation ?? "—"}, ${h.hr.lookback_days || "?"}d) → ` +
+    `<b>${sideWord} ${Math.abs(x.hedge_shares)} SPY</b> at $${h.spy.toFixed(2)}` +
+    (x.idio_share != null ? ` · <span class="m">what is left is the name's own: ${Math.round(x.idio_share * 100)}% of notional as 1σ idio vol</span>` : "") + `</div>`;
 }
 
 // the chart pane's record cell: the class's replayed trades, net R and what direction added
