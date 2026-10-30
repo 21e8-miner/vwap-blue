@@ -82,7 +82,7 @@ class TestRvol(unittest.TestCase):
         rvol = engine._rvol
 
         def spy(*args):
-            calls.append(args)
+            calls.append(args[:6])             # the memo analyze_bars passes on is None here (no memo given)
             return rvol(*args)
 
         with mock.patch.object(engine, "_rvol", spy):
