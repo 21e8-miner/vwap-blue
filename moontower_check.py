@@ -19,6 +19,14 @@ Lenses (each a yes/no on a row, from the prior session's close):
   stretched       |monthly return z-score| >= 1.5: stretched on the quarter-scale anchor too
   buy_vol_idea    on Moontower's Buy Vol list that evening (score > 20 across its universe)
   sell_vol_idea   on Moontower's Sell Vol list that evening (score > 20)
+  stop_wide       the stop is at least half the implied daily move (IV30 / sqrt 252) from entry: sized
+                  in the options market's units, not the day's own bands
+  target_near     the target is within one implied daily move of entry
+  gap_overshoot   (gap trades) the opening gap is at least the implied daily move priced by IV10 at the
+                  prior close: the gap exceeded what the options market expected
+  term_inverted   10-day IV above 30-day IV by 5 points or more: an event priced inside the week
+  put_skew_high   25-delta put skew at ~30 days in the top quarter of its prior days in the window
+  call_skew_high  the same for 25-delta call skew
 
 Decision time means: the cockpit row is the last one dated before the session, the trade-ideas
 snapshot is the one computed after the prior session's close, and earnings dates are the calendar.
@@ -56,9 +64,17 @@ THRESHOLDS = {
     "stretched_z": 1.5,                # |monthly_return_zscore|
     "idea_score": 20.0,                # trade-ideas totalScore above this counts as "on the list"
     "earnings_clear_post_days": 1,     # reported 0..this many days ago = not clear
+    "stop_wide_moves": 0.5,            # |entry - stop| / (entry * iv_30d / sqrt(252))
+    "target_near_moves": 1.0,          # |target - entry| in the same units
+    "gap_overshoot_moves": 1.0,        # |gap_pct| / (iv_10d / sqrt(252) * 100)
+    "term_inverted": -0.05,            # term_structure_30d_10d at or below this
+    "skew_high_rank": 0.75,            # rank of today's skew among >= 10 prior days in the window
+    "skew_min_prior_days": 10,
 }
+TRADING_DAYS = 252
 LENSES = ["earnings_clear", "iv_rising", "iv_high", "vol_cheap", "vol_rich", "stretched",
-          "buy_vol_idea", "sell_vol_idea"]
+          "buy_vol_idea", "sell_vol_idea", "stop_wide", "target_near", "gap_overshoot", "term_inverted",
+          "put_skew_high", "call_skew_high"]
 LENS_TEXT = {
     "earnings_clear": "did not report earnings today or yesterday",
     "iv_rising": "IV30 up ≥ 3 pts on the week",
@@ -68,6 +84,12 @@ LENS_TEXT = {
     "stretched": "|monthly return z| ≥ 1.5",
     "buy_vol_idea": "on Moontower's Buy Vol list",
     "sell_vol_idea": "on Moontower's Sell Vol list",
+    "stop_wide": "stop ≥ ½ implied daily move",
+    "target_near": "target within 1 implied daily move",
+    "gap_overshoot": "gap ≥ the implied daily move (IV10)",
+    "term_inverted": "IV10 above IV30 by ≥ 5 pts",
+    "put_skew_high": "25Δ put skew in its top quarter",
+    "call_skew_high": "25Δ call skew in its top quarter",
 }
 
 
@@ -145,6 +167,24 @@ class Cache:
             p.write_text(json.dumps(rows))
         return {r["ticker"]: r for r in json.loads(p.read_text())}
 
+    def skew(self, tickers: List[str], start: str, end: str) -> List[Dict[str, Any]]:
+        """Per ticker-day, the expiry nearest 30 days: skew_25d_put / skew_25d_call (levels, decimal)."""
+        p = self.root / f"skew30_{start}_{end}.json"
+        if not p.exists():
+            self._need(f"skew {start}..{end}")
+            rows: List[Dict[str, Any]] = []
+            for i in range(0, len(tickers), 100):
+                rows += api_get(self.key, "skew", {"ticker": tickers[i:i + 100], "start_date": start, "end_date": end})["data"]
+            best: Dict[tuple, Dict[str, Any]] = {}
+            for r in rows:
+                k = (r["ticker"], r["date"]); m = r.get("maturity") or 0
+                if k not in best or abs(m - 30) < abs((best[k].get("maturity") or 0) - 30):
+                    best[k] = r
+            p.write_text(json.dumps([{"ticker": t, "date": d, "maturity": r.get("maturity"), "skew_25d_put": r.get("skew_25d_put"),
+                                      "skew_25d_call": r.get("skew_25d_call"), "risk_reversal_25d": r.get("risk_reversal_25d")}
+                                     for (t, d), r in best.items()]))
+        return json.loads(p.read_text())
+
     def ideas(self, trade_date: str) -> Dict[str, Dict[str, float]]:
         """ticker -> {idea: totalScore} as of that evening's snapshot."""
         p = self.root / f"ideas_{trade_date}.json"
@@ -186,10 +226,48 @@ def earnings_distance(rec: Optional[Dict[str, Any]], session: str) -> Optional[i
     return best
 
 
+def implied_daily_move(iv: Optional[float]) -> Optional[float]:
+    """Decimal one-day move the options market prices: annualized IV (decimal) / sqrt(252)."""
+    return None if iv is None or iv <= 0 else iv / TRADING_DAYS ** 0.5
+
+
+def sizing(ck: Optional[Dict[str, Any]], trade: Optional[Dict[str, Any]]) -> Dict[str, Optional[float]]:
+    """The bracket in implied-move units: stop_moves, target_moves (IV30), gap_moves (IV10, gap trades)."""
+    out: Dict[str, Optional[float]] = {"stop_moves": None, "target_moves": None, "gap_moves": None}
+    if ck is None or not trade:
+        return out
+    entry, stop, target = trade.get("entry"), trade.get("stop"), trade.get("target")
+    m30 = implied_daily_move(ck.get("iv_30d"))
+    if m30 and entry:
+        if stop is not None:
+            out["stop_moves"] = abs(entry - stop) / (entry * m30)
+        if target is not None:
+            out["target_moves"] = abs(target - entry) / (entry * m30)
+    m10 = implied_daily_move(ck.get("iv_10d"))
+    if m10 and trade.get("setup_mode") == "gap" and trade.get("gap_pct") is not None:
+        out["gap_moves"] = abs(trade["gap_pct"]) / (m10 * 100)
+    return out
+
+
+def skew_rank(history: Dict[str, float], session: str, min_prior: int) -> Optional[float]:
+    """Rank (0..1) of the prior close's skew among the earlier days in the window; None with too few."""
+    prior = sorted(d for d in history if d < session)
+    if len(prior) < min_prior + 1:
+        return None
+    today = history[prior[-1]]
+    earlier = [history[d] for d in prior[:-1] if history[d] is not None]
+    if today is None or not earlier:
+        return None
+    return sum(1 for v in earlier if v < today) / len(earlier)
+
+
 def lenses(ck: Optional[Dict[str, Any]], e_days: Optional[int], ideas: Optional[Dict[str, float]],
-           th: Dict[str, float] = THRESHOLDS) -> Dict[str, Optional[bool]]:
+           th: Dict[str, float] = THRESHOLDS, size: Optional[Dict[str, Optional[float]]] = None,
+           skew: Optional[Dict[str, Optional[float]]] = None) -> Dict[str, Optional[bool]]:
     """Each lens: True/False, or None when the reading is missing (the row is then uncovered)."""
     g = (lambda k: None if ck is None else ck.get(k))
+    size = size or {}
+    skew = skew or {}
     def cmp(v, f):
         return None if v is None else bool(f(v))
     out = {
@@ -202,6 +280,12 @@ def lenses(ck: Optional[Dict[str, Any]], e_days: Optional[int], ideas: Optional[
         "stretched": cmp(g("monthly_return_zscore"), lambda v: abs(v) >= th["stretched_z"]),
         "buy_vol_idea": None if ideas is None else (ideas.get("Buy Vol") or 0) > th["idea_score"],
         "sell_vol_idea": None if ideas is None else (ideas.get("Sell Vol") or 0) > th["idea_score"],
+        "stop_wide": cmp(size.get("stop_moves"), lambda v: v >= th["stop_wide_moves"]),
+        "target_near": cmp(size.get("target_moves"), lambda v: v <= th["target_near_moves"]),
+        "gap_overshoot": cmp(size.get("gap_moves"), lambda v: v >= th["gap_overshoot_moves"]),
+        "term_inverted": cmp(g("term_structure_30d_10d"), lambda v: v <= th["term_inverted"]),
+        "put_skew_high": cmp(skew.get("put_rank"), lambda v: v >= th["skew_high_rank"]),
+        "call_skew_high": cmp(skew.get("call_rank"), lambda v: v >= th["skew_high_rank"]),
     }
     return out
 
@@ -237,6 +321,12 @@ def run(replay: Dict[str, Any], cache: Cache, grade_sets=(("A",), ("A", "B"))) -
     for r in ck_rows:
         ck[r["ticker"]][r["date"]] = r
     earn = cache.earnings(names)
+    sk: Dict[str, Dict[str, Dict[str, Optional[float]]]] = defaultdict(lambda: {"put": {}, "call": {}})
+    # /v1/skew windows are capped at 31 days; the skew ranks need ~10 prior days, so the first sessions go unranked anyway
+    skew_start = max(start, (dt.date.fromisoformat(sessions[-1]) - dt.timedelta(days=30)).isoformat())
+    for r in cache.skew(names, skew_start, sessions[-1]):
+        sk[r["ticker"]]["put"][r["date"]] = r.get("skew_25d_put")
+        sk[r["ticker"]]["call"][r["date"]] = r.get("skew_25d_call")
     # ideas as of the prior session's evening: the snapshot for date d is computed after d's close
     ideas_by_session: Dict[str, Dict[str, Dict[str, float]]] = {}
     for i, s in enumerate(sessions):
@@ -250,7 +340,11 @@ def run(replay: Dict[str, Any], cache: Cache, grade_sets=(("A",), ("A", "B"))) -
         row = prior_cockpit(ck.get(t["ticker"], {}), t["session"])
         e_days = earnings_distance(earn.get(t["ticker"]), t["session"])
         ideas = ideas_by_session[t["session"]].get(t["ticker"]) if ideas_by_session[t["session"]] else None
-        tagged.append({**t, "_lens": lenses(row, e_days, ideas)})
+        size = sizing(row, t)
+        h = sk.get(t["ticker"]) or {"put": {}, "call": {}}
+        skw = {"put_rank": skew_rank(h["put"], t["session"], int(THRESHOLDS["skew_min_prior_days"])),
+               "call_rank": skew_rank(h["call"], t["session"], int(THRESHOLDS["skew_min_prior_days"]))}
+        tagged.append({**t, "_lens": lenses(row, e_days, ideas, size=size, skew=skw), "_size": size})
 
     out: Dict[str, Any] = {
         "replay": replay.get("method", {}), "engine_version": replay.get("engine_version"),
@@ -263,7 +357,16 @@ def run(replay: Dict[str, Any], cache: Cache, grade_sets=(("A",), ("A", "B"))) -
     for gs in grade_sets:
         label = "+".join(gs)
         g = [t for t in tagged if t.get("grade") in gs]
-        block: Dict[str, Any] = {"all": stat(g), "by_mode": {}, "lenses": {}}
+        block: Dict[str, Any] = {"all": stat(g), "by_mode": {}, "lenses": {}, "sized": {}}
+        # the bracket in implied-move units, bucketed (item 1 of the sizing study)
+        for key, cuts in (("stop_moves", [0.25, 0.5, 1.0]), ("target_moves", [0.5, 1.0, 2.0]), ("gap_moves", [0.5, 1.0, 2.0])):
+            edges = [0.0] + cuts + [float("inf")]
+            buckets = {}
+            for lo, hi in zip(edges, edges[1:]):
+                sub_ = [t for t in g if t["_size"].get(key) is not None and lo <= t["_size"][key] < hi]
+                if sub_:
+                    buckets[f"{lo:g}–{hi:g}" if hi != float("inf") else f"≥ {lo:g}"] = stat(sub_)
+            block["sized"][key] = buckets
         for mode in ("mdrev", "gap"):
             sub = [t for t in g if t.get("setup_mode") == mode]
             if sub:
@@ -349,6 +452,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             d = e.get("pass_minus_fail") or {}
             dtxt = f"  Δ {d['mean']:+.2f} (t {d['t']:+.1f})" if d.get("t") is not None else ""
             print(f"  {lens:<15} pass {fmt(e['pass'])}   fail {fmt(e['fail'])}{dtxt}" + (f"   ?{e['unknown']}" if e["unknown"] else ""))
+        for key, buckets in block["sized"].items():
+            print(f"  sized by {key}: " + " · ".join(f"{b} {fmt(s)}" for b, s in buckets.items()))
     print(f"\nwrote {out}")
     for h in a.embed or []:
         embed(Path(h), res)

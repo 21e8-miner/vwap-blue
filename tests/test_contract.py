@@ -85,6 +85,31 @@ class TestContract(unittest.TestCase):
         self.assertEqual((c["long"]["strike"], c["short"]["strike"]), (100, 102.5))
 
 
+@unittest.skipUnless(NODE, "node not installed")
+class TestFillAndHedge(unittest.TestCase):
+
+    def test_a_wide_market_or_an_empty_strike_is_not_fillable(self):
+        f = run("C.fillability(1.0, 1.2, 1.0, 100, 5)")
+        self.assertTrue(f["ok"]); self.assertEqual(f["spread"], 0.2)
+        f = run("C.fillability(1.0, 1.6, 1.0, 100, 5)")
+        self.assertFalse(f["ok"]); self.assertIn("wide", f["why"])
+        f = run("C.fillability(1.0, 1.2, 1.0, 0, 0)")
+        self.assertFalse(f["ok"]); self.assertIn("no open interest", f["why"])
+        self.assertIsNone(run("C.fillability(null, 1.2, 1.0, 1, 1)")["ok"])
+        c = run("C.bracketContract(CHAIN, {side:'long', entry:100.2, stop:99, target:102.3}, '2026-10-30')")
+        self.assertIn("ok", c["fill"])
+
+    def test_index_hedge_is_beta_weighted_dollars_in_hedge_shares(self):
+        hr = {"beta": 1.8912, "correlation": 0.59, "notional_position": 10000, "idio_vol_remaining": 3430}
+        h = run(f"C.indexHedge({json.dumps(hr)}, 100, 646.8, 700)")
+        self.assertEqual(h["beta"], 1.89)
+        self.assertEqual(h["notional"], 64680)
+        self.assertEqual(h["hedge_dollars"], round(-1.8912 * 64680))
+        self.assertAlmostEqual(h["hedge_shares"], round(-1.8912 * 64680 / 700, 1))
+        self.assertEqual(h["idio_share"], 0.343)
+        self.assertIsNone(run("C.indexHedge({}, 100, 1, 1)"))
+
+
 class TestPage(unittest.TestCase):
 
     def test_pages_load_and_mirror_contract_js(self):

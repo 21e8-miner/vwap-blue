@@ -31,6 +31,13 @@ against the first strike at or beyond the target, on the first expiry after toda
 end-of-day chain, 2 credits a name. The chain is last night's: Moontower's derived readings (IV
 surface, rank, skew, VRP) update intraday with a 15-minute delay, but contract quotes land after the
 close, so a premarket plan is priced off the prior close and a live fill still needs your broker.
+The contract stat also says whether the spread is fillable (long leg's market wider than a third of
+the cost, or no open interest and no volume, is flagged) and can size an index hedge for the stock
+position (`/v1/hedge-ratios`: beta-weighted vs SPY, as SPY shares). With a lens on, the MTW cell
+leads with the bracket in implied daily moves (`s0.4 t0.9`: stop and target as fractions of
+IV30/√252) and the meta line counts the board's tight stops and priced events. The page itself is
+pared to what an intraday desk uses: the data plumbing (feed mode, live interval, proxy) sits behind
+the ⚙, the method notes live here in the README, and the results banner folds to one line.
 
 The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs locally on `:8791`.
 
@@ -387,6 +394,26 @@ Moontower covers), **no lens reached a verdict**:
 | options rich (VRP ≥ 0.10) | −0.11R ± 0.06 (979) | −0.08R ± 0.07 (364) | −0.03R |
 | on Moontower's Buy Vol list | −0.12R ± 0.07 (558) | −0.10R ± 0.05 (694) | −0.02R |
 | on Moontower's Sell Vol list | −0.07R ± 0.06 (474) | −0.13R ± 0.06 (778) | +0.06R, t 0.7 |
+
+A second pass (same day, same replay) sized the bracket in the options market's units, the implied
+daily move IV30/√252 at the prior close, and added the event and skew readings:
+
+| lens or bucket (grade A+B) | pass | fail | pass − fail |
+|---|--:|--:|--:|
+| stop ≥ ½ implied daily move | +0.01R ± 0.07 (367) | −0.15R ± 0.06 (976) | +0.16R, t 1.7 |
+| target within 1 implied move | −0.09R ± 0.05 (1,284) | −0.40R ± 0.20 (59) | +0.31R, t 1.5 |
+| gap ≥ the implied move priced by IV10 (gap trades) | −0.29R ± 0.22 (78) | −0.21R ± 0.10 (523) | −0.08R |
+| IV10 above IV30 by ≥ 5 pts (event inside the week) | −0.15R ± 0.06 (343) | −0.09R ± 0.06 (1,000) | −0.06R |
+| 25Δ put skew in its top quarter (≥ 10 prior days) | −0.11R ± 0.13 (346) | −0.05R ± 0.08 (333) | −0.07R |
+| 25Δ call skew in its top quarter | −0.08R ± 0.13 (78) | −0.08R ± 0.10 (605) | 0.00R |
+
+The stop in implied-move units is the one monotone reading in the whole study: stops narrower than a
+quarter of the implied daily move lost −0.20R ± 0.08 (496 trades, 40% wins); a quarter to a half,
+−0.09R; half to one, 0.00R (58% wins); a full move or more, +0.09R ± 0.10 (47 trades, 70% wins). The
+engine sets stops by the day's own σ bands, and the options market says the narrow ones are inside
+the noise it is pricing. That is still t ≈ 1.7 on one month, a reading to carry, not a gate. Targets
+beyond one implied move (59 trades) lost −0.40R: the day rarely delivers them. Skew, term structure
+and a gap's size against the priced move carried nothing.
 
 What that says: the two sites read different things. Moontower prices the *size* of the expected
 move; VWAP Blue calls its *direction* against the anchor. Whether the options are cheap or rich, and

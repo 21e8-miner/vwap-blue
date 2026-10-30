@@ -61,7 +61,31 @@
       debit_ask: sameStrike ? null : debitAsk, debit_mid: sameStrike ? null : debitMid,
       rr_ask: sameStrike ? null : rr(debitAsk), rr_mid: sameStrike ? null : rr(debitMid),
       stock_rr: plan.stop != null && plan.entry !== plan.stop ? +(Math.abs(plan.target - plan.entry) / Math.abs(plan.entry - plan.stop)).toFixed(2) : null,
+      fill: fillability(longBid, longAsk, sameStrike ? longAsk : debitAsk, num(long[`${leg}_open_interest`]), num(long[`${leg}_volume`])),
     };
+  }
+
+  // can the spread be filled near its quote? the long leg's market as a share of what you pay, and whether anyone trades it
+  function fillability(bid, ask, cost, openInterest, volume, maxSpreadShare = 1 / 3) {
+    if (bid == null || ask == null || cost == null || cost <= 0) return { ok: null, why: "no quote" };
+    const spread = +(ask - bid).toFixed(2), share = +(spread / cost).toFixed(2);
+    if (ask <= 0 || bid <= 0) return { ok: false, spread, share, why: "no bid" };
+    if (share > maxSpreadShare) return { ok: false, spread, share, why: `market ${spread.toFixed(2)} wide on a ${cost.toFixed(2)} cost` };
+    if ((openInterest || 0) === 0 && (volume || 0) === 0) return { ok: false, spread, share, why: "no open interest, no volume" };
+    return { ok: true, spread, share, why: "" };
+  }
+
+  // a stock position's index hedge from /v1/hedge-ratios: beta-weighted dollars of the hedge ticker, as shares
+  // hr: the endpoint's row (beta, correlation, vol_core, vol_hedge, idio_vol_remaining for its notional);
+  // shares: the core position; price, hedgePrice: the two prices
+  function indexHedge(hr, shares, price, hedgePrice) {
+    const beta = Number(hr && hr.beta);
+    if (!Number.isFinite(beta) || !shares || !price || !hedgePrice) return null;
+    const notional = shares * price, hedgeDollars = -beta * notional;
+    return { beta: +beta.toFixed(2), correlation: hr.correlation == null ? null : +(+hr.correlation).toFixed(2),
+             notional: +notional.toFixed(0), hedge_dollars: +hedgeDollars.toFixed(0),
+             hedge_shares: +(hedgeDollars / hedgePrice).toFixed(1),
+             idio_share: hr.idio_vol_remaining != null && hr.notional_position ? +(hr.idio_vol_remaining / hr.notional_position).toFixed(3) : null };
   }
 
   // keep only what the page needs, so a day's chains fit in localStorage
@@ -74,5 +98,5 @@
                 .map(r => Object.fromEntries(keys.map(k => [k, r[k]])));
   }
 
-  return { pickExpiry, nearestStrike, bracketContract, trimChain };
+  return { pickExpiry, nearestStrike, bracketContract, trimChain, fillability, indexHedge };
 });
