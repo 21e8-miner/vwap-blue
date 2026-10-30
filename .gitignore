@@ -13,3 +13,4 @@ venv/
 data/backtests/
 data/signals/
 data/binance_vision/
+data/moontower/
