@@ -25,7 +25,12 @@ than exchange candles, has no VWAP One cross-check, uses the last bar's close ra
 quote, and keeps no forward ledger. `cf-pages/` is an identical copy for Cloudflare Pages (a test
 keeps it so). With your own [Moontower](https://api.moontower.ai) key (kept in the browser, sent only
 to api.moontower.ai) the **Moontower lens** selector adds the options market's prior-close reading of
-each row and filters on it ([what it found](#moontower-lens-2026-10-30)).
+each row and filters on it ([what it found](#moontower-lens-2026-10-30)), and the chart pane can
+quote a clicked row's bracket as a vertical (`contract.js`: the call or put struck nearest the entry
+against the first strike at or beyond the target, on the first expiry after today) from Moontower's
+end-of-day chain, 2 credits a name. The chain is last night's: Moontower's derived readings (IV
+surface, rank, skew, VRP) update intraday with a 15-minute delay, but contract quotes land after the
+close, so a premarket plan is priced off the prior close and a live fill still needs your broker.
 
 The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs locally on `:8791`.
 
