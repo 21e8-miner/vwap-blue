@@ -23,7 +23,9 @@ pipeline: session $ volume floor → engine → stale-bar guard → grade floor 
 the local desk it scans a smaller pool (≥160 names vs ~480), grades crypto on Yahoo's bars rather
 than exchange candles, has no VWAP One cross-check, uses the last bar's close rather than a live
 quote, and keeps no forward ledger. `cf-pages/` is an identical copy for Cloudflare Pages (a test
-keeps it so).
+keeps it so). With your own [Moontower](https://api.moontower.ai) key (kept in the browser, sent only
+to api.moontower.ai) the **Moontower lens** selector adds the options market's prior-close reading of
+each row and filters on it ([what it found](#moontower-lens-2026-10-30)).
 
 The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs locally on `:8791`.
 
@@ -116,6 +118,13 @@ python3 md_target_check.py --bars data/backtests/equity_bars.pkl --holdout data/
 # Breakout vs fade at the engine's own gap states (first band break, fakeout): same events, both
 # directions, same exits, net of costs, session-clustered (60 days of 5m bars, first 96 equities)
 python3 direction_check.py
+
+# The Moontower lens: the options market's reading of each name at the prior close (api.moontower.ai:
+# earnings distance, IV30 and its weekly change, monthly VRP, monthly return z, Buy/Sell Vol idea
+# lists) as yes/no lenses on a replayed trade, pass vs fail, session-clustered. Needs a key
+# (MOONTOWER_API_KEY or ~/.config/active_projects_secrets/moontower_api_key); 2 credits a call; the
+# raw pulls stay in the git-ignored data/moontower/ cache, only the per-lens table is written.
+python3 moontower_check.py --replay research/replay_2026-10-29_v1.7.0.json --pull --embed index.html cf-pages/index.html
 
 # Forward record of live grade-A triggers (recorded automatically by the desk)
 python3 ledger.py resolve    # after the close: resolve the session's signals
@@ -347,6 +356,44 @@ for the forward ledger, not a rule. Raw numbers:
 
 Same-day leftover-bar scans (`backtest_today_scans.py`) print results on a handful of trades
 from one session; they are not expectancy.
+
+### Moontower lens (2026-10-30)
+
+VWAP Blue reads the price consensus: where the volume traded (the anchors) and whether price is
+reclaiming or fading them. [Moontower](https://api.moontower.ai) reads the options consensus on the
+same names: how wide a range the market is paying for (IV30), whether that range is being repriced
+(its weekly change), whether an information event just reset the anchor (earnings), whether the
+options are cheap or rich against what the stock does (monthly VRP, ln IV/RV), how stretched the name
+is on the quarter-scale anchor (monthly return z), and its own Buy Vol / Sell Vol idea lists. The page
+offers each as a selectable **lens** (a yes/no on every row, from the prior close, with your own key;
+off by default, so no calls), and `moontower_check.py` replays the same lenses on the engine's trades
+(`research/moontower_check_2026-10-30.json`, embedded in the page as each lens's tooltip).
+
+Replayed on Sep 29 – Oct 29 (23 sessions; 1,398 of the 1,556 classic trades fell on the 85 names
+Moontower covers), **no lens reached a verdict**:
+
+| lens (grade A+B, decision-time reading) | pass | fail | pass − fail |
+|---|--:|--:|--:|
+| IV30 ≥ 50% | −0.05R ± 0.05 (882) | −0.20R ± 0.07 (461) | +0.15R, t 1.7 |
+| IV30 up ≥ 3 pts on the week | +0.01R ± 0.10 (436) | −0.16R ± 0.05 (907) | +0.16R, t 1.4 |
+| did not report earnings today or yesterday | −0.09R ± 0.05 (1,277) | −0.38R ± 0.15 (32) | +0.29R, t 1.9 |
+| stretched, \|monthly z\| ≥ 1.5 | −0.03R ± 0.10 (135) | −0.11R ± 0.06 (1,204) | +0.08R, t 0.7 |
+| options cheap (VRP < 0) | −0.10R ± 0.08 (188) | −0.10R ± 0.06 (1,155) | 0.00R |
+| options rich (VRP ≥ 0.10) | −0.11R ± 0.06 (979) | −0.08R ± 0.07 (364) | −0.03R |
+| on Moontower's Buy Vol list | −0.12R ± 0.07 (558) | −0.10R ± 0.05 (694) | −0.02R |
+| on Moontower's Sell Vol list | −0.07R ± 0.06 (474) | −0.13R ± 0.06 (778) | +0.06R, t 0.7 |
+
+What that says: the two sites read different things. Moontower prices the *size* of the expected
+move; VWAP Blue calls its *direction* against the anchor. Whether the options are cheap or rich, and
+whether a name is on Moontower's lists, carries nothing for these trades. The only lean is through
+range: a wider priced range (high or rising IV30) makes the anchor targets reachable before the stop,
++0.15R with t ≈ 1.5, not a verdict. A name fresh off earnings lost −0.38R (−0.48R ± 0.19 on its 19 gap
+fades), the alert room's own "don't short a stock down big on earnings"; 32 trades. The lens as first
+drafted (no report within a day either way) showed nothing (Δ +0.01R), because sessions the day
+*before* a report did fine, and this engine is flat by the close and carries no overnight event risk,
+so the shipped lens is post-report only; both are in the research file. Grade A alone (45 trades) is
+too few to cut. Buckets were chosen after one look at a month of data: a lens is a reading to carry,
+not a rule, until a fresh window agrees.
 
 ## History / RVOL
 
