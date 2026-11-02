@@ -23,7 +23,21 @@ pipeline: session $ volume floor → engine → stale-bar guard → grade floor 
 the local desk it scans a smaller pool (≥160 names vs ~480), grades crypto on Yahoo's bars rather
 than exchange candles, has no VWAP One cross-check, uses the last bar's close rather than a live
 quote, and keeps no forward ledger. `cf-pages/` is an identical copy for Cloudflare Pages (a test
-keeps it so).
+keeps it so). With your own [Moontower](https://api.moontower.ai) key (kept in the browser, sent only
+to api.moontower.ai) the **Moontower lens** selector adds the options market's prior-close reading of
+each row and filters on it ([what it found](#moontower-lens-2026-10-30)), and the chart pane can
+quote a clicked row's bracket as a vertical (`contract.js`: the call or put struck nearest the entry
+against the first strike at or beyond the target, on the first expiry after today) from Moontower's
+end-of-day chain, 2 credits a name. The chain is last night's: Moontower's derived readings (IV
+surface, rank, skew, VRP) update intraday with a 15-minute delay, but contract quotes land after the
+close, so a premarket plan is priced off the prior close and a live fill still needs your broker.
+The contract stat also says whether the spread is fillable (long leg's market wider than a third of
+the cost, or no open interest and no volume, is flagged) and can size an index hedge for the stock
+position (`/v1/hedge-ratios`: beta-weighted vs SPY, as SPY shares). With a lens on, the MTW cell
+leads with the bracket in implied daily moves (`s0.4 t0.9`: stop and target as fractions of
+IV30/√252) and the meta line counts the board's tight stops and priced events. The page itself is
+pared to what an intraday desk uses: the data plumbing (feed mode, live interval, proxy) sits behind
+the ⚙, the method notes live here in the README, and the results banner folds to one line.
 
 The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs locally on `:8791`.
 
@@ -38,7 +52,7 @@ The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs
 | **v1.4.1** | **Prior-close fix**: gaps were measured from the prior session's 09:30 close instead of its last RTH bar · Pages demo runs the desk engine (`engine.js`, parity-tested) · round-trip cost in R on every plan · blocked fades badge WATCH, not TRIGGER |
 | **v1.5.0** | **Crypto gets a 24h session**: blue, orange, RVOL and signals use the whole ET day, the prior close is the prior day's last bar, and there is no gap fade (a 24/7 market has no opening gap) · first crypto replay (`replay_crypto.py`) · the session replay grades every bar as the desk saw it and closes equity trades by 16:00 (`causal_check.py` re-runs its old end-of-day trigger search) |
 | **v1.6.0** | **mdrev gets a real target**: the first level beyond entry among today's VWAP, today's extreme before the reclaim, the prior session's regular-hours extreme and close (`engine._md_target`); with none, the plan has no target and cannot grade A. v1.5.x stretched a fixed max(1.5 × risk, 0.4%), so every such R:R read 1.50 and the R:R gate never applied · the rule and a missing-RVOL gate are engine options (`md_target`, `rvol_missing`), compared in `md_target_check.py` · parity now covers every option |
-| **v1.7.0** | **Grade A means a multi-day reclaim.** On 59 replayed sessions the gap fade's direction call did worse than its mirror (−0.21R vs −0.09R) while the reclaim's was the only one with a hint (+0.33R ± 0.19), so a fade, alone or with a reclaim, is capped at grade B (`fade_max_grade`); the desk's default floor moves to B, so the board still shows the fades · the **Record** column shows every row's class as it replayed (`evidence.py`; the capped fades' record is the paired v1.6.0 replay's on the same bars, marked A→B, since no grade-A replay takes them any more) · the forward ledger records the capped fades too, reported beside grade A · two refinements from the Oct 26 tape were replayed paired and **not adopted** (`second_look_check.py`, `research/second_look_check_2026-10-26.json`): a floor on the reclaim's target distance (`md_target_min_r`; the nearest level was cents from entry on 180 of 1,554 holdout reclaims) left the mean where it was (+0.02R → +0.05R ± 0.08 at 1R, with 754 fewer trades) and re-arming a stopped fade on a fresh break (`rearm_after_stop`, replay `MAX_TRADES_PER_SESSION`) gave second trades of −0.21R ± 0.11 in sample and +0.02R ± 0.11 on the holdout · a stopped fade now stays STOPPED instead of flapping to TREND BLOCK on later bars · every row carries the OU **half-life** of its close − blue deviation (`half_life_min`, 60 bars, AR(1); `half_life_check.py`): the fastest-reverting third (t½ ≤ 4.6 min on 5m bars, β ≤ 0.5 — bar-to-bar noise around blue) lost on every sample (equities −0.12R ± 0.05 vs ≈ 0 for the rest, both halves of the window; crypto reclaims −0.19R ± 0.09, longs −0.42R), the opposite of the source idea's claim that fast reversion is conviction; a reading in the Reg tooltip, not yet a gate |
+| **v1.7.0** | **Grade A means a multi-day reclaim.** On 59 replayed sessions the gap fade's direction call did worse than its mirror (−0.21R vs −0.09R) while the reclaim's was the only one with a hint (+0.33R ± 0.19), so a fade, alone or with a reclaim, is capped at grade B (`fade_max_grade`); the desk's default floor moves to B, so the board still shows the fades · the **Record** column shows every row's class as it replayed (`evidence.py`; the capped fades' record is the paired v1.6.0 replay's on the same bars, marked A→B, since no grade-A replay takes them any more) · the forward ledger records the capped fades too, reported beside grade A · two refinements from the Oct 26 tape were replayed paired and **not adopted** (`second_look_check.py`, `research/second_look_check_2026-10-26.json`): a floor on the reclaim's target distance (`md_target_min_r`; the nearest level was cents from entry on 180 of 1,554 holdout reclaims) left the mean where it was (+0.02R → +0.05R ± 0.08 at 1R, with 754 fewer trades) and re-arming a stopped fade on a fresh break (`rearm_after_stop`, replay `MAX_TRADES_PER_SESSION`) gave second trades of −0.21R ± 0.11 in sample and +0.02R ± 0.11 on the holdout · a stopped fade now stays STOPPED instead of flapping to TREND BLOCK on later bars · every row carries the OU **half-life** of its close − blue deviation (`half_life_min`, 60 bars, AR(1); `half_life_check.py`): the fastest-reverting third (t½ ≤ 4.6 min on 5m bars, β ≤ 0.5 — bar-to-bar noise around blue) lost on every sample (equities −0.12R ± 0.05 vs ≈ 0 for the rest, both halves of the window; crypto reclaims −0.19R ± 0.09, longs −0.42R), the opposite of the source idea's claim that fast reversion is conviction; a reading in the Reg tooltip, not yet a gate · two more negative results (`basket_check.py`, `latency_check.py`): on the crypto year 95% of reclaims move with the basket (628 of 661), |Δz| terciles show no order and the losing longs fire with ≤ 40% of peers below VWAP (−0.27R), so neither peer residualization nor a cascade lock applies; a fill one bar late costs the reclaims ≈ 0.01R (−0.01 → −0.02R on 2,206 60-day trades) and 10 bps of slippage ≈ 0.06R (−0.09R ± 0.03 late and slipped), while the late fades' mean is dominated by fills that land next to the stop (tiny risk, huge R) — the replay's `late_open` entry mode |
 
 ## Run (local full desk)
 
@@ -116,6 +130,16 @@ python3 md_target_check.py --bars data/backtests/equity_bars.pkl --holdout data/
 # Breakout vs fade at the engine's own gap states (first band break, fakeout): same events, both
 # directions, same exits, net of costs, session-clustered (60 days of 5m bars, first 96 equities)
 python3 direction_check.py
+
+# The Moontower lens: the options market's reading of each name at the prior close (api.moontower.ai:
+# earnings distance, IV30 and its weekly change, monthly VRP, monthly return z, Buy/Sell Vol idea
+# lists) as yes/no lenses on a replayed trade, pass vs fail, session-clustered. Needs a key
+# (MOONTOWER_API_KEY or ~/.config/active_projects_secrets/moontower_api_key); 2 credits a call; the
+# raw pulls stay in the git-ignored data/moontower/ cache, only the per-lens table is written.
+python3 moontower_check.py --replay research/replay_2026-10-29_v1.7.0.json --pull --embed index.html cf-pages/index.html
+# Moontower's own nightly idea lists (Buy/Sell Vol, Long/Short Calendar) scored on the next five sessions,
+# every filter the scanner offers, picked vs the rest; reads the same cache, fetches nothing
+python3 moontower_ideas_check.py
 
 # Forward record of live grade-A triggers (recorded automatically by the desk)
 python3 ledger.py resolve    # after the close: resolve the session's signals
@@ -382,6 +406,88 @@ under the round trip's cost. Raw numbers:
 [`research/band_scaling_equity_2026-10-28.json`](research/band_scaling_equity_2026-10-28.json),
 [`research/band_scaling_crypto_2026-10-28.json`](research/band_scaling_crypto_2026-10-28.json).
 
+### Moontower lens (2026-10-30)
+
+VWAP Blue reads the price consensus: where the volume traded (the anchors) and whether price is
+reclaiming or fading them. [Moontower](https://api.moontower.ai) reads the options consensus on the
+same names: how wide a range the market is paying for (IV30), whether that range is being repriced
+(its weekly change), whether an information event just reset the anchor (earnings), whether the
+options are cheap or rich against what the stock does (monthly VRP, ln IV/RV), how stretched the name
+is on the quarter-scale anchor (monthly return z), and its own Buy Vol / Sell Vol idea lists. The page
+offers each as a selectable **lens** (a yes/no on every row, from the prior close, with your own key;
+off by default, so no calls), and `moontower_check.py` replays the same lenses on the engine's trades
+(`research/moontower_check_2026-10-30.json`, embedded in the page as each lens's tooltip).
+
+Replayed on Sep 29 – Oct 29 (23 sessions; 1,398 of the 1,556 classic trades fell on the 85 names
+Moontower covers), **no lens reached a verdict**:
+
+| lens (grade A+B, decision-time reading) | pass | fail | pass − fail |
+|---|--:|--:|--:|
+| IV30 ≥ 50% | −0.05R ± 0.05 (882) | −0.20R ± 0.07 (461) | +0.15R, t 1.7 |
+| IV30 up ≥ 3 pts on the week | +0.01R ± 0.10 (436) | −0.16R ± 0.05 (907) | +0.16R, t 1.4 |
+| did not report earnings today or yesterday | −0.09R ± 0.05 (1,277) | −0.38R ± 0.15 (32) | +0.29R, t 1.9 |
+| stretched, \|monthly z\| ≥ 1.5 | −0.03R ± 0.10 (135) | −0.11R ± 0.06 (1,204) | +0.08R, t 0.7 |
+| options cheap (VRP < 0) | −0.10R ± 0.08 (188) | −0.10R ± 0.06 (1,155) | 0.00R |
+| options rich (VRP ≥ 0.10) | −0.11R ± 0.06 (979) | −0.08R ± 0.07 (364) | −0.03R |
+| on Moontower's Buy Vol list | −0.12R ± 0.07 (558) | −0.10R ± 0.05 (694) | −0.02R |
+| on Moontower's Sell Vol list | −0.07R ± 0.06 (474) | −0.13R ± 0.06 (778) | +0.06R, t 0.7 |
+
+A second pass (same day, same replay) sized the bracket in the options market's units, the implied
+daily move IV30/√252 at the prior close, and added the event and skew readings:
+
+| lens or bucket (grade A+B) | pass | fail | pass − fail |
+|---|--:|--:|--:|
+| stop ≥ ½ implied daily move | +0.01R ± 0.07 (367) | −0.15R ± 0.06 (976) | +0.16R, t 1.7 |
+| target within 1 implied move | −0.09R ± 0.05 (1,284) | −0.40R ± 0.20 (59) | +0.31R, t 1.5 |
+| gap ≥ the implied move priced by IV10 (gap trades) | −0.29R ± 0.22 (78) | −0.21R ± 0.10 (523) | −0.08R |
+| IV10 above IV30 by ≥ 5 pts (event inside the week) | −0.15R ± 0.06 (343) | −0.09R ± 0.06 (1,000) | −0.06R |
+| 25Δ put skew in its top quarter (≥ 10 prior days) | −0.11R ± 0.13 (346) | −0.05R ± 0.08 (333) | −0.07R |
+| 25Δ call skew in its top quarter | −0.08R ± 0.13 (78) | −0.08R ± 0.10 (605) | 0.00R |
+
+The stop in implied-move units is the one monotone reading in the whole study: stops narrower than a
+quarter of the implied daily move lost −0.20R ± 0.08 (496 trades, 40% wins); a quarter to a half,
+−0.09R; half to one, 0.00R (58% wins); a full move or more, +0.09R ± 0.10 (47 trades, 70% wins). The
+engine sets stops by the day's own σ bands, and the options market says the narrow ones are inside
+the noise it is pricing. That is still t ≈ 1.7 on one month, a reading to carry, not a gate. Targets
+beyond one implied move (59 trades) lost −0.40R: the day rarely delivers them. Skew, term structure
+and a gap's size against the priced move carried nothing.
+
+**Moontower's own scanner, scored** (`moontower_ideas_check.py`, `research/moontower_ideas_check_2026-11-02.json`):
+the 23 nightly idea lists (Sep 28 – Oct 28) against the next five sessions' cockpit rows of the 85
+covered names, every filter the scanner offers (score floors, top 10, no earnings within two weeks),
+picked vs the names it left out, SEs clustered by snapshot:
+
+| idea, filter score > 20 | picked | the rest | picked − rest |
+|---|--:|--:|--:|
+| Buy Vol: realized (5 sessions) − IV30, vol pts | −6.7 ± 2.7 (638) | −16.6 ± 1.2 (802) | **+9.9, t 3.4** |
+| Sell Vol: IV30 − realized, vol pts | +17.2 ± 1.3 (540) | +9.3 ± 2.4 (900) | **+7.9, t 2.9** |
+| Long Calendar: 5-session change in IV90 − IV30, pts | −0.1 ± 0.6 (385) | −2.6 ± 0.5 (1,055) | +2.5, t 3.2 |
+| Short Calendar: the negative of that | +2.7 ± 0.4 (354) | +1.7 ± 0.7 (1,086) | +1.0, t 1.3 |
+| Buy Vol: next-day \|move\| ÷ implied daily move | 0.71× ± 0.07 | 0.58× ± 0.04 | +0.14, t 1.6 |
+| Sell Vol: the same | 0.58× ± 0.04 | 0.67× ± 0.06 | −0.09, t 1.2 |
+
+The ranking works *relatively*: every filter separates the names that went on to realize more (Buy
+Vol) or less (Sell Vol) than the rest, by 7–10 vol points, at every score floor and in the top 10,
+with or without the earnings exclusion. It does not fix the *absolute* sign: October realized far
+below implied across the board (the rest of the Buy Vol list lost 17 points; even its picks lost 7),
+so a Buy Vol pick was a smaller loss, and a Sell Vol pick a bigger gain, than its peers. For an
+intraday desk the useful line is the last two: every name moved about 0.6 of its implied daily move
+the next day in this quiet month, and Buy Vol picks moved a little more (0.71×, t 1.6). Caveats: the
+five-session windows overlap night to night, so the clustered t's are generous; "the rest" is the
+rest of the same list, not a market benchmark; and vol edge here is the straddle's gross, with no
+gamma scalping, costs or path.
+
+What that says: the two sites read different things. Moontower prices the *size* of the expected
+move; VWAP Blue calls its *direction* against the anchor. Whether the options are cheap or rich, and
+whether a name is on Moontower's lists, carries nothing for these trades. The only lean is through
+range: a wider priced range (high or rising IV30) makes the anchor targets reachable before the stop,
++0.15R with t ≈ 1.5, not a verdict. A name fresh off earnings lost −0.38R (−0.48R ± 0.19 on its 19 gap
+fades), the alert room's own "don't short a stock down big on earnings"; 32 trades. The lens as first
+drafted (no report within a day either way) showed nothing (Δ +0.01R), because sessions the day
+*before* a report did fine, and this engine is flat by the close and carries no overnight event risk,
+so the shipped lens is post-report only; both are in the research file. Grade A alone (45 trades) is
+too few to cut. Buckets were chosen after one look at a month of data: a lens is a reading to carry,
+not a rule, until a fresh window agrees.
 
 ## History / RVOL
 

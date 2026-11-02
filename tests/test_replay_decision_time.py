@@ -176,6 +176,18 @@ class TestSessionClose(unittest.TestCase):
         self.assertEqual((by["classic_after_hours"].exit_reason, by["classic_after_hours"].exit), ("stop", 99.0))
         self.assertEqual(rs.session_bars("AAPL", self.day)[-1]["time"], "09-15 15:55")
 
+    def test_a_late_fill_takes_the_second_bar_after_the_trigger(self):
+        """late_open (latency_check.py): a trader one bar behind fills at bar k+2's open and exits from there."""
+        day = day_bars("2026-09-15", [("15:00", 100.0), ("15:05", 100.2), ("15:10", 100.6), ("15:15", 100.8),
+                                      ("15:20", 100.5), ("15:25", 99.0), ("15:30", 99.2)])
+        on_time, _ = rs.trades_at("AAPL", self.row, day, 0, [MODELS["classic"]], "next_open", 0.0)
+        late, _ = rs.trades_at("AAPL", self.row, day, 0, [MODELS["classic"]], "late_open", 0.0)
+        self.assertEqual(on_time[0].entry, day[1]["o"])
+        self.assertEqual(late[0].entry, day[2]["o"])
+        self.assertEqual(late[0].bars_held, on_time[0].bars_held - 1)          # same stop bar, one bar later in
+        self.assertEqual((on_time[0].exit_reason, late[0].exit_reason), ("stop", "stop"))
+        self.assertEqual(rs.trades_at("AAPL", self.row, day[:2], 0, [MODELS["classic"]], "late_open"), ([], "no_next_bar"))
+
     def test_a_trigger_on_the_last_regular_bar_has_no_fill(self):
         k = next(i for i, b in enumerate(self.day) if b["time"].endswith("15:55"))
         self.assertEqual(rs.trades_at("AAPL", self.row, self.day, k, rs.MODELS), ([], "no_next_bar"))
