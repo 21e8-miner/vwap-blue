@@ -3,6 +3,7 @@ contract.js: a VWAP Blue bracket as a vertical on a Moontower chain. Run under n
 """
 
 import json
+import math
 import shutil
 import subprocess
 import unittest
@@ -108,6 +109,31 @@ class TestFillAndHedge(unittest.TestCase):
         self.assertAlmostEqual(h["hedge_shares"], round(-1.8912 * 64680 / 700, 1))
         self.assertEqual(h["idio_share"], 0.343)
         self.assertIsNone(run("C.indexHedge({}, 100, 1, 1)"))
+
+
+class TestRemark(unittest.TestCase):
+
+    def test_black_scholes_parity_and_intrinsic(self):
+        c, p = run('C.bsPrice("call", 100, 95, 30/365, 0.3)'), run('C.bsPrice("put", 100, 95, 30/365, 0.3)')
+        self.assertAlmostEqual(c - p, 100 - 95 * math.exp(-0.04 * 30 / 365), places=6)
+        self.assertEqual(run('C.bsPrice("call", 100, 95, 0, 0.3)'), 5)
+        self.assertIsNone(run('C.bsPrice("call", 0, 95, 0.1, 0.3)'))
+
+    def test_remark_reprices_the_vertical_at_the_live_spot(self):
+        v = {"side": "long", "dte": 8, "width": 5, "debit_mid": 0.4, "debit_ask": 0.5, "long": {"strike": 100, "iv": 30}, "short": {"strike": 105, "iv": 31}}
+        low, high = run(f"C.remarkContract({json.dumps(v)}, 100.2, 1)"), run(f"C.remarkContract({json.dumps(v)}, 104, 1)")
+        self.assertGreater(high["debit"], low["debit"], "a call vertical is worth more as spot rises")
+        self.assertAlmostEqual(low["change"], round(low["debit"] - 0.4, 2))
+        self.assertAlmostEqual(low["t_years"], round(7 / 365, 4))
+        self.assertAlmostEqual(high["rr"], round((5 - high["debit"]) / high["debit"], 2))
+        self.assertIsNone(run(f"C.remarkContract({json.dumps({**v, 'same_strike': True})}, 100, 1)"))
+        self.assertIsNone(run(f"C.remarkContract({json.dumps({**v, 'long': {'strike': 100}})}, 100, 1)"), "no IV on a leg")
+
+    def test_bracket_contract_carries_the_short_legs_iv_for_the_remark(self):
+        chain = [{"expiry_date": "2026-10-09", "dte": 8, "strike": k, "call_bid_price": 2.6, "call_mid_price": 2.8, "call_ask_price": 3.0,
+                  "call_mid_iv": 30 + k / 100, "put_bid_price": 1, "put_mid_price": 1, "put_ask_price": 1} for k in (100, 105)]
+        c = run(f'C.bracketContract({json.dumps(chain)}, {{"side": "long", "entry": 100.2, "stop": 99, "target": 104.9}}, "2026-10-01")')
+        self.assertEqual(c["short"]["iv"], 31.05)
 
 
 class TestPage(unittest.TestCase):

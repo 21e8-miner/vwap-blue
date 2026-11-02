@@ -39,6 +39,19 @@ IV30/√252) and the meta line counts the board's tight stops and priced events.
 pared to what an intraday desk uses: the data plumbing (feed mode, live interval, proxy) sits behind
 the ⚙, the method notes live here in the README, and the results banner folds to one line.
 
+Moontower is paid for in three layers, each at its own rate, so a day on the page costs a handful
+of credits (2 a call; a cap per ET day sits in the ⚙, default 60, with the spend shown beside it).
+The daily layer (directory, prior-close cockpit, earnings, a month of skew, the idea lists) is pulled
+once per day for the board's candidates. The intraday layer is one cockpit call for those candidates
+(up to 100 names) during regular hours, only when the 15-minute slot turns or a new name enters the
+board (new names coalesce for a minute): Moontower's rows are 15-minute delayed, so polling faster
+returns the same row. Live IV30 shows as `IV28 →33` in the cell and feeds the sizing (stop and target
+in implied moves) and the IV lenses; everything else stays the prior close the replay graded. Chains
+are end of day: after 16:20 ET the page pulls today's chain once for the grade-A names on the board
+(within the cap), keeps every chain for five days, and intraday re-marks last night's vertical at the
+live price with Black–Scholes (`contract.js remarkContract`, each leg's end-of-day IV held fixed) so
+the contract stat updates all session without a call.
+
 The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs locally on `:8791`.
 
 | From | What |

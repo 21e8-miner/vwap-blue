@@ -56,7 +56,7 @@
       kind: call ? "call vertical" : "put vertical", side: plan.side,
       long: { strike: num(long.strike), bid: longBid, mid: longMid, ask: longAsk, delta: num(long[`${leg}_delta`]), iv: num(long[`${leg}_mid_iv`]),
               volume: num(long[`${leg}_volume`]), open_interest: num(long[`${leg}_open_interest`]) },
-      short: { strike: num(short.strike), bid: shortBid, mid: shortMid, delta: num(short[`${leg}_delta`]) },
+      short: { strike: num(short.strike), bid: shortBid, mid: shortMid, delta: num(short[`${leg}_delta`]), iv: num(short[`${leg}_mid_iv`]) },
       width, same_strike: sameStrike,
       debit_ask: sameStrike ? null : debitAsk, debit_mid: sameStrike ? null : debitMid,
       rr_ask: sameStrike ? null : rr(debitAsk), rr_mid: sameStrike ? null : rr(debitMid),
@@ -98,5 +98,36 @@
                 .map(r => Object.fromEntries(keys.map(k => [k, r[k]])));
   }
 
-  return { pickExpiry, nearestStrike, bracketContract, trimChain, fillability, indexHedge };
+  // ── re-marking last night's chain intraday, without a call ──────────────────────────────────
+  // Black–Scholes (mirrors moontower_deeper_check.bs): kind "call"|"put", s spot, k strike, t years, iv decimal
+  function ncdf(x) {
+    const t = 1 / (1 + 0.2316419 * Math.abs(x));
+    const d = 0.3989422804014327 * Math.exp(-x * x / 2);
+    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+    return x >= 0 ? 1 - p : p;
+  }
+  function bsPrice(kind, s, k, t, iv, r = 0.04) {
+    if (!(s > 0) || !(k > 0)) return null;
+    if (!(t > 0) || !(iv > 0)) return kind === "call" ? Math.max(0, s - k) : Math.max(0, k - s);
+    const d1 = (Math.log(s / k) + (r + iv * iv / 2) * t) / (iv * Math.sqrt(t)), d2 = d1 - iv * Math.sqrt(t);
+    return kind === "call" ? s * ncdf(d1) - k * Math.exp(-r * t) * ncdf(d2) : k * Math.exp(-r * t) * ncdf(-d2) - s * ncdf(-d1);
+  }
+  // the vertical from bracketContract(), re-priced at today's spot with each leg's end-of-day IV and the time
+  // that has passed since the chain's trade date (elapsedDays, calendar). Approximate: IV is held fixed.
+  function remarkContract(c, spot, elapsedDays = 1) {
+    if (!c || c.error || c.same_strike || !(spot > 0)) return null;
+    const ivL = c.long && c.long.iv, ivS = c.short && c.short.iv;
+    if (ivL == null || ivS == null || c.dte == null) return null;
+    const toDec = v => (v > 3 ? v / 100 : v);                                   // the chain quotes IV in percent
+    const t = Math.max(c.dte - elapsedDays, 0.25) / 365;
+    const leg = c.side === "long" ? "call" : "put";
+    const l = bsPrice(leg, spot, c.long.strike, t, toDec(ivL)), s = bsPrice(leg, spot, c.short.strike, t, toDec(ivS));
+    if (l == null || s == null) return null;
+    const debit = +(l - s).toFixed(2);
+    const ref = c.debit_mid != null ? c.debit_mid : c.debit_ask;
+    return { debit, change: ref != null ? +(debit - ref).toFixed(2) : null, spot, t_years: +t.toFixed(4),
+             rr: debit > 0 && c.width > 0 ? +((c.width - debit) / debit).toFixed(2) : null };
+  }
+
+  return { pickExpiry, nearestStrike, bracketContract, trimChain, fillability, indexHedge, bsPrice, remarkContract };
 });
