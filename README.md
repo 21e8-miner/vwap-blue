@@ -137,6 +137,9 @@ python3 direction_check.py
 # (MOONTOWER_API_KEY or ~/.config/active_projects_secrets/moontower_api_key); 2 credits a call; the
 # raw pulls stay in the git-ignored data/moontower/ cache, only the per-lens table is written.
 python3 moontower_check.py --replay research/replay_2026-10-29_v1.7.0.json --pull --embed index.html cf-pages/index.html
+# Moontower's own nightly idea lists (Buy/Sell Vol, Long/Short Calendar) scored on the next five sessions,
+# every filter the scanner offers, picked vs the rest; reads the same cache, fetches nothing
+python3 moontower_ideas_check.py
 
 # Forward record of live grade-A triggers (recorded automatically by the desk)
 python3 ledger.py resolve    # after the close: resolve the session's signals
@@ -414,6 +417,31 @@ engine sets stops by the day's own σ bands, and the options market says the nar
 the noise it is pricing. That is still t ≈ 1.7 on one month, a reading to carry, not a gate. Targets
 beyond one implied move (59 trades) lost −0.40R: the day rarely delivers them. Skew, term structure
 and a gap's size against the priced move carried nothing.
+
+**Moontower's own scanner, scored** (`moontower_ideas_check.py`, `research/moontower_ideas_check_2026-11-02.json`):
+the 23 nightly idea lists (Sep 28 – Oct 28) against the next five sessions' cockpit rows of the 85
+covered names, every filter the scanner offers (score floors, top 10, no earnings within two weeks),
+picked vs the names it left out, SEs clustered by snapshot:
+
+| idea, filter score > 20 | picked | the rest | picked − rest |
+|---|--:|--:|--:|
+| Buy Vol: realized (5 sessions) − IV30, vol pts | −6.7 ± 2.7 (638) | −16.6 ± 1.2 (802) | **+9.9, t 3.4** |
+| Sell Vol: IV30 − realized, vol pts | +17.2 ± 1.3 (540) | +9.3 ± 2.4 (900) | **+7.9, t 2.9** |
+| Long Calendar: 5-session change in IV90 − IV30, pts | −0.1 ± 0.6 (385) | −2.6 ± 0.5 (1,055) | +2.5, t 3.2 |
+| Short Calendar: the negative of that | +2.7 ± 0.4 (354) | +1.7 ± 0.7 (1,086) | +1.0, t 1.3 |
+| Buy Vol: next-day \|move\| ÷ implied daily move | 0.71× ± 0.07 | 0.58× ± 0.04 | +0.14, t 1.6 |
+| Sell Vol: the same | 0.58× ± 0.04 | 0.67× ± 0.06 | −0.09, t 1.2 |
+
+The ranking works *relatively*: every filter separates the names that went on to realize more (Buy
+Vol) or less (Sell Vol) than the rest, by 7–10 vol points, at every score floor and in the top 10,
+with or without the earnings exclusion. It does not fix the *absolute* sign: October realized far
+below implied across the board (the rest of the Buy Vol list lost 17 points; even its picks lost 7),
+so a Buy Vol pick was a smaller loss, and a Sell Vol pick a bigger gain, than its peers. For an
+intraday desk the useful line is the last two: every name moved about 0.6 of its implied daily move
+the next day in this quiet month, and Buy Vol picks moved a little more (0.71×, t 1.6). Caveats: the
+five-session windows overlap night to night, so the clustered t's are generous; "the rest" is the
+rest of the same list, not a market benchmark; and vol edge here is the straddle's gross, with no
+gamma scalping, costs or path.
 
 What that says: the two sites read different things. Moontower prices the *size* of the expected
 move; VWAP Blue calls its *direction* against the anchor. Whether the options are cheap or rich, and
