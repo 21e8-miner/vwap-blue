@@ -93,7 +93,6 @@
     label.chk input { appearance: none; width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--ink2); margin: 0; padding: 0; min-height: 0; background: transparent; }
     label.chk input:checked { background: var(--brick); border-color: var(--brick); }
     label.chk:has(input:checked) { color: var(--brick); border-color: var(--brick); }
-    .hint { font-family: var(--serif); font-style: italic; color: var(--muted); font-size: 0.95rem; margin-left: -2px; }
     button {
       background: var(--ink); color: var(--paper2); border: 1px solid var(--ink); border-radius: 10px;
       padding: 0 16px; min-height: 34px; cursor: pointer;
@@ -201,7 +200,7 @@
       #chartWrap { flex: 0 0 300px; }
       .ch-stats { grid-template-columns: repeat(2, 1fr); }
       .crit { grid-template-columns: 1fr; }
-      #myproxy, #interval, #mode, #mtwKey, .hint { display: none; }
+      #myproxy, #interval, #mode { display: none; }
       #tickers { max-width: none; }
       footer { display: none; }
     }
@@ -212,7 +211,6 @@
   <header>
     <h1><span class="live-dot" id="dot"></span><span class="word">VWAP Blue</span><em>v1.7.0 · same engine as the desk · research only</em></h1>
     <input id="tickers" type="text" placeholder="blank = universe" aria-label="tickers" />
-    <input id="max" type="number" value="16" min="1" max="200" title="show top N after rank" aria-label="show top N" />
     <select id="gradeMin" title="min grade">
       <option value="A">grade ≥ A</option>
       <option value="B" selected>grade ≥ B</option>
@@ -236,16 +234,16 @@
       <option value="put_skew_high">25Δ put skew in its top quarter</option>
       <option value="call_skew_high">25Δ call skew in its top quarter</option>
     </select>
-    <input id="mtwKey" type="password" placeholder="Moontower key" autocomplete="off" style="width:118px"
-      title="Your api.moontower.ai key (mtw_…). Kept in this browser only and sent only to api.moontower.ai. Each call costs 2 credits. Daily layer once a day (directory, prior-close cockpit, earnings, skew, idea lists ≈ 5 calls for a 48-name board); then one cockpit call per 15-minute slot for the board's candidates during RTH; chains for grade A after the close. Capped per day in ⚙." aria-label="Moontower API key" />
-    <input id="minDvol" type="number" value="2" min="0" max="500" step="0.5" title="min session $vol ($M). 0=off" style="width:72px" aria-label="minimum session dollar volume in millions" />
-    <span class="hint" title="Session $ volume floor in millions">$M vol</span>
     <label class="chk"><input type="checkbox" id="actOnly" /> actionable</label>
     <button id="btn" onclick="scan()">Scan</button>
     <button class="live" id="liveBtn" type="button" onclick="toggleLive()">Live off</button>
-    <details class="gear" title="data plumbing">
+    <details class="gear" title="settings">
       <summary aria-label="settings">⚙</summary>
       <div class="gear-row">
+        <label>show top <input id="max" type="number" value="16" min="1" max="200" title="show top N after rank" aria-label="show top N" /></label>
+        <label>$vol floor <input id="minDvol" type="number" value="2" min="0" max="500" step="0.5" title="min session $vol ($M). 0=off" style="width:72px" aria-label="minimum session dollar volume in millions" /> $M</label>
+        <input id="mtwKey" type="password" placeholder="Moontower key" autocomplete="off" style="width:118px"
+      title="Your api.moontower.ai key (mtw_…). Kept in this browser only and sent only to api.moontower.ai. Each call costs 2 credits. Daily layer once a day (directory, prior-close cockpit, earnings, skew, idea lists ≈ 5 calls for a 48-name board); then one cockpit call per 15-minute slot for the board's candidates during RTH; chains for grade A after the close. Capped per day in ⚙." aria-label="Moontower API key" />
         <label>live every <input id="interval" type="number" value="45" min="15" max="300" title="live sec" aria-label="live interval seconds" /> s</label>
         <label>feed <select id="mode" title="data mode">
           <option value="hybrid" selected>hybrid</option>
@@ -281,15 +279,11 @@
             <th data-k="ticker">Ticker</th>
             <th data-k="grade">Gr</th>
             <th data-k="signal">Signal</th>
-            <th data-k="regime" title="KER regime / setup mode">Reg</th>
-            <th data-k="state">State</th>
+            <th data-k="state" title="hover for the regime (KER), setup mode and deviation half-life">State</th>
             <th title="This setup class on the banner's replayed sessions: trades · net R per trade after costs · what the direction call added over its mirror (same bracket, other side)">Record</th>
             <th class="mtwh" title="Moontower, at the prior close: E = days since (+) or until (−) earnings · IV30 and its weekly change · monthly VRP (ln IV/RV) · monthly return z · Buy/Sell Vol idea scores. Hover a cell for the lens it passes.">MTW</th>
-            <th data-k="price">Price</th>
-            <th data-k="blue">Blue</th>
-            <th data-k="orange">Orange</th>
+            <th data-k="price" title="hover for blue, orange and the distance from VWAP in σ">Price</th>
             <th data-k="gap_pct">Gap%</th>
-            <th data-k="dist_std">σ</th>
             <th data-k="entry">Entry</th>
             <th data-k="stop">Stop</th>
             <th data-k="target">Target</th>
@@ -299,7 +293,7 @@
 
           </tr>
         </thead>
-        <tbody id="tb"><tr><td colspan="19" class="m" style="padding:28px;text-align:center">Press Scan</td></tr></tbody>
+        <tbody id="tb"><tr><td colspan="15" class="m" style="padding:28px;text-align:center">Press Scan</td></tr></tbody>
       </table>
     </div>
     <div class="pane pane-chart" id="chartPane">
@@ -814,32 +808,27 @@ function sorted() {
 function render() {
   const list = sorted();
   if (!list.length) {
-    $("tb").innerHTML = `<tr><td colspan="19" class="m" style="padding:24px;text-align:center">${emptyHint || "No rows"}</td></tr>`;
+    $("tb").innerHTML = `<tr><td colspan="15" class="m" style="padding:24px;text-align:center">${emptyHint || "No rows"}</td></tr>`;
     return;
   }
   $("tb").innerHTML = list.map(r => {
     const tk = esc(r.ticker);
-    if (r.error) return `<tr data-tk="${tk}"><td></td><td class="tk">${tk}</td><td colspan="17" class="note">${esc(r.error)}</td></tr>`;
+    if (r.error) return `<tr data-tk="${tk}"><td></td><td class="tk">${tk}</td><td colspan="13" class="note">${esc(r.error)}</td></tr>`;
     const cls = [r.actionable?"act":"", r.stale_bars?"stale":"", selected===r.ticker?"sel":""].filter(Boolean).join(" ");
     const mark = r.live_actionable ? " ◆" : (r.actionable ? " ●" : "");
     const d = r.dist_std;
     const reg = r.regime || "—";
-    const regCls = reg === "chop" ? "pos" : (reg === "trend" ? "neg" : "m");
     const age = r.bar_age_min;
     return `<tr class="${cls}" data-tk="${tk}" title="${esc(r.note||"")}${r.ker!=null?` · KER ${r.ker}`:""}">
       <td class="edge">${r.edge??0}</td>
       <td class="tk">${tk}${mark}</td>
       <td><span class="grade ${gradeCls(r.grade)}">${esc(r.grade||"–")}</span></td>
       <td><span class="badge ${esc(r.signal||"FLAT")}">${esc(r.signal||"FLAT")}</span></td>
-      <td class="${regCls}" title="KER ${r.ker??"—"} · adapt ${r.adapt_mult??"—"} · dev t½ ${r.half_life_min==null?"—":r.half_life_min>=999?"none":r.half_life_min+"m"}">${esc(reg)}${r.setup_mode?"/"+esc(r.setup_mode):""}</td>
-      <td class="note">${esc(r.note||"")}</td>
+      <td class="note" title="${esc(reg)}${r.setup_mode?"/"+esc(r.setup_mode):""} · KER ${r.ker??"—"} · adapt ${r.adapt_mult??"—"} · dev t½ ${r.half_life_min==null?"—":r.half_life_min>=999?"none":r.half_life_min+"m"}">${esc(r.note||"")}</td>
       <td class="record">${recordCell(r)}</td>
       <td class="mtw">${mtwCell(r)}</td>
-      <td>${n(r.price)}</td>
-      <td class="bluec">${n(r.blue)}</td>
-      <td class="orangec">${n(r.orange)}</td>
+      <td title="blue ${n(r.blue)} · orange ${n(r.orange)} · ${d==null?"—":((d>0?"+":"")+n(d))}σ from VWAP">${n(r.price)}</td>
       <td class="${sgn(r.gap_pct)}">${r.gap_pct==null?"—":(r.gap_pct>0?"+":"")+n(r.gap_pct)}</td>
-      <td class="${sgn(d)}">${d==null?"—":((d>0?"+":"")+n(d))}</td>
       <td>${n(r.entry)}</td>
       <td class="neg">${n(r.stop)}</td>
       <td class="orangec">${n(r.target)}</td>
@@ -1008,16 +997,13 @@ function present() {
   const feeds = [...new Set(ok.map(r => r.provider).filter(Boolean))];
   const errN = all.length - ok.length;
   $("meta").innerHTML =
-    `<b>${rows.length}</b> shown · pool <b>${list.length}</b> · liquid <b>${liquid.length}</b>` +
-    (volDrop ? ` · vol-drop <b>${volDrop}</b>` : "") + (minDvol ? ` · floor <b>$${minDvol/1e6}M</b> (crypto $${E.dollarVolumeFloor("BTC-USD", minDvol)/1e6}M 24h)` : "") +
-    ` · <b>${rows.filter(r=>r.actionable).length}</b> actionable (${actPool} in pool)${$("actOnly").checked ? " · <b>filter on</b>" : ""}` +
-    ` · <b>${rows.filter(r=>r.live_actionable).length}</b> live` +
-    ` · <b>${rows.filter(r=>/^L?A$/.test(r.grade||"")).length}</b> grade A · grade ≥ <b>${esc(floor)}</b>` +
+    `<span title="shown of ${list.length} scanned, ${liquid.length} past the $vol floor${volDrop ? `, ${volDrop} dropped on volume` : ""}${minDvol ? ` ($${minDvol/1e6}M; crypto $${E.dollarVolumeFloor("BTC-USD", minDvol)/1e6}M 24h)` : ""}"><b>${rows.length}</b> shown of ${list.length}</span>` +
+    ` · <b>${rows.filter(r=>r.actionable).length}</b> actionable${$("actOnly").checked ? " (filter on)" : ` (${actPool} in pool)`}` +
+    ` · <b>${rows.filter(r=>r.live_actionable).length}</b> live · <b>${rows.filter(r=>/^L?A$/.test(r.grade||"")).length}</b> grade A` +
     (rows.some(r => r.stale_bars) ? ` · <span class="neg">stale ${rows.filter(r=>r.stale_bars).length}</span>` : "") +
-    (Object.keys(regimes).length ? ` · regime {${Object.entries(regimes).map(([k,v]) => `${esc(k)}:${v}`).join(" ")}}` : "") +
-    ` · equities <b>${esc(eq)}</b>` + (lastDay && eq !== "rth" ? ` (session ${esc(lastDay)})` : "") +
+    ` · <span title="regimes ${Object.entries(regimes).map(([k,v]) => `${esc(k)} ${v}`).join(", ") || "—"} · feeds ${esc(feeds.join(", ") || "—")} · scan ${secs.toFixed(1)}s">${esc(eq)}</span>` + (lastDay && eq !== "rth" ? ` (${esc(lastDay)})` : "") +
     (errN ? ` · <span class="neg">${errN} feed errors</span>` : "") + lensNote +
-    ` · feeds <b>${esc(feeds.join(", ") || "—")}</b> · <b>${secs.toFixed(1)}s</b> · ${new Date(nowMs).toLocaleTimeString()}`;
+    ` · ${new Date(nowMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   $("footProv").textContent = "proxies: " + (proxyBase().includes("workers.dev") ? "personal worker + public" : "custom + public");
   if ($("provBox").style.display === "block") { $("provBox").style.display = "none"; loadProviders(); }
   render();

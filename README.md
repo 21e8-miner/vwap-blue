@@ -36,8 +36,12 @@ the cost, or no open interest and no volume, is flagged) and can size an index h
 position (`/v1/hedge-ratios`: beta-weighted vs SPY, as SPY shares). With a lens on, the MTW cell
 leads with the bracket in implied daily moves (`s0.4 t0.9`: stop and target as fractions of
 IV30/√252) and the meta line counts the board's tight stops and priced events. The page itself is
-pared to what an intraday desk uses: the data plumbing (feed mode, live interval, proxy) sits behind
-the ⚙, the method notes live here in the README, and the results banner folds to one line.
+pared to what an intraday desk uses: the header is the ticker list, the grade floor, the Moontower
+lens, the actionable toggle and Scan / Live; everything set once (show-N, the $vol floor, the
+Moontower key and cap, feed mode, live interval, proxy) sits behind the ⚙. The table carries the
+plan columns only: the VWAP levels, σ distance and regime live in the Price and State tooltips. The
+meta line reads shown · actionable · live · grade A · session · Moontower · time, with the scan
+details (pool, floor, regimes, feeds, seconds) in its tooltips. The results banner folds to one line.
 
 Moontower is paid for in three layers, each at its own rate, so a day on the page costs a handful
 of credits (2 a call; a cap per ET day sits in the ⚙, default 60, with the spend shown beside it).
