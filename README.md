@@ -140,6 +140,10 @@ python3 moontower_check.py --replay research/replay_2026-10-29_v1.7.0.json --pul
 # Moontower's own nightly idea lists (Buy/Sell Vol, Long/Short Calendar) scored on the next five sessions,
 # every filter the scanner offers, picked vs the rest; reads the same cache, fetches nothing
 python3 moontower_ideas_check.py
+# Four follow-ups on the same trades: the bracket re-cut in implied moves (paired re-simulation), a
+# universe regime gate, the post-earnings gap both ways, index-hedged R, and the grade-A vertical replayed
+# (prior-close chains in data/moontower/chains/); needs the replay's saved bars and SPY's 60-day bars
+python3 moontower_deeper_check.py --replay research/replay_2026-10-30_v1.7.0.json --bars data/backtests/equity_bars_2026-10-30.pkl
 
 # Forward record of live grade-A triggers (recorded automatically by the desk)
 python3 ledger.py resolve    # after the close: resolve the session's signals
@@ -476,6 +480,22 @@ the next day in this quiet month, and Buy Vol picks moved a little more (0.71×,
 five-session windows overlap night to night, so the clustered t's are generous; "the rest" is the
 rest of the same list, not a market benchmark; and vol edge here is the straddle's gross, with no
 gamma scalping, costs or path.
+
+**Four follow-ups, same trades** (`moontower_deeper_check.py`, `research/moontower_deeper_check_2026-11-02.json`,
+on `research/replay_2026-10-30_v1.7.0.json`: Sep 30 – Oct 30, 1,364 classic trades, 35 grade A):
+
+| study | what was done | result |
+|---|---|---|
+| **Bracket re-cut in implied moves** | stop moved to ½, ¾ or 1 implied daily move from the fill (target kept, or pulled inside one move), every trade re-simulated on the same bars, paired | In **R, nothing**: grade A +0.20R → +0.17R ± 0.08 at ¾ move (stop-outs 16 → 4 of 33, but the survivors just ride to the close). Net % per trade rose +0.32% ± 0.17 (t 1.9) only because the stop is 2.3× further away, so 2.3× more is risked: leverage, not edge. A+B: Δ ≈ 0 everywhere. |
+| **Regime gate** | the prior session's universe-wide \|move\| ÷ implied move (median over names), sessions cut into terciles | **No decision-time gate.** Fades lost in every tercile (−0.29, −0.18, −0.30R); reclaims +0.06, −0.08, +0.09R. Only the *same* session's ratio, which you cannot know in the morning, separates (reclaims +0.27R on lively days, fades −0.43R on mid days). |
+| **Post-earnings gap, both ways** | gap trades on a name that reported today or yesterday, and any gap ≥ the implied move IV10 priced, as the engine's fade and as its mirror | Fresh off earnings: fade −0.49R ± 0.17 (21), mirror −0.06R. Gap ≥ implied move: fade **−0.42R ± 0.20 (87)**, mirror **+0.24R ± 0.46**, difference +0.66R with t 1.1, the mirror's variance is huge (Friday alone). Gaps smaller than the implied move: fade −0.23R, mirror −0.15R. A hypothesis for a "post-event continuation" mode, not a result. |
+| **Index-hedged R** | beta to SPY from ~60 sessions of closes (median 2.1 for these names), SPY's move from the fill bar's open to the exit bar's close taken out of each trade's net % | **Grade A's month was the index.** Raw +0.23R ± 0.24 on 30 trades becomes **−0.07R ± 0.20 hedged** (Δ −0.29, t −2.4): the shorts (+0.59R raw, +0.15R hedged) were short a falling tape. A+B unchanged overall (−0.11R either way); gap fades a little better hedged (−0.26 → −0.21R). The index was a third of each trade's \|P&L\| at the median. |
+| **The vertical, replayed** | 29 grade-A trades as the call/put vertical the page quotes (prior close's ask/bid; `data/moontower/chains/`, 2 credits each), marked by Black–Scholes at each leg's mid IV on the stock's exit and on the close | +0.11× ± 0.13 of the debit at the stock's exit, +0.20× ± 0.12 held to the close, against the same trades' +0.27R ± 0.23 in stock. A model mark (no intraday option prints), one month, 29 trades: the spread did not beat the stock and was not worse. |
+
+The Buy Vol universe filter (item 5) is the `buy_vol_idea` lens above: Δ −0.02R. So of the six, one
+is a reading the desk now shows (stops in implied moves), one is a caution (hedged, this month's
+grade A had no edge of its own), one is a hypothesis worth a fresh window (continuation after a
+gap bigger than the priced move), and three are closed.
 
 What that says: the two sites read different things. Moontower prices the *size* of the expected
 move; VWAP Blue calls its *direction* against the anchor. Whether the options are cheap or rich, and
