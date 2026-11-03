@@ -116,6 +116,8 @@ bars **beyond blue by adaptive volume-weighted σ** → **confirm**. Target
 # fills on the bar after the trigger (+2 bps), equities out by the 16:00 close; prints net-of-cost R
 # with session-clustered CIs.
 python3 replay_sessions.py --max-tickers 96 --grade-min A
+python3 alpaca_bars.py --tickers-from desk --start 2024-11-01 --out data/backtests/alpaca_5m_2y.pkl   # years of 5m SIP bars (free Alpaca keys)
+python3 orb_rvol_check.py --bars data/backtests/alpaca_5m_2y.pkl --out research/orb_rvol_check_<date>.json      # opening-range continuation by RVOL, fade as mirror
 python3 replay_sessions.py --range-60d --save-bars data/backtests/eq_60d.pkl   # 60 days of 5m bars (Yahoo chart API), ~59 sessions
 python3 replay_sessions.py --save-bars data/backtests/equity_bars.pkl  # keep the fetch: Yahoo's window moves
 python3 replay_sessions.py --bars data/backtests/equity_bars.pkl       # replay those bars again
@@ -525,6 +527,29 @@ drafted (no report within a day either way) showed nothing (Δ +0.01R), because 
 so the shipped lens is post-report only; both are in the research file. Grade A alone (45 trades) is
 too few to cut. Buckets were chosen after one look at a month of data: a lens is a reading to carry,
 not a rule, until a fresh window agrees.
+
+### Opening-range continuation by relative volume (2026-11-02)
+
+An external scan ([research/notes/2026-11-02_external_research.md](research/notes/2026-11-02_external_research.md))
+found the one published intraday effect that survives costs: Zarattini–Barbon–Aziz 2024, 7,000 stocks,
+the 5-minute opening-range breakout is worth nothing unfiltered and climbs from −0.02R to +0.38R as
+*opening relative volume* rises. That is the same selection as our "gap bigger than the options priced"
+lead. `orb_rvol_check.py` replays their rule on our bars: direction of the 09:30 bar, stop order at its
+high/low until 10:30, stop 0.10 × ATR14, flat at 15:25 (ahead of the end-of-day reversal), the fade as
+the mirror control, RVOL = 09:30 volume / its prior-14-session mean. On the 60-day holdout (96 names,
+46 sessions, 3,455 trades, net of slippage and the desk's cost model):
+
+| RVOL | continuation | fade (mirror) |
+|---|---:|---:|
+| < 1 (n 2,320) | −0.29R ± 0.10 | −0.32R |
+| 1–3 (n 1,017) | −0.13R ± 0.14 | −0.27R |
+| 3–10 (n 108) | +0.40R ± 0.52 | −0.52R |
+
+The paper's monotone shape is there, but at our cost model a 0.10-ATR stop is hit 79% of the time and
+nothing is positive with any confidence; the paper charges commissions only. Sixty days is not enough:
+`alpaca_bars.py` pulls years of 5-minute SIP bars with pre-market from Alpaca's free tier into the
+replay's pickle layout (`--tickers-from desk --start 2024-11-01`), for this and the other four replays
+listed in the note.
 
 ## History / RVOL
 
