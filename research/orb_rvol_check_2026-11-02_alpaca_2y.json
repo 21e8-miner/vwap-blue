@@ -1,0 +1,647 @@
+{
+ "asof": "2026-11-02",
+ "bars": "data/backtests/alpaca_5m_2y.pkl",
+ "tickers": 437,
+ "sessions": 487,
+ "window": [
+  "2024-11-21",
+  "2026-11-02"
+ ],
+ "slip_bps": 2.0,
+ "rule": {
+  "open_bar_min": 570,
+  "last_fill_min": 630,
+  "flat_min": 925,
+  "stop_mode": "atr",
+  "stop_atr": 0.1,
+  "min_atr": 0.5,
+  "min_price": 5.0,
+  "atr_n": 14,
+  "rvol_n": 14
+ },
+ "n": 152928,
+ "with_rvol": 152928,
+ "buckets": {
+  "all": {
+   "all": {
+    "trade": {
+     "n": 152928,
+     "clusters": 487,
+     "mean": -0.402,
+     "se": 0.0287,
+     "t": -13.98,
+     "ci90": [
+      -0.4494,
+      -0.3547
+     ],
+     "verdict": "negative",
+     "wins": 27970
+    },
+    "mirror": {
+     "n": 152928,
+     "clusters": 487,
+     "mean": -0.5173,
+     "se": 0.0238,
+     "t": -21.71,
+     "ci90": [
+      -0.5566,
+      -0.4781
+     ],
+     "verdict": "negative",
+     "wins": 26895
+    },
+    "direction": {
+     "n": 152928,
+     "clusters": 487,
+     "mean": 0.1153,
+     "se": 0.0397,
+     "t": 2.9,
+     "ci90": [
+      0.0498,
+      0.1808
+     ],
+     "verdict": "positive",
+     "wins": 77277
+    },
+    "stop_share": 0.806
+   },
+   "<1": {
+    "trade": {
+     "n": 102136,
+     "clusters": 487,
+     "mean": -0.394,
+     "se": 0.0297,
+     "t": -13.29,
+     "ci90": [
+      -0.4429,
+      -0.3451
+     ],
+     "verdict": "negative",
+     "wins": 19328
+    },
+    "mirror": {
+     "n": 102136,
+     "clusters": 487,
+     "mean": -0.5201,
+     "se": 0.0245,
+     "t": -21.24,
+     "ci90": [
+      -0.5604,
+      -0.4797
+     ],
+     "verdict": "negative",
+     "wins": 18402
+    },
+    "direction": {
+     "n": 102136,
+     "clusters": 487,
+     "mean": 0.126,
+     "se": 0.0403,
+     "t": 3.13,
+     "ci90": [
+      0.0596,
+      0.1925
+     ],
+     "verdict": "positive",
+     "wins": 51828
+    },
+    "stop_share": 0.798
+   },
+   "1\u20133": {
+    "trade": {
+     "n": 45321,
+     "clusters": 487,
+     "mean": -0.4258,
+     "se": 0.0373,
+     "t": -11.41,
+     "ci90": [
+      -0.4873,
+      -0.3643
+     ],
+     "verdict": "negative",
+     "wins": 7761
+    },
+    "mirror": {
+     "n": 45321,
+     "clusters": 487,
+     "mean": -0.5135,
+     "se": 0.0309,
+     "t": -16.62,
+     "ci90": [
+      -0.5645,
+      -0.4626
+     ],
+     "verdict": "negative",
+     "wins": 7635
+    },
+    "direction": {
+     "n": 45321,
+     "clusters": 487,
+     "mean": 0.0878,
+     "se": 0.0525,
+     "t": 1.67,
+     "ci90": [
+      0.0012,
+      0.1743
+     ],
+     "verdict": "inconclusive",
+     "wins": 22702
+    },
+    "stop_share": 0.82
+   },
+   "3\u201310": {
+    "trade": {
+     "n": 4887,
+     "clusters": 475,
+     "mean": -0.3676,
+     "se": 0.0722,
+     "t": -5.09,
+     "ci90": [
+      -0.4866,
+      -0.2487
+     ],
+     "verdict": "negative",
+     "wins": 782
+    },
+    "mirror": {
+     "n": 4887,
+     "clusters": 475,
+     "mean": -0.4773,
+     "se": 0.0704,
+     "t": -6.78,
+     "ci90": [
+      -0.5933,
+      -0.3614
+     ],
+     "verdict": "negative",
+     "wins": 778
+    },
+    "direction": {
+     "n": 4887,
+     "clusters": 475,
+     "mean": 0.1097,
+     "se": 0.1134,
+     "t": 0.97,
+     "ci90": [
+      -0.0772,
+      0.2966
+     ],
+     "verdict": "inconclusive",
+     "wins": 2441
+    },
+    "stop_share": 0.833
+   },
+   "\u226510": {
+    "trade": {
+     "n": 584,
+     "clusters": 211,
+     "mean": -0.2522,
+     "se": 0.2728,
+     "t": -0.92,
+     "ci90": [
+      -0.703,
+      0.1986
+     ],
+     "verdict": "inconclusive",
+     "wins": 99
+    },
+    "mirror": {
+     "n": 584,
+     "clusters": 211,
+     "mean": -0.674,
+     "se": 0.2052,
+     "t": -3.28,
+     "ci90": [
+      -1.013,
+      -0.3349
+     ],
+     "verdict": "negative",
+     "wins": 80
+    },
+    "direction": {
+     "n": 584,
+     "clusters": 211,
+     "mean": 0.4218,
+     "se": 0.3507,
+     "t": 1.2,
+     "ci90": [
+      -0.1577,
+      1.0012
+     ],
+     "verdict": "inconclusive",
+     "wins": 306
+    },
+    "stop_share": 0.822
+   },
+   "rvol\u22651": {
+    "trade": {
+     "n": 50792,
+     "clusters": 487,
+     "mean": -0.4182,
+     "se": 0.0367,
+     "t": -11.39,
+     "ci90": [
+      -0.4787,
+      -0.3577
+     ],
+     "verdict": "negative",
+     "wins": 8642
+    },
+    "mirror": {
+     "n": 50792,
+     "clusters": 487,
+     "mean": -0.5119,
+     "se": 0.0302,
+     "t": -16.98,
+     "ci90": [
+      -0.5616,
+      -0.4622
+     ],
+     "verdict": "negative",
+     "wins": 8493
+    },
+    "direction": {
+     "n": 50792,
+     "clusters": 487,
+     "mean": 0.0937,
+     "se": 0.0518,
+     "t": 1.81,
+     "ci90": [
+      0.0083,
+      0.1791
+     ],
+     "verdict": "inconclusive",
+     "wins": 25449
+    },
+    "stop_share": 0.821
+   },
+   "rvol\u22653": {
+    "trade": {
+     "n": 5471,
+     "clusters": 478,
+     "mean": -0.3553,
+     "se": 0.0713,
+     "t": -4.99,
+     "ci90": [
+      -0.4728,
+      -0.2379
+     ],
+     "verdict": "negative",
+     "wins": 881
+    },
+    "mirror": {
+     "n": 5471,
+     "clusters": 478,
+     "mean": -0.4983,
+     "se": 0.0721,
+     "t": -6.91,
+     "ci90": [
+      -0.6171,
+      -0.3795
+     ],
+     "verdict": "negative",
+     "wins": 858
+    },
+    "direction": {
+     "n": 5471,
+     "clusters": 478,
+     "mean": 0.143,
+     "se": 0.1135,
+     "t": 1.26,
+     "ci90": [
+      -0.0441,
+      0.3301
+     ],
+     "verdict": "inconclusive",
+     "wins": 2747
+    },
+    "stop_share": 0.831
+   }
+  },
+  "gap\u22650.7atr": {
+   "all": {
+    "trade": {
+     "n": 13853,
+     "clusters": 487,
+     "mean": -0.3909,
+     "se": 0.0878,
+     "t": -4.45,
+     "ci90": [
+      -0.5356,
+      -0.2463
+     ],
+     "verdict": "negative",
+     "wins": 2281
+    },
+    "mirror": {
+     "n": 13853,
+     "clusters": 487,
+     "mean": -0.6023,
+     "se": 0.0567,
+     "t": -10.61,
+     "ci90": [
+      -0.6958,
+      -0.5088
+     ],
+     "verdict": "negative",
+     "wins": 2099
+    },
+    "direction": {
+     "n": 13853,
+     "clusters": 487,
+     "mean": 0.2114,
+     "se": 0.1067,
+     "t": 1.98,
+     "ci90": [
+      0.0355,
+      0.3873
+     ],
+     "verdict": "inconclusive",
+     "wins": 6898
+    },
+    "stop_share": 0.828
+   },
+   "<1": {
+    "trade": {
+     "n": 3417,
+     "clusters": 463,
+     "mean": -0.4225,
+     "se": 0.1242,
+     "t": -3.4,
+     "ci90": [
+      -0.6273,
+      -0.2177
+     ],
+     "verdict": "negative",
+     "wins": 624
+    },
+    "mirror": {
+     "n": 3417,
+     "clusters": 463,
+     "mean": -0.637,
+     "se": 0.0858,
+     "t": -7.42,
+     "ci90": [
+      -0.7784,
+      -0.4956
+     ],
+     "verdict": "negative",
+     "wins": 555
+    },
+    "direction": {
+     "n": 3417,
+     "clusters": 463,
+     "mean": 0.2145,
+     "se": 0.1437,
+     "t": 1.49,
+     "ci90": [
+      -0.0224,
+      0.4514
+     ],
+     "verdict": "inconclusive",
+     "wins": 1734
+    },
+    "stop_share": 0.808
+   },
+   "1\u20133": {
+    "trade": {
+     "n": 8095,
+     "clusters": 486,
+     "mean": -0.4209,
+     "se": 0.0987,
+     "t": -4.26,
+     "ci90": [
+      -0.5836,
+      -0.2581
+     ],
+     "verdict": "negative",
+     "wins": 1313
+    },
+    "mirror": {
+     "n": 8095,
+     "clusters": 486,
+     "mean": -0.5852,
+     "se": 0.0615,
+     "t": -9.51,
+     "ci90": [
+      -0.6866,
+      -0.4838
+     ],
+     "verdict": "negative",
+     "wins": 1243
+    },
+    "direction": {
+     "n": 8095,
+     "clusters": 486,
+     "mean": 0.1643,
+     "se": 0.1244,
+     "t": 1.32,
+     "ci90": [
+      -0.0407,
+      0.3693
+     ],
+     "verdict": "inconclusive",
+     "wins": 4005
+    },
+    "stop_share": 0.83
+   },
+   "3\u201310": {
+    "trade": {
+     "n": 2080,
+     "clusters": 422,
+     "mean": -0.281,
+     "se": 0.1311,
+     "t": -2.14,
+     "ci90": [
+      -0.4972,
+      -0.0649
+     ],
+     "verdict": "negative",
+     "wins": 307
+    },
+    "mirror": {
+     "n": 2080,
+     "clusters": 422,
+     "mean": -0.585,
+     "se": 0.11,
+     "t": -5.32,
+     "ci90": [
+      -0.7664,
+      -0.4037
+     ],
+     "verdict": "negative",
+     "wins": 270
+    },
+    "direction": {
+     "n": 2080,
+     "clusters": 422,
+     "mean": 0.304,
+     "se": 0.1903,
+     "t": 1.6,
+     "ci90": [
+      -0.0097,
+      0.6177
+     ],
+     "verdict": "inconclusive",
+     "wins": 1024
+    },
+    "stop_share": 0.849
+   },
+   "\u226510": {
+    "trade": {
+     "n": 261,
+     "clusters": 177,
+     "mean": 0.0761,
+     "se": 0.5204,
+     "t": 0.15,
+     "ci90": [
+      -0.7847,
+      0.9368
+     ],
+     "verdict": "inconclusive",
+     "wins": 37
+    },
+    "mirror": {
+     "n": 261,
+     "clusters": 177,
+     "mean": -0.8161,
+     "se": 0.3128,
+     "t": -2.61,
+     "ci90": [
+      -1.3334,
+      -0.2987
+     ],
+     "verdict": "negative",
+     "wins": 31
+    },
+    "direction": {
+     "n": 261,
+     "clusters": 177,
+     "mean": 0.8921,
+     "se": 0.6877,
+     "t": 1.3,
+     "ci90": [
+      -0.2452,
+      2.0294
+     ],
+     "verdict": "inconclusive",
+     "wins": 135
+    },
+    "stop_share": 0.858
+   },
+   "rvol\u22651": {
+    "trade": {
+     "n": 10436,
+     "clusters": 486,
+     "mean": -0.3806,
+     "se": 0.093,
+     "t": -4.09,
+     "ci90": [
+      -0.5339,
+      -0.2272
+     ],
+     "verdict": "negative",
+     "wins": 1657
+    },
+    "mirror": {
+     "n": 10436,
+     "clusters": 486,
+     "mean": -0.591,
+     "se": 0.0594,
+     "t": -9.94,
+     "ci90": [
+      -0.6889,
+      -0.493
+     ],
+     "verdict": "negative",
+     "wins": 1544
+    },
+    "direction": {
+     "n": 10436,
+     "clusters": 486,
+     "mean": 0.2104,
+     "se": 0.1182,
+     "t": 1.78,
+     "ci90": [
+      0.0156,
+      0.4051
+     ],
+     "verdict": "inconclusive",
+     "wins": 5164
+    },
+    "stop_share": 0.834
+   },
+   "rvol\u22653": {
+    "trade": {
+     "n": 2341,
+     "clusters": 433,
+     "mean": -0.2412,
+     "se": 0.1297,
+     "t": -1.86,
+     "ci90": [
+      -0.4551,
+      -0.0274
+     ],
+     "verdict": "inconclusive",
+     "wins": 344
+    },
+    "mirror": {
+     "n": 2341,
+     "clusters": 433,
+     "mean": -0.6108,
+     "se": 0.1033,
+     "t": -5.91,
+     "ci90": [
+      -0.7811,
+      -0.4404
+     ],
+     "verdict": "negative",
+     "wins": 301
+    },
+    "direction": {
+     "n": 2341,
+     "clusters": 433,
+     "mean": 0.3696,
+     "se": 0.187,
+     "t": 1.98,
+     "ci90": [
+      0.0614,
+      0.6778
+     ],
+     "verdict": "inconclusive",
+     "wins": 1159
+    },
+    "stop_share": 0.85
+   }
+  }
+ },
+ "by_side": {
+  "long": {
+   "n": 77688,
+   "clusters": 487,
+   "mean": -0.3728,
+   "se": 0.0442,
+   "t": -8.44,
+   "ci90": [
+    -0.4456,
+    -0.3001
+   ],
+   "verdict": "negative",
+   "wins": 14577
+  },
+  "short": {
+   "n": 75240,
+   "clusters": 487,
+   "mean": -0.4322,
+   "se": 0.045,
+   "t": -9.61,
+   "ci90": [
+    -0.5063,
+    -0.3581
+   ],
+   "verdict": "negative",
+   "wins": 13393
+  }
+ },
+ "trades_note": "152928 trades omitted here; full file in data/backtests/orb_rvol_check_2026-11-02_alpaca_2y.json (local)"
+}

@@ -535,21 +535,32 @@ found the one published intraday effect that survives costs: Zarattini–Barbon�
 the 5-minute opening-range breakout is worth nothing unfiltered and climbs from −0.02R to +0.38R as
 *opening relative volume* rises. That is the same selection as our "gap bigger than the options priced"
 lead. `orb_rvol_check.py` replays their rule on our bars: direction of the 09:30 bar, stop order at its
-high/low until 10:30, stop 0.10 × ATR14, flat at 15:25 (ahead of the end-of-day reversal), the fade as
-the mirror control, RVOL = 09:30 volume / its prior-14-session mean. On the 60-day holdout (96 names,
-46 sessions, 3,455 trades, net of slippage and the desk's cost model):
+high/low until 10:30, stop 0.10 × ATR14 (`--stop range`: the bar's other extreme), flat at 15:25 (ahead
+of the end-of-day reversal), the paper's universe (ATR14 ≥ $0.50, price > $5), the fade of the same
+level as the mirror control, RVOL = 09:30 volume / its prior-14-session mean. Yahoo's 60 days were not
+enough to say anything, so `alpaca_bars.py` pulled **two years of 5-minute SIP bars with pre-market**
+for the desk's 437 names from Alpaca's free tier (24.5 M bars, 487 sessions, Nov 2024 – Nov 2026).
+Net of slippage and the desk's cost model, session-clustered:
 
-| RVOL | continuation | fade (mirror) |
-|---|---:|---:|
-| < 1 (n 2,320) | −0.29R ± 0.10 | −0.32R |
-| 1–3 (n 1,017) | −0.13R ± 0.14 | −0.27R |
-| 3–10 (n 108) | +0.40R ± 0.52 | −0.52R |
+| RVOL | n | continuation, 0.10 ATR stop | continuation, range stop | fade (range stop) |
+|---|--:|--:|--:|--:|
+| < 1 | 102,136 | −0.39R ± 0.03 | −0.17R ± 0.02 | −0.23R |
+| 1–3 | 45,321 | −0.43R ± 0.04 | −0.15R ± 0.02 | −0.18R |
+| 3–10 | 4,887 | −0.37R ± 0.07 | −0.06R ± 0.04 | −0.15R |
+| ≥ 10 | 584 | −0.25R ± 0.27 | +0.02R ± 0.07 | −0.21R |
+| gap ≥ 0.7 ATR and RVOL ≥ 10 | 261 | +0.08R ± 0.52 | +0.03R ± 0.07 | −0.09R |
 
-The paper's monotone shape is there, but at our cost model a 0.10-ATR stop is hit 79% of the time and
-nothing is positive with any confidence; the paper charges commissions only. Sixty days is not enough:
-`alpaca_bars.py` pulls years of 5-minute SIP bars with pre-market from Alpaca's free tier into the
-replay's pickle layout (`--tickers-from desk --start 2024-11-01`), for this and the other four replays
-listed in the note.
+**The paper's lift does not replicate here.** The shape is there (every bucket improves with RVOL, and
+continuation beats its own fade by +0.06 to +0.4R everywhere), but nothing is positive with confidence:
+the best cell is zero on 584 trades. Two reasons are visible in the data. The 0.10-ATR stop is 26 bps
+of price at the median, inside 5-minute bar noise, so it is hit 80% of the time and often gapped through
+(median trade −1.4R before the universe filter); the paper works on 1-minute bars. And the desk's
+round-trip cost is 0.21R against that stop, where the paper charges commissions only. Widening the stop
+to the opening range halves the loss but does not turn it. Our one lead, continuation after a gap the
+options did not price, is consistent with this table's direction column and no more than that: the
+fade is the worse side of the same trade, not a trade of its own.
+Files: `research/orb_rvol_check_2026-11-02_alpaca_2y.json`, `…_rangestop.json` (per-trade lists kept
+locally in `data/backtests/`), `research/orb_rvol_check_2026-10-19_60d.json` (the 60-day first pass).
 
 ## History / RVOL
 

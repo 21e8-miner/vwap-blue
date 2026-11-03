@@ -91,3 +91,24 @@ class TestPull(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSymbols(unittest.TestCase):
+
+    def test_class_shares_use_a_dot_on_alpaca_and_come_back_with_the_dash(self):
+        self.assertEqual(ab.to_alpaca("BRK-B"), "BRK.B"); self.assertEqual(ab.to_alpaca("AAPL"), "AAPL")
+        self.assertEqual(ab.to_alpaca("BTC-USD"), "BTC-USD", "crypto spelling is left alone")
+        self.assertEqual(ab.from_alpaca("BRK.B"), "BRK-B")
+
+    def test_a_rejected_symbol_is_dropped_and_the_group_retried(self):
+        calls = []
+
+        def get(url, headers):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query); calls.append(q["symbols"][0])
+            if "ZZZZ" in q["symbols"][0]:
+                raise ab.AlpacaError(400, '{"message":"invalid symbol: ZZZZ"}')
+            return {"bars": {"AAPL": [{"t": "2026-10-01T13:30:00Z", "o": 1, "h": 2, "l": 0.5, "c": 1.5, "v": 10}]}, "next_page_token": None}
+        with tempfile.TemporaryDirectory() as d:
+            blob = ab.pull(["AAPL", "ZZZZ"], datetime(2026, 10, 1, tzinfo=timezone.utc), datetime(2026, 10, 2, tzinfo=timezone.utc),
+                           Path(d) / "a.pkl", {}, get, log=lambda s: None)
+        self.assertEqual(calls, ["AAPL,ZZZZ", "AAPL"]); self.assertEqual(list(blob["bars"]), ["AAPL"])

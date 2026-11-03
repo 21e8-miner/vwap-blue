@@ -61,6 +61,16 @@ class TestRule(unittest.TestCase):
         self.assertGreater(b["entry"], a["entry"]); self.assertLess(b["r_net"], a["r_net"])
 
 
+    def test_the_papers_universe_filters_and_the_range_stop(self):
+        day = [bar(570, 100, 101, 99.5, 100.8), bar(575, 100.9, 101.6, 100.8, 101.5)] + flat_day(101.5, 580)
+        self.assertIsNone(m.session_trade("SGOV", "2026-10-01", day, atr=0.02, rvol=1.0, prev_close=99.9, slip_bps=0), "ATR under $0.50")
+        penny = [bar(570, 3, 3.1, 2.9, 3.05), bar(575, 3.1, 3.2, 3.0, 3.15)] + flat_day(3.15, 580)
+        self.assertIsNone(m.session_trade("PNY", "2026-10-01", penny, atr=0.6, rvol=1.0, prev_close=3.0, slip_bps=0), "price under $5")
+        t = m.session_trade("AAA", "2026-10-01", day, atr=2.0, rvol=1.0, prev_close=99.9, slip_bps=0, stop_mode="range")
+        self.assertAlmostEqual(t["risk"], 1.5, msg="the opening bar's range, wider than 0.10 ATR")
+        self.assertAlmostEqual(t["stop"], 101.0 - 1.5)
+
+
 class TestStudy(unittest.TestCase):
 
     def test_atr_and_rvol_come_from_prior_sessions_only(self):
