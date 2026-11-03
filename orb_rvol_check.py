@@ -39,6 +39,7 @@ from moontower_deeper_check import session_frames  # noqa: E402
 OPEN_M, LAST_FILL_M, FLAT_M, RTH_CLOSE_M = 570, 630, 925, 960
 ATR_N, RVOL_N, RVOL_MIN_N = 14, 14, 5
 STOP_ATR = 0.10
+MIN_ATR, MIN_PRICE = 0.50, 5.0                    # the paper's universe: ATR14 ≥ $0.50, price > $5 (drops SGOV/BIL-type names)
 GAP_ATR_GATE = 0.7
 RVOL_BUCKETS = [("<1", 0.0, 1.0), ("1–3", 1.0, 3.0), ("3–10", 3.0, 10.0), ("≥10", 10.0, float("inf"))]
 
@@ -111,9 +112,9 @@ def r_of(ticker: str, side: str, entry: float, exit_px: float, risk: float) -> f
 
 
 def session_trade(ticker: str, session: str, day: List[Dict[str, Any]], atr: float, rvol: Optional[float],
-                  prev_close: Optional[float], slip_bps: float) -> Optional[Dict[str, Any]]:
+                  prev_close: Optional[float], slip_bps: float, stop_mode: str = "atr", stop_atr: float = STOP_ATR) -> Optional[Dict[str, Any]]:
     ob = opening_bar(day)
-    if ob is None or atr <= 0 or ob["c"] == ob["o"]:
+    if ob is None or atr < MIN_ATR or ob["o"] <= MIN_PRICE or ob["c"] == ob["o"]:
         return None
     side = "long" if ob["c"] > ob["o"] else "short"
     level = ob["h"] if side == "long" else ob["l"]
@@ -121,7 +122,8 @@ def session_trade(ticker: str, session: str, day: List[Dict[str, Any]], atr: flo
     if not got:
         return None
     k, entry = got
-    risk = STOP_ATR * atr
+    # "atr": the paper's 0.10 × ATR14. "range": the opening bar's other extreme (Zarattini–Aziz 2023), never tighter than 0.10 ATR
+    risk = max(stop_atr * atr, ob["h"] - ob["l"]) if stop_mode == "range" else stop_atr * atr
     stop = entry - risk if side == "long" else entry + risk
     exit_px, reason, held = walk(day, k, side, entry, stop, slip_bps)
     # the mirror: fade the same breakout from the same price, same risk
@@ -138,7 +140,7 @@ def session_trade(ticker: str, session: str, day: List[Dict[str, Any]], atr: flo
 
 
 # ── the study ───────────────────────────────────────────────────────────────────────────────────
-def ticker_trades(ticker: str, parsed, first, slip_bps: float) -> List[Dict[str, Any]]:
+def ticker_trades(ticker: str, parsed, first, slip_bps: float, stop_mode: str = "atr", stop_atr: float = STOP_ATR) -> List[Dict[str, Any]]:
     days = day_slices(parsed, first)
     trs: List[float] = []
     open_vols: List[float] = []
@@ -150,7 +152,7 @@ def ticker_trades(ticker: str, parsed, first, slip_bps: float) -> List[Dict[str,
         ob = opening_bar(day)
         rvol = (ob["v"] / (sum(base) / len(base))) if (ob and len(base) >= RVOL_MIN_N and ob["v"] > 0) else None
         if atr:
-            t = session_trade(ticker, d, day, atr, rvol, prev_close, slip_bps)
+            t = session_trade(ticker, d, day, atr, rvol, prev_close, slip_bps, stop_mode, stop_atr)
             if t:
                 out.append(t)
         trs.append(true_range(day, prev_close))
@@ -192,17 +194,18 @@ def tabulate(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
     return out
 
 
-def run(bars_pkl: Path, slip_bps: float = 2.0, max_tickers: Optional[int] = None) -> Dict[str, Any]:
+def run(bars_pkl: Path, slip_bps: float = 2.0, max_tickers: Optional[int] = None, stop_mode: str = "atr", stop_atr: float = STOP_ATR) -> Dict[str, Any]:
     parsed, first = session_frames(bars_pkl)
     tickers = [t for t in parsed if not t.endswith("-USD")][: max_tickers or None]
     trades: List[Dict[str, Any]] = []
     for t in tickers:
-        trades.extend(ticker_trades(t, parsed[t], first[t], slip_bps))
+        trades.extend(ticker_trades(t, parsed[t], first[t], slip_bps, stop_mode, stop_atr))
     sessions = sorted({t["session"] for t in trades})
     by_side = {s: stat([t for t in trades if t["side"] == s], "r_net") for s in ("long", "short")}
     return {"asof": date.today().isoformat(), "bars": str(bars_pkl), "tickers": len(tickers), "sessions": len(sessions),
             "window": [sessions[0], sessions[-1]] if sessions else None, "slip_bps": slip_bps,
-            "rule": {"open_bar_min": OPEN_M, "last_fill_min": LAST_FILL_M, "flat_min": FLAT_M, "stop_atr": STOP_ATR, "atr_n": ATR_N, "rvol_n": RVOL_N},
+            "rule": {"open_bar_min": OPEN_M, "last_fill_min": LAST_FILL_M, "flat_min": FLAT_M, "stop_mode": stop_mode, "stop_atr": stop_atr,
+                     "min_atr": MIN_ATR, "min_price": MIN_PRICE, "atr_n": ATR_N, "rvol_n": RVOL_N},
             "n": len(trades), "with_rvol": sum(1 for t in trades if t["rvol"] is not None),
             "buckets": tabulate(trades), "by_side": by_side, "trades": trades}
 
@@ -214,7 +217,7 @@ def fmt(s: Dict[str, Any]) -> str:
 
 
 def report(res: Dict[str, Any]) -> str:
-    lines = [f"ORB continuation vs fade · {res['tickers']} names · {res['sessions']} sessions {res['window']} · {res['n']} trades ({res['with_rvol']} with RVOL)"]
+    lines = [f"ORB continuation vs fade · stop {res['rule']['stop_mode']} ({res['rule']['stop_atr']} ATR floor) · {res['tickers']} names · {res['sessions']} sessions {res['window']} · {res['n']} trades ({res['with_rvol']} with RVOL)"]
     for gate, rows in res["buckets"].items():
         lines.append(f"\n  gate: {gate}")
         for k, v in rows.items():
@@ -229,12 +232,17 @@ def main() -> int:
     ap.add_argument("--bars", required=True, type=Path)
     ap.add_argument("--slip-bps", type=float, default=2.0)
     ap.add_argument("--max-tickers", type=int)
+    ap.add_argument("--stop", choices=["atr", "range"], default="atr", help="atr: 0.10 × ATR14 (ZBA 2024); range: the 09:30 bar's other extreme (ZA 2023)")
+    ap.add_argument("--stop-atr", type=float, default=STOP_ATR)
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--no-trades", action="store_true", help="omit the per-trade list (a 2-year run is ~60 MB with it)")
     a = ap.parse_args()
-    res = run(a.bars, a.slip_bps, a.max_tickers)
+    res = run(a.bars, a.slip_bps, a.max_tickers, a.stop, a.stop_atr)
     print(report(res))
     if a.out:
         a.out.parent.mkdir(parents=True, exist_ok=True)
+        if a.no_trades:
+            res = {**{k: v for k, v in res.items() if k != "trades"}, "trades_note": f"{len(res['trades'])} trades omitted (--no-trades)"}
         a.out.write_text(json.dumps(res, indent=1))
         print(f"\n  wrote {a.out}")
     return 0

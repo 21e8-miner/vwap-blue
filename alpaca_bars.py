@@ -69,6 +69,12 @@ class Pacer:
         self.last = time.monotonic()
 
 
+class AlpacaError(Exception):
+    def __init__(self, code: int, body: str):
+        super().__init__(f"Alpaca {code}: {body}")
+        self.code, self.body = code, body
+
+
 def http_get(url: str, headers: Dict[str, str], retries: int = 5) -> Dict[str, Any]:
     for attempt in range(retries):
         req = urllib.request.Request(url, headers={**headers, "User-Agent": "vwap-blue/alpaca_bars"})
@@ -80,7 +86,7 @@ def http_get(url: str, headers: Dict[str, str], retries: int = 5) -> Dict[str, A
                 time.sleep(2 ** attempt)
                 continue
             body = e.read().decode("utf-8", "replace")[:200]
-            raise SystemExit(f"Alpaca {e.code}: {body}")
+            raise AlpacaError(e.code, body)
     raise SystemExit("Alpaca: too many retries")
 
 
@@ -91,7 +97,7 @@ def fetch_bars(symbols: List[str], start: datetime, end: datetime, headers: Dict
     out: Dict[str, List[Dict[str, Any]]] = {s: [] for s in symbols}
     token: Optional[str] = None
     while True:
-        q = {"symbols": ",".join(symbols), "timeframe": timeframe, "start": start.isoformat().replace("+00:00", "Z"),
+        q = {"symbols": ",".join(to_alpaca(s) for s in symbols), "timeframe": timeframe, "start": start.isoformat().replace("+00:00", "Z"),
              "end": end.isoformat().replace("+00:00", "Z"), "limit": PAGE_LIMIT, "adjustment": "raw", "feed": feed, "sort": "asc"}
         if token:
             q["page_token"] = token
@@ -99,7 +105,7 @@ def fetch_bars(symbols: List[str], start: datetime, end: datetime, headers: Dict
             pacer.wait()
         d = get(f"{API}?{urllib.parse.urlencode(q)}", headers)
         for s, rows in (d.get("bars") or {}).items():
-            out.setdefault(s, []).extend(rows)
+            out.setdefault(from_alpaca(s), []).extend(rows)
         token = d.get("next_page_token")
         if not token:
             return out
@@ -116,6 +122,15 @@ def to_frame(rows: List[Dict[str, Any]]):
     df = df.drop_duplicates("ts").set_index("ts").sort_index()
     df.index.name = None
     return df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
+
+
+def to_alpaca(sym: str) -> str:
+    """Desk/Yahoo spelling → Alpaca: class shares use a dot (BRK-B → BRK.B)."""
+    return sym.replace("-", ".") if "-" in sym and not sym.endswith("-USD") else sym
+
+
+def from_alpaca(sym: str) -> str:
+    return sym.replace(".", "-")
 
 
 def chunks(xs: List[str], n: int) -> Iterable[List[str]]:
@@ -153,7 +168,20 @@ def pull(tickers: List[str], start: datetime, end: datetime, out: Path, headers:
         if g_start >= end:
             continue
         for a, b in month_spans(g_start, end):
-            rows = fetch_bars(group, a, b, headers, get, pacer)
+            while True:
+                try:
+                    rows = fetch_bars(group, a, b, headers, get, pacer)
+                    break
+                except AlpacaError as e:
+                    bad = [t for t in group if f"symbol: {to_alpaca(t)}" in e.body]
+                    if e.code != 400 or not bad:
+                        raise SystemExit(str(e))
+                    log(f"skipping {bad}: {e.body}")
+                    group = [t for t in group if t not in bad]
+                    if not group:
+                        break
+            if not group:
+                break
             for t in group:
                 new = to_frame(rows.get(t, []))
                 old = blob["bars"].get(t)
