@@ -118,6 +118,7 @@ bars **beyond blue by adaptive volume-weighted σ** → **confirm**. Target
 python3 replay_sessions.py --max-tickers 96 --grade-min A
 python3 alpaca_bars.py --tickers-from desk --start 2024-11-01 --out data/backtests/alpaca_5m_2y.pkl   # years of 5m SIP bars (free Alpaca keys)
 python3 orb_rvol_check.py --bars data/backtests/alpaca_5m_2y.pkl --out research/orb_rvol_check_<date>.json      # opening-range continuation by RVOL, fade as mirror
+python3 tape_filters_check.py --bars data/backtests/alpaca_5m_2y.pkl --out-dir research --tag alpaca_2y           # replays 2–5: gap × RVOL, SPY half-hour gate, breadth, small-gap fade
 python3 replay_sessions.py --range-60d --save-bars data/backtests/eq_60d.pkl   # 60 days of 5m bars (Yahoo chart API), ~59 sessions
 python3 replay_sessions.py --save-bars data/backtests/equity_bars.pkl  # keep the fetch: Yahoo's window moves
 python3 replay_sessions.py --bars data/backtests/equity_bars.pkl       # replay those bars again
@@ -561,6 +562,83 @@ options did not price, is consistent with this table's direction column and no m
 fade is the worse side of the same trade, not a trade of its own.
 Files: `research/orb_rvol_check_2026-11-02_alpaca_2y.json`, `…_rangestop.json` (per-trade lists kept
 locally in `data/backtests/`), `research/orb_rvol_check_2026-10-19_60d.json` (the 60-day first pass).
+
+### Four more filters on the two years: gap × RVOL, SPY gate, breadth, the small-gap fade (2026-11-04)
+
+Replays 2–5 of the external scan, on the same 437 names and 487 sessions (2024-11-21 – 2026-11-02), built
+like replay 1: ATR14 ≥ $0.50 and price > $5, ATR and RVOL from prior sessions only, fills at the open of
+the bar after the decision with 2 bps slippage each way, R net of the desk's cost, session-clustered error,
+and every cell beside its mirror (same bracket, other side, same bar). `tape_filters_check.py` runs all
+four in one pass (3.5 minutes). **28 cells were examined, each read as trade and as mirror (56 numbers);
+the family-wise bar is |t| ≥ 3.32. No cell is positive after costs on either side, not even at the nominal
+bar.** All four filters are a no; none goes onto the scanner.
+
+**2. Gap/ATR × opening RVOL** (ATR14 standing in for the implied move). Continuation of the gap from the
+09:35 open, stop 0.5 × ATR14, flat 15:25; mirror = the gap fade. 193,768 trades.
+
+| gap / ATR | RVOL < 1 | RVOL 1–3 | RVOL ≥ 3 |
+|---|--:|--:|--:|
+| < 0.5 | −0.09R ± 0.01 (fade −0.09R), n 116,809 | −0.11R ± 0.01 (fade −0.07R), n 39,945 | −0.16R ± 0.04 (fade −0.03R), n 3,519 |
+| 0.5–1 | −0.13R ± 0.04 (fade −0.07R), n 10,812 | −0.17R ± 0.03 (fade −0.01R), n 13,567 | −0.14R ± 0.04 (fade −0.03R), n 1,407 |
+| 1–2 | −0.07R ± 0.12 (fade −0.15R), n 1,021 | −0.12R ± 0.09 (fade −0.05R), n 3,882 | −0.10R ± 0.07 (fade −0.06R), n 1,382 |
+| ≥ 2 | +0.30R ± 0.37 (fade −0.03R), n 63 | +0.23R ± 0.32 (fade −0.27R), n 342 | −0.11R ± 0.08 (fade −0.11R), n 1,019 |
+
+The 21-session lead (continuation after a gap bigger than the options priced, +0.24R) is not the RVOL effect
+in disguise, and it is not here at all. Continuation gets *worse* with RVOL in every gap row; the only
+positive means are gaps over 2 ATR on quiet volume, 405 trades with errors three times the mean. Gaps of
+0.5–1 ATR on RVOL 1–3 lean to the fade (direction t −2.4, short of the bar), and the fade still loses 0.01R.
+
+**3. Opening-vol gate + SPY sign.** Each name's own first half-hour (10:00 vs prior close) from the 10:00
+open, stop 0.5 × ATR14, flat 15:25, split by SPY's 09:30–10:00 realized vol (tercile against its prior 60
+sessions) and by whether the trade agrees with SPY's sign at 10:00. 190,563 trades on 478 ranked sessions.
+
+| SPY opening vol | with SPY's sign | against SPY's sign |
+|---|--:|--:|
+| low | −0.11R ± 0.03 (mirror −0.10R), n 40,147 | −0.05R ± 0.03 (mirror −0.15R), n 28,366 |
+| mid | −0.13R ± 0.03 (mirror −0.06R), n 33,182 | −0.10R ± 0.03 (mirror −0.08R), n 21,001 |
+| high | −0.11R ± 0.04 (mirror −0.05R), n 43,978 | −0.11R ± 0.03 (mirror −0.07R), n 23,889 |
+
+The gate does nothing. Trading with SPY's first half-hour is no better than trading against it in any
+tercile, and the high-vol tercile, where the literature puts the effect, is the flattest row. (The published
+effect is on the index's *last* half-hour; these trades are flat at 15:25 by design, so this says the sign
+does not help a stock trade held through the day, not that the index effect is absent.)
+
+**4. Breadth at the trigger.** Replay 1's range-stop breakout, split by AD = (names above − below their
+prior close) / names at the close of the bar before the fill, the name itself left out. 152,903 trades.
+
+| \|AD\| | breakout with the tape | breakout against the tape |
+|---|--:|--:|
+| < 0.3 | −0.16R ± 0.03 (fade −0.22R), n 41,519 | −0.15R ± 0.03 (fade −0.21R), n 40,097 |
+| 0.3–0.6 | −0.22R ± 0.04 (fade −0.21R), n 28,628 | −0.13R ± 0.05 (fade −0.27R), n 22,758 |
+| ≥ 0.6 | −0.20R ± 0.10 (fade −0.08R), n 11,293 | −0.04R ± 0.10 (fade −0.28R), n 8,608 |
+
+The hypothesis was that counter-trend fades on a one-sided tape are the beta losers. They are the *least*
+bad cell of their row (−0.08R, the mirror of "with the tape"), and the breakout against a one-sided tape
+is the best trade in the table at −0.04R ± 0.10: still not positive. One-sided bars also carry three times
+the error (few sessions do most of it), so breadth is not a usable gate in either direction.
+
+**5. The fade's last test.** |gap| 0.15–0.5 × ATR14 and RVOL < 1, fade from the 09:35 open to the prior
+close, stop 0.5 × ATR14 beyond the 09:30 open, flat at 12:00. The first row is the one hypothesis; the
+others are context.
+
+| gap / ATR | RVOL | n | fade | mirror (continuation) | hit the stop |
+|---|---|--:|--:|--:|--:|
+| **0.15–0.5** | **< 1** | 52,253 | **−0.13R ± 0.01 (t −10.7)** | −0.12R ± 0.01 | 22% |
+| 0.15–0.5 | ≥ 1 | 22,310 | −0.34R ± 0.10 | −0.35R ± 0.10 | 32% |
+| 0.5–1 | < 1 | 10,687 | −0.16R ± 0.06 | −0.22R ± 0.06 | 20% |
+| 0.5–1 | ≥ 1 | 13,926 | −0.17R ± 0.03 | −0.27R ± 0.04 | 30% |
+
+**Retire the fade.** In the one place the literature says gaps fill (small gap, quiet open) it wins 52% of
+the time and loses 0.13R a trade with a t of −10.7 across 487 sessions; its mirror loses the same, so there
+is no direction here at all, only costs. (The two RVOL ≥ 1 rows are wide because a 09:35 open near the stop
+makes a thin risk and a large cost in R; they do not change the reading.)
+
+What the four say together: on 5-minute bars with next-bar fills, 2 bps slippage and the desk's round trip,
+trade and mirror both lose in every cell, and the gap between them (the part a filter could add) never
+clears the family bar: the largest is replay 4's all-cells breakout-over-fade at t +2.5. The cost of being
+in the trade, roughly 0.1–0.2R a side, is larger than any conditional drift these filters find.
+Files: `research/replay2_gap_check_2026-11-04_alpaca_2y.json`, `replay3_spy_…`, `replay4_breadth_…`,
+`replay5_fade_…` (cells, margins and the comparison count; no per-trade lists).
 
 ## History / RVOL
 
