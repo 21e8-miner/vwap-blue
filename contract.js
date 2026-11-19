@@ -4,6 +4,10 @@
    ends after the session (a day trade wants the shortest tenor that is not expiring today). Prices
    are the chain's end-of-day quotes: debit = long ask − short bid (worst), mid − mid (fair); the
    spread's value at the target is the strike width, so its reward:risk is (width − debit) / debit.
+   Width grade: the bid–ask in vol points as a share of implied vol, cut into Moontower's liquidity tiers
+   (Abdelmessih, "using option liquidity metrics", 2026-11-19: 0–3, 3–6, 6–9, 9–14, 14–20%, then a 20%+ overflow).
+   The name's grade is the median over the 0.35–0.50 delta lines on the expiry nearest 30 days; the post samples
+   through the day, and an end-of-day chain is the widest point of the day, so this reads a tier wide if anything.
    Pure, so tests/test_contract.py can run it under node; the page loads it as window.VWAPContract. */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) module.exports = factory();
@@ -30,6 +34,42 @@
     return best;
   }
 
+  // ── width grade ────────────────────────────────────────────────────────────────────────────
+  const WIDTH_CUTS = [0.03, 0.06, 0.09, 0.14, 0.20];                           // tier n holds shares below WIDTH_CUTS[n-1]
+  function widthTier(share) {
+    if (share == null || !Number.isFinite(share) || share < 0) return null;
+    const i = WIDTH_CUTS.findIndex(c => share < c);
+    return i === -1 ? 6 : i + 1;                                               // 6 = the 20%+ overflow
+  }
+  // one line's market as a share of its IV: (ask IV − bid IV) / mid IV, else (ask − bid) / vega / mid IV
+  function lineWidth(row, leg) {
+    if (!row) return null;
+    const mid = num(row[`${leg}_mid_iv`]);
+    if (!(mid > 0)) return null;
+    const bi = num(row[`${leg}_bid_iv`]), ai = num(row[`${leg}_ask_iv`]);
+    if (bi != null && ai != null && ai >= bi && bi > 0) return +((ai - bi) / mid).toFixed(4);
+    const b = num(row[`${leg}_bid_price`]), a = num(row[`${leg}_ask_price`]), v = num(row[`${leg}_vega`]);
+    if (b != null && a != null && a >= b && b > 0 && v > 0) return +((a - b) / v / mid).toFixed(4);
+    return null;                                                               // no bid: no measurable market
+  }
+  const median = xs => { const s = [...xs].sort((a, b) => a - b), n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : null; };
+  // the name's grade: median width of the 0.35–0.50 |delta| calls and puts on the listed expiry nearest 30 dte
+  function nameWidth(chain, today, targetDte = 30) {
+    const rows = (chain || []).filter(r => r.expiry_date > today && num(r.dte) != null);
+    if (!rows.length) return null;
+    const dtes = [...new Set(rows.map(r => num(r.dte)))];
+    const dte = dtes.reduce((a, b) => (Math.abs(b - targetDte) < Math.abs(a - targetDte) ? b : a));
+    const ws = [];
+    for (const r of rows.filter(r => num(r.dte) === dte))
+      for (const leg of ["call", "put"]) {
+        const d = Math.abs(num(r[`${leg}_delta`]) ?? NaN);
+        if (d >= 0.35 && d <= 0.50) { const w = lineWidth(r, leg); if (w != null) ws.push(w); }
+      }
+    if (!ws.length) return { share: null, tier: null, n: 0, dte };
+    const share = +median(ws).toFixed(4);
+    return { share, tier: widthTier(share), n: ws.length, dte };
+  }
+
   // plan: { side: "long"|"short", entry, stop, target }; chain: /v1/optionchain rows for one ticker
   function bracketContract(chain, plan, today) {
     if (!plan || !plan.side || plan.entry == null || plan.target == null) return { error: "no plan" };
@@ -51,6 +91,7 @@
     const debitAsk = longAsk != null && shortBid != null ? +(longAsk - shortBid).toFixed(2) : null;
     const debitMid = longMid != null && shortMid != null ? +(longMid - shortMid).toFixed(2) : null;
     const rr = d => (d != null && d > 0 && width > 0 ? +((width - d) / d).toFixed(2) : null);
+    const legW = lineWidth(long, leg);
     return {
       expiry, dte: num(long.dte), trade_date: long.trade_date || null, spot: num(long.spot_price),
       kind: call ? "call vertical" : "put vertical", side: plan.side,
@@ -61,16 +102,20 @@
       debit_ask: sameStrike ? null : debitAsk, debit_mid: sameStrike ? null : debitMid,
       rr_ask: sameStrike ? null : rr(debitAsk), rr_mid: sameStrike ? null : rr(debitMid),
       stock_rr: plan.stop != null && plan.entry !== plan.stop ? +(Math.abs(plan.target - plan.entry) / Math.abs(plan.entry - plan.stop)).toFixed(2) : null,
-      fill: fillability(longBid, longAsk, sameStrike ? longAsk : debitAsk, num(long[`${leg}_open_interest`]), num(long[`${leg}_volume`])),
+      width_grade: { leg: { share: legW, tier: widthTier(legW) }, name: nameWidth(chain, today) },
+      fill: fillability(longBid, longAsk, sameStrike ? longAsk : debitAsk, num(long[`${leg}_open_interest`]), num(long[`${leg}_volume`]), 1 / 3, legW),
     };
   }
 
-  // can the spread be filled near its quote? the long leg's market as a share of what you pay, and whether anyone trades it
-  function fillability(bid, ask, cost, openInterest, volume, maxSpreadShare = 1 / 3) {
+  // can the spread be filled near its quote? the long leg's market as a share of what you pay, its market as a share
+  // of its IV (refused in the 20%+ overflow when known), and whether anyone trades it
+  function fillability(bid, ask, cost, openInterest, volume, maxSpreadShare = 1 / 3, ivWidth = null) {
     if (bid == null || ask == null || cost == null || cost <= 0) return { ok: null, why: "no quote" };
     const spread = +(ask - bid).toFixed(2), share = +(spread / cost).toFixed(2);
     if (ask <= 0 || bid <= 0) return { ok: false, spread, share, why: "no bid" };
     if (share > maxSpreadShare) return { ok: false, spread, share, why: `market ${spread.toFixed(2)} wide on a ${cost.toFixed(2)} cost` };
+    if (ivWidth != null && ivWidth >= WIDTH_CUTS[WIDTH_CUTS.length - 1])
+      return { ok: false, spread, share, why: `market ${Math.round(ivWidth * 100)}% of its IV wide (past Tier 5)` };
     if ((openInterest || 0) === 0 && (volume || 0) === 0) return { ok: false, spread, share, why: "no open interest, no volume" };
     return { ok: true, spread, share, why: "" };
   }
@@ -92,7 +137,9 @@
   function trimChain(chain, today, maxDte = 45, band = 0.15) {
     const keys = ["ticker", "trade_date", "expiry_date", "dte", "strike", "spot_price",
       "call_bid_price", "call_mid_price", "call_ask_price", "call_delta", "call_mid_iv", "call_volume", "call_open_interest",
-      "put_bid_price", "put_mid_price", "put_ask_price", "put_delta", "put_mid_iv", "put_volume", "put_open_interest"];
+      "call_bid_iv", "call_ask_iv", "call_vega",
+      "put_bid_price", "put_mid_price", "put_ask_price", "put_delta", "put_mid_iv", "put_volume", "put_open_interest",
+      "put_bid_iv", "put_ask_iv", "put_vega"];
     return chain.filter(r => r.expiry_date > today && (num(r.dte) == null || num(r.dte) <= maxDte) &&
                              (num(r.spot_price) == null || Math.abs(num(r.strike) / num(r.spot_price) - 1) <= band))
                 .map(r => Object.fromEntries(keys.map(k => [k, r[k]])));
@@ -129,5 +176,6 @@
              rr: debit > 0 && c.width > 0 ? +((c.width - debit) / debit).toFixed(2) : null };
   }
 
-  return { pickExpiry, nearestStrike, bracketContract, trimChain, fillability, indexHedge, bsPrice, remarkContract };
+  return { pickExpiry, nearestStrike, bracketContract, trimChain, fillability, indexHedge, bsPrice, remarkContract,
+           widthTier, lineWidth, nameWidth, WIDTH_CUTS };
 });
