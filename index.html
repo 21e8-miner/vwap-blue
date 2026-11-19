@@ -1140,13 +1140,18 @@ function contractStat(d) {
   const ivNote = r && r.iv_30d != null ? ` · IV30 at that close ${Math.round(r.iv_30d * 100)}%${r.iv_30d_weekly_change != null ? ` (${r.iv_30d_weekly_change >= 0 ? "+" : ""}${Math.round(r.iv_30d_weekly_change * 100)} on the week)` : ""}` : "";
   const fill = c.fill && c.fill.ok === false ? ` · <span class="neg" title="long leg bid–ask ${c.fill.spread} = ${Math.round(c.fill.share * 100)}% of the cost">hard to fill: ${esc(c.fill.why)}</span>` :
                c.fill && c.fill.ok ? ` · <span class="pos" title="long leg bid–ask ${c.fill.spread} = ${Math.round(c.fill.share * 100)}% of the cost">fillable</span>` : "";
+  const wg = c.width_grade || {}, nm = wg.name || {}, lg = wg.leg || {};
+  const tierTxt = t => t == null ? "—" : t === 6 ? "20%+" : `Tier ${t}`;
+  const grade = nm.tier != null || lg.tier != null
+    ? ` · <span class="${(nm.tier || lg.tier) >= 6 ? "neg" : (nm.tier || lg.tier) >= 5 ? "m" : "pos"}" title="bid–ask in vol points as a share of IV, Moontower's tiers (0–3, 3–6, 6–9, 9–14, 14–20%, then 20%+). Name: median of the 0.35–0.50Δ lines on the ${nm.dte ?? "—"}-day expiry (${nm.n || 0} lines). From the end-of-day chain, the widest point of the day, so it reads a tier wide if anything.">options ${tierTxt(nm.tier)}${nm.share != null ? ` (${(nm.share * 100).toFixed(1)}% of IV)` : ""} · this leg ${lg.share != null ? (lg.share * 100).toFixed(1) + "%" : "—"}</span>`
+    : held.rows.length && !("call_bid_iv" in held.rows[0]) ? ` · <span class="m">width grade needs a fresh chain</span>` : "";
   const legs = c.same_strike
     ? `entry and target land on the same strike (${c.long.strike}) · single ${c.kind.split(" ")[0]} ${c.long.strike}: ask ${px(c.long.ask)} · mid ${px(c.long.mid)} · Δ ${c.long.delta ?? "—"}`
     : `buy the ${c.long.strike} ${c.kind.split(" ")[0]} (Δ ${c.long.delta ?? "—"}, ask ${px(c.long.ask)}) · sell the ${c.short.strike} (bid ${px(c.short.bid)}) · ` +
       `<b>debit ${px(c.debit_ask)}</b> at the quotes, ${px(c.debit_mid)} at mid · worth ${px(c.width)} at the target · ` +
       `reward:risk <b>${c.rr_ask ?? "—"}</b> (${c.rr_mid ?? "—"} at mid) vs the stock bracket's ${c.stock_rr ?? "—"}`;
   return head(`Contract · ${esc(c.kind)} · ${esc(c.expiry)} (${c.dte ?? "—"} dte) · end-of-day chain of ${esc(c.trade_date || "?")}, spot then ${px(c.spot)}`,
-    `${legs}${fill}${remark}${refresh}<span class="m">${esc(ivNote)} · per contract ×100 · long leg vol ${c.long.volume ?? "—"} / OI ${c.long.open_interest ?? "—"} · a quote, not advice</span>` +
+    `${legs}${fill}${grade}${remark}${refresh}<span class="m">${esc(ivNote)} · per contract ×100 · long leg vol ${c.long.volume ?? "—"} / OI ${c.long.open_interest ?? "—"} · a quote, not advice</span>` +
     hedgeLine(tk, plan));
 }
 

@@ -32,7 +32,13 @@ end-of-day chain, 2 credits a name. The chain is last night's: Moontower's deriv
 surface, rank, skew, VRP) update intraday with a 15-minute delay, but contract quotes land after the
 close, so a premarket plan is priced off the prior close and a live fill still needs your broker.
 The contract stat also says whether the spread is fillable (long leg's market wider than a third of
-the cost, or no open interest and no volume, is flagged) and can size an index hedge for the stock
+the cost, wider than 20% of its implied vol, or no open interest and no volume, is flagged) and grades
+the name's options market the way Moontower's liquidity tiers do: the bid–ask in vol points as a share
+of IV, median over the 0.35–0.50 delta lines on the expiry nearest 30 days, cut at 3, 6, 9, 14 and 20%
+(Tiers 1–5, then a 20%+ overflow; Abdelmessih, "using option liquidity metrics", Nov 19 2026). It is
+read off the same end-of-day chain, so no extra credits; the close is the widest point of the day, so
+the grade reads a tier wide if anything. Chains saved before this change lack the IV quotes and show
+no grade until refreshed. The page also can size an index hedge for the stock
 position (`/v1/hedge-ratios`: beta-weighted vs SPY, as SPY shares). With a lens on, the MTW cell
 leads with the bracket in implied daily moves (`s0.4 t0.9`: stop and target as fractions of
 IV30/√252) and the meta line counts the board's tight stops and priced events. The page itself is
