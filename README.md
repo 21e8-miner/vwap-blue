@@ -49,18 +49,19 @@ plan columns only: the VWAP levels, σ distance and regime live in the Price and
 meta line reads shown · actionable · live · grade A · session · Moontower · time, with the scan
 details (pool, floor, regimes, feeds, seconds) in its tooltips. The results banner folds to one line.
 
-Moontower is paid for in three layers, each at its own rate, so a day on the page costs a handful
-of credits (2 a call; a cap per ET day sits in the ⚙, default 60, with the spend shown beside it).
-The daily layer (directory, prior-close cockpit, earnings, a month of skew, the idea lists) is pulled
-once per day for the board's candidates. The intraday layer is one cockpit call for those candidates
-(up to 100 names) during regular hours, only when the 15-minute slot turns or a new name enters the
-board (new names coalesce for a minute): Moontower's rows are 15-minute delayed, so polling faster
-returns the same row. Live IV30 shows as `IV28 →33` in the cell and feeds the sizing (stop and target
-in implied moves) and the IV lenses; everything else stays the prior close the replay graded. Chains
-are end of day: after 16:20 ET the page pulls today's chain once for the grade-A names on the board
-(within the cap), keeps every chain for five days, and intraday re-marks last night's vertical at the
-live price with Black–Scholes (`contract.js remarkContract`, each leg's end-of-day IV held fixed) so
-the contract stat updates all session without a call.
+Moontower spends nothing without a click (2 credits a call; a cap per ET day sits in the ⚙, default
+20, with the spend shown beside it). A reload always comes back with the lens off. Picking a lens reads
+the board's candidates once: the daily layer (directory, prior-close cockpit, earnings, a month of skew,
+the idea lists), about 8 credits for a 48-name board, cached for the ET day. Names that enter the board
+later stay unread (the lens passes them) until the **read N unread** button in the results line. During
+regular hours a **live IV · 2 credits** button makes one cockpit call for those candidates (up to 100
+names), offered only once the 15-minute slot has turned: Moontower's rows are 15-minute delayed, so a
+faster read returns the same row. Live IV30 shows as `IV28 →33` in the cell and feeds the sizing (stop and
+target in implied moves) and the IV lenses; everything else stays the prior close the replay graded.
+Chains are end of day and quoted one name at a time from the chart pane (after 16:20 ET it offers today's
+chain); the page keeps every chain for five days and intraday re-marks last night's vertical at the live
+price with Black–Scholes (`contract.js remarkContract`, each leg's end-of-day IV held fixed) so the
+contract stat updates all session without a call.
 
 The full live desk (5m hybrid feeds, live loop, chart pane, forward ledger) runs locally on `:8791`.
 
